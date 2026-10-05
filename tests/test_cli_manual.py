@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from jev_router import cli, cliparse, integrations as I, manual, platforms as P
+from trirouter import cli, cliparse, integrations as I, manual, platforms as P
 
 ROOT = Path(__file__).resolve().parent.parent
 SECTIONS = ("NAME", "SYNOPSIS", "DESCRIPTION", "OPTIONS", "CHANGES", "EXAMPLES", "EXIT STATUS", "SEE ALSO")
@@ -79,7 +79,7 @@ def test_launcher_without_arguments_prints_the_overview(capsys):
 
 
 def test_version(capsys):
-    from jev_router import __version__
+    from trirouter import __version__
     assert run(capsys, "version") == (0, f"trirouter {__version__}\n", "")
 
 
@@ -183,7 +183,7 @@ def test_route_keeps_its_parsing(capsys):
 
 def test_docs_cli_md_is_generated_from_the_manual():
     text = (ROOT / "docs" / "cli.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
-    assert text == manual.render_markdown(), "regenerate: TRIROUTER_PROG=trirouter python -m jev_router help --markdown > docs/cli.md"
+    assert text == manual.render_markdown(), "regenerate: TRIROUTER_PROG=trirouter python -m trirouter help --markdown > docs/cli.md"
 
 
 def test_help_markdown_prints_the_same(capsys):
@@ -205,7 +205,7 @@ def test_every_command_in_docs_exists():
     known_flags = {f.long for c in manual.COMMANDS.values() for f in manual.all_flags(c)}
     for path in [ROOT / "README.md", ROOT / "CLAUDE.md", *(ROOT / "docs").glob("*.md")]:
         text = path.read_text(encoding="utf-8")
-        for m in re.finditer(r"(?:`|^\s*(?:\$ )?)(?:trirouter|python install\.py|python -m jev_router) ([a-z]+)", text, re.M):
+        for m in re.finditer(r"(?:`|^\s*(?:\$ )?)(?:trirouter|python install\.py|python -m trirouter) ([a-z]+)", text, re.M):
             assert m.group(1) in manual.COMMANDS, (path.name, m.group(0))
         for flag in re.findall(r"`(?:trirouter|python install\.py)[^`\n]*?(--[a-z-]+)", text):
             assert flag in known_flags, (path.name, flag)
@@ -217,7 +217,7 @@ def test_windows_launcher_uses_python_exe_and_passes_arguments():
     text = I.launcher_cmd("C:/Python/python.exe")
     assert text.startswith("@echo off\r\n") and text.endswith("\r\n")
     assert '"C:/Python/python.exe" "%~dp0trirouter.py" %*' in text and "pythonw" not in text
-    assert "TRIROUTER_PROG" in I.launcher_py(windows=True) and 'run_module("jev_router"' in I.launcher_py(windows=True)
+    assert "TRIROUTER_PROG" in I.launcher_py(windows=True) and 'run_module("trirouter"' in I.launcher_py(windows=True)
 
 
 def test_windows_launcher_never_uses_the_windowless_interpreter(monkeypatch):
@@ -235,7 +235,7 @@ def test_posix_launcher_has_a_shebang_and_the_repo_path():
 
 
 def test_user_path_editing_is_idempotent_and_keeps_everything_else():
-    entry = r"C:\Users\x\.jev-router\bin"
+    entry = r"C:\Users\x\.trirouter\bin"
     base = r"C:\Windows;%USERPROFILE%\bin;"
     once = I.path_with(base, entry)
     assert once == r"C:\Windows;%USERPROFILE%\bin;" + entry

@@ -27,5 +27,5 @@ jobs:
         run: python install.py --dry-run --yes --providers=claude,codex,antigravity --no-migrate
       - name: Package entry points
         run: |
-          python -m jev_router --help
+          python -m trirouter --help
           trirouter --help

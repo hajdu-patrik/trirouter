@@ -82,9 +82,37 @@ dates are ISO 8601.
   (`<agent-message>`) are no longer routed.
 - A project with only an `AGENTS.md` now counts as a project for the cross-project heads-up (Claude
   Code reads `AGENTS.md` when there is no `CLAUDE.md`).
-- Renamed the package and command to `trirouter`: `jev-router` is taken by unrelated packages on npm
-  and PyPI. Internal names (`jev_router`, `~/.jev-router/`, the `jev-router` MCP server) stay the
-  same, so existing installs keep working.
+- **Renamed to trirouter, everywhere** (`jev-router` is taken by unrelated packages on npm and PyPI; the
+  repository moved from `claude-workspace` to `trirouter`). The Python package is `trirouter/`
+  (`python -m trirouter`), the per-user folder `~/.trirouter/`, the MCP server `trirouter`, the remote-access
+  services `Trirouter-ClaudeRemote`, `Trirouter-CodexRemote`, `Trirouter-Watchdog` (launchd
+  `com.trirouter.claude-remote`, systemd `trirouter-claude-remote.service`), generated agents carry
+  `generated-by: trirouter`. `JEV` alone, the external routing engine (`#norouter`, `typesafe_api_key`,
+  `JEV_OPENROUTER_API_KEY`), keeps its name; `JEV_ROUTER_HOME` became `TRIROUTER_HOME` (the old name is still read).
+  - **Automatic migration** in `trirouter setup` (and in `skills --apply`, `remote`, `models`, `uninstall`,
+    `quarantine restore/purge`, before they write): `~/.jev-router` moves to `~/.trirouter` (config.json stays
+    owner-only; logs, state, quarantine with sidecars, `models.local.json` and `tmp` come along). If both folders
+    exist they are merged without overwriting newer files in `~/.trirouter`, `config.json` keys are merged, and
+    leftovers are reported. A dry run only reports. Right after the move the hooks of all three tools, the MCP
+    entries (the old `jev-router` entry or `[mcp_servers.jev-router]` section is replaced, never duplicated), the
+    user PATH entry (`~/.jev-router/bin` out, `~/.trirouter/bin` in; on macOS / Linux the `~/.local/bin/trirouter`
+    link is re-pointed) and any remote-access service are rewritten, and the old tasks / units are removed.
+    `uninstall` removes both the old and the new names. `doctor` checks the new names and lists what is left of
+    the old ones.
+  - **Compatibility until you re-run setup.** Hooks and the MCP server never move anything: they read
+    `~/.jev-router` while `~/.trirouter` does not exist yet (the folder that holds `config.json` wins). The old
+    shims in `~/.jev-router/bin` import `jev_router`, so a thin compatibility package `jev_router/`
+    (`__init__`, `__main__`, `hooks`, `mcp_server`, forwarding to `trirouter`, hooks always exit 0) stays in the
+    repository: an existing install keeps routing after `git pull` without any action. It is temporary and will be
+    removed after the next release.
+  - **What you do:** quit the Claude desktop app completely, run `python install.py --dry-run`, then
+    `python install.py --yes`, open a new terminal (new PATH), and change the Claude desktop "Personal
+    preferences" sentence to "... call the trirouter route_prompt tool ...". Move the clone folder if you like:
+    setup rewrites every path.
+- The tests no longer touch the real shim folders, the Windows user PATH or scheduled tasks (one test used to
+  write the launcher and a PATH entry for real).
+- The Windows user-PATH comparison uses `ntpath` explicitly, so it behaves the same on every OS (it failed on
+  Linux and macOS in CI).
 - Removed `gpt-5.4` from the Codex catalog (dropped from Codex's bundled catalogs in 0.158).
 
 ### Fixed

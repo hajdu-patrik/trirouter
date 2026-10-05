@@ -13,10 +13,10 @@ trirouter remote --remove                                 # undo
 (`trirouter` exists after the first `python install.py` setup; until then, or if it is not on PATH,
 use `python install.py remote ...`, which does the same. `trirouter help remote` lists the options.)
 
-The name and folder are stored in `~/.jev-router/config.json`; the name is shown on your other
+The name and folder are stored in `~/.trirouter/config.json`; the name is shown on your other
 devices. Use the same name for every tool so you always recognize the machine.
 
-**Working folder:** remote Claude sessions start in `--workdir` (default: the jev-router folder).
+**Working folder:** remote Claude sessions start in `--workdir` (default: the trirouter folder).
 Claude Code only serves folders whose workspace-trust dialog was accepted, and never the home
 directory: run `claude` once in that folder and accept the dialog before setting up remote access.
 
@@ -24,9 +24,9 @@ directory: run `claude` once in that folder and accept the dialog before setting
 
 | Tool | On the computer (starts automatically at logon) | On the phone / another device |
 | --- | --- | --- |
-| **Claude Code** | `claude remote-control --name <name>` – Windows scheduled task `JevRouter-ClaudeRemote`, macOS launchd agent `com.jev-router.claude-remote`, Linux `systemd --user` service `jev-router-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
+| **Claude Code** | `claude remote-control --name <name>` – Windows scheduled task `Trirouter-ClaudeRemote`, macOS launchd agent `com.trirouter.claude-remote`, Linux `systemd --user` service `trirouter-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
 | **Antigravity** | `agy remote-control start --name <name> --session` (the CLI registers its own autostart) | [antigravity.google.com](https://antigravity.google.com) → *<name>* (can be installed as a web app for notifications) |
-| **Codex** | macOS / Linux: `codex remote-control start`. Windows: `codex app-server --remote-control --listen off`, kept running by the scheduled task `JevRouter-CodexRemote` | ChatGPT app, after a one-time pairing (below) |
+| **Codex** | macOS / Linux: `codex remote-control start`. Windows: `codex app-server --remote-control --listen off`, kept running by the scheduled task `Trirouter-CodexRemote` | ChatGPT app, after a one-time pairing (below) |
 
 **Windows: no windows, no apps.** Everything runs in the background from logon: the console
 programs run under `conhost.exe --headless`, so no terminal window opens (a plain `cmd.exe` task or
@@ -37,7 +37,7 @@ Antigravity) are not started – open them whenever you like, they work as usual
 **Checking and self-repair.** `trirouter doctor` shows whether every task and server runs,
 whether the Antigravity autostart entry is hidden, the Codex remote connection state and whether
 the installed Codex still accepts `app-server --remote-control` (an experimental flag). On Windows
-the task `JevRouter-Watchdog` runs at logon and every 30 minutes: it re-hides the Antigravity
+the task `Trirouter-Watchdog` runs at logon and every 30 minutes: it re-hides the Antigravity
 autostart entry after an agy update rewrote it, and restarts a daemon or remote task that is not
 running.
 

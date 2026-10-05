@@ -2,7 +2,7 @@
 
 Every hub skill is scanned before it is linked into the tools. When all verdicts are known, the
 DO_NOT_INSTALL skills nobody has decided on yet are put to the user in ONE question (all / none /
-select, default none): the chosen ones move to ~/.jev-router/quarantine/, where no tool (Antigravity
+select, default none): the chosen ones move to ~/.trirouter/quarantine/, where no tool (Antigravity
 reads the whole hub) and no catalog sees them; the others are kept, remembered for that exact content.
 Unattended runs (no terminal, --yes) only warn: static analysis also flags legitimate skills that run
 scripts. `skillscan.allow` in config.json (or --allow-skill) silences the verdict and restores a
@@ -32,9 +32,9 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import platforms as P
+from . import legacy, platforms as P
 
-STATE = P.HOME / ".jev-router"
+STATE = legacy.state_dir(P.HOME)
 QUARANTINE = STATE / "quarantine"
 CACHE = STATE / "state" / "skillscan.json"
 CONFIG = STATE / "config.json"

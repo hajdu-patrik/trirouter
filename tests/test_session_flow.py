@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from jev_router import core, hooks as run_hook, queue_state
+from trirouter import core, hooks as run_hook, queue_state
 
 
 @pytest.fixture(autouse=True)
@@ -136,7 +136,7 @@ def test_agents_md_marks_a_foreign_project(tmp_path):
 
 
 def test_delegation_compliance_counts():
-    from jev_router import doctor
+    from trirouter import doctor
     routed = [
         {"provider": "claude", "session": "s", "prompt_id": "a", "ts": "2026-09-29T10:00:00", "target_agent": "opus-worker-high"},
         {"provider": "claude", "session": "s", "prompt_id": "b", "ts": "2026-09-29T10:05:00", "target_agent": "sonnet-worker-low"},
@@ -190,7 +190,7 @@ def test_generic_openrouter_key_does_not_enable_jev(monkeypatch):
 
 
 def test_installer_stores_an_openrouter_key_separately():
-    from jev_router import cli
+    from trirouter import cli
     cfg = {}
     cli.store_jev_key(cfg, "sk-or-v1-abc")
     cli.store_jev_key(cfg, "ts-123")

@@ -1,6 +1,6 @@
-"""`python -m jev_router <command>` - same as `python install.py <command>`."""
+"""`python -m jev_router <command>` from an old launcher or shim: runs `python -m trirouter`."""
 import sys
 
-from .cli import main
+from trirouter.cli import main
 
 sys.exit(main())

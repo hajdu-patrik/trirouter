@@ -2,17 +2,17 @@
 """Shared skill hub (~/.skills) + generated worker agents for Claude Code, Codex and Antigravity.
 
     ~/.skills/<name>/SKILL.md            real folder, the single source of truth
-    ~/.skills/<bundled>     -> jev_router/skills/<name>
+    ~/.skills/<bundled>     -> trirouter/skills/<name>
     ~/.claude/skills/<name> -> ~/.skills/<name>          Claude Code
     ~/.agents/skills/<name> -> ~/.skills/<name>          Codex
-    ~/.gemini/config/skills.json  absolute ~/.skills + jev_router/skills   Antigravity
+    ~/.gemini/config/skills.json  absolute ~/.skills + trirouter/skills   Antigravity
 
     ~/.claude/agents/<name>.md                    Claude Code subagents
     ~/.codex/agents/<name>.toml + [agents.*]      Codex roles
     ~/.gemini/config/agents/<name>/agent.md       Antigravity subagents
 
 Third-party hub skills pass the SkillSpector gate first (skillscan.py): a DO_NOT_INSTALL skill the
-user sends to ~/.jev-router/quarantine/ is linked nowhere.
+user sends to ~/.trirouter/quarantine/ is linked nowhere.
 
 One link per skill, not one for the whole folder: ~/.claude/skills also holds app-managed content,
 and a fully linked skills directory is a known Claude Code regression. Never deletes a real
@@ -26,7 +26,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import catalog, platforms as P, skillscan
+from . import catalog, legacy, platforms as P, skillscan
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -45,8 +45,10 @@ AGY_AGENTS = P.PATHS["agy_agents"]
 DEFAULT_ROLE = "balanced"
 PROVIDERS = ("claude", "codex", "antigravity")  # narrowed by the installer to what is installed
 APP_MANAGED = {"synced"}  # owned by the Claude desktop app
-GEN_MARK = "generated-by: jev-router"
-TOML_BEGIN, TOML_END = "# >>> jev-router agents (generated - edit jev_router/config/targets.json, not this block)", "# <<< jev-router agents"
+GEN_MARK = "generated-by: trirouter"
+TOML_BEGIN, TOML_END = "# >>> trirouter agents (generated - edit trirouter/config/targets.json, not this block)", "# <<< trirouter agents"
+# files and blocks generated before the rename carry the old marker: still ours, rewritten with the new one
+GEN_MARKS = (GEN_MARK, legacy.GEN_MARK)
 
 APPLY = False
 SCAN = {"llm": False, "allow": ()}  # skillscan settings, set by the installer from config.json + flags
@@ -96,16 +98,18 @@ def _norm_parts(path):
     return tuple(os.path.normcase(x) for x in Path(path).parts)
 
 
-_SKILLS_TAIL = ("jev_router", "skills")
+_SKILLS_TAILS = (("trirouter", "skills"), (legacy.PACKAGE, "skills"))  # the pre-rename package folder too
 
 
 def _is_checkout_skills_dir(path):
-    """<anything>/jev_router/skills, by path components."""
-    return _norm_parts(path)[-2:] == tuple(os.path.normcase(x) for x in _SKILLS_TAIL)
+    """<anything>/trirouter/skills (or the pre-rename <anything>/jev_router/skills), by path components."""
+    tail = _norm_parts(path)[-2:]
+    return any(tail == tuple(os.path.normcase(x) for x in t) for t in _SKILLS_TAILS)
 
 
 def _bundled_in_other_checkout(t):
-    """A link into another checkout (a moved clone): <any>/jev_router/skills/<one of our bundled skills>."""
+    """A link into another checkout (a moved clone) or into the pre-rename package folder:
+    <any>/trirouter/skills/<one of our bundled skills>."""
     return _is_checkout_skills_dir(t.parent) and REPO_SKILLS.is_dir() and (REPO_SKILLS / t.name).is_dir()
 
 
@@ -317,7 +321,7 @@ def _write_if_changed(path, content):
 def _remove_stale(folder, pattern, want, label, name_of=lambda f: f.stem, remove=lambda f: f.unlink()):
     """Removes generated files that are no longer planned, never a hand-written one."""
     for f in folder.glob(pattern) if folder.is_dir() else []:
-        if name_of(f) not in want and GEN_MARK in f.read_text(encoding="utf-8", errors="replace"):
+        if name_of(f) not in want and any(m in f.read_text(encoding="utf-8", errors="replace") for m in GEN_MARKS):
             act(f"remove stale generated {label} {f}", lambda f=f: remove(f))
 
 
@@ -374,13 +378,15 @@ def _write_codex_agents(plan):
 
 def _with_agents_block(cfg, new_block):
     # match the marker by its stable prefix: older versions wrote a different hint after it
-    pattern = re.compile(r"# >>> jev-router agents[^\n]*\n.*?" + re.escape(TOML_END) + r"\n?", re.S)
+    # (the pre-rename markers are matched as well and replaced by the new block)
+    pattern = re.compile(r"# >>> (?:trirouter|" + re.escape(legacy.NAME) + r") agents[^\n]*\n.*?(?:"
+                         + re.escape(TOML_END) + "|" + re.escape(legacy.TOML_END) + r")\n?", re.S)
     old = pattern.search(cfg)
     if not old:
         return cfg.rstrip("\n") + "\n\n" + new_block
     # Codex appends its own tables (e.g. [hooks.state] = the user's hook trust) at the end of the
     # file, which can land INSIDE our block: keep every non-[agents.*] table, re-emitted after it.
-    tables = re.split(r"(?m)^(?=\[)", old.group(0).replace(TOML_END, ""))
+    tables = re.split(r"(?m)^(?=\[)", old.group(0).replace(TOML_END, "").replace(legacy.TOML_END, ""))
     foreign = "".join(t for t in tables if t.startswith("[") and not t.startswith("[agents.")).strip("\n")
     new_cfg = cfg[:old.start()] + new_block + cfg[old.end():]
     return new_cfg.rstrip("\n") + "\n\n" + foreign + "\n" if foreign else new_cfg

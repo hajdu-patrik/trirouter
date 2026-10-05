@@ -1,6 +1,6 @@
 """Tests for the batch quarantine question, sidecars, the automatic purge and the restore.
 
-Everything runs in tmp dirs: nothing here touches the real ~/.jev-router or ~/.skills.
+Everything runs in tmp dirs: nothing here touches the real ~/.trirouter or ~/.skills.
 """
 import io
 import json
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from test_skillscan import REPORTS, all_of, apply_act, make_skills, scans  # noqa: F401 - `scans` is a fixture
 
-from jev_router import cli, hooks as run_hook, platforms as P, skillscan
+from trirouter import cli, hooks as run_hook, platforms as P, skillscan
 
 
 def flagged_reports(monkeypatch, *names):
@@ -249,7 +249,7 @@ def test_restore_dry_run_moves_nothing(q, tmp_path):
 
 
 def test_restore_command_allows_the_skill_in_config(q, tmp_path, monkeypatch, capsys):
-    from jev_router import hub
+    from trirouter import hub
     put(q, "evil", 1)
     monkeypatch.setattr(hub, "HUB", tmp_path / ".skills")
     monkeypatch.setattr(cli, "CONFIG", tmp_path / "config.json")

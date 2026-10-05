@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from jev_router import catalog as skill_index, core, hooks as run_hook, lang, mcp_server
+from trirouter import catalog as skill_index, core, hooks as run_hook, lang, mcp_server
 
 CATALOG = [
     {"name": "anthropic-skills:pptx", "description": "Create and edit PowerPoint presentations, slide decks (.pptx).",
@@ -20,7 +20,7 @@ CATALOG = [
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    """No test ever touches the real ~/.jev-router or ~/.skills, and never calls JEV."""
+    """No test ever touches the real ~/.trirouter or ~/.skills, and never calls JEV."""
     monkeypatch.setattr(run_hook, "LOG_FILE", tmp_path / "routing.jsonl")
     monkeypatch.setattr(run_hook, "SUBAGENT_LOG", tmp_path / "subagents.jsonl")
     monkeypatch.setattr(run_hook, "SEEN_FILE", tmp_path / "seen.json")
@@ -307,7 +307,7 @@ def test_prefilter_hungarian_glossary():
 
 def test_mcp_protocol():
     init = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
-    assert init["result"]["serverInfo"]["name"] == "jev-router"
+    assert init["result"]["serverInfo"]["name"] == "trirouter"
     assert mcp_server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     names = {t["name"] for t in mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]}
     assert names == {"route_prompt", "list_skills", "get_skill"}

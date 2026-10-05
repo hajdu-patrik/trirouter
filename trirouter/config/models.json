@@ -1,5 +1,5 @@
 {
-  "_comment": "Generic catalog of every model and reasoning-effort level the router may choose, per provider. 'selectable' is the DEFAULT availability; what a given account can really use differs by plan, so `python install.py models --probe` tests it and writes per-user overrides to ~/.jev-router/models.local.json (never committed). policy.excluded_efforts is removed from EVERY provider in code. Agents/roles enforcing a (model, effort) pair are generated from this file. 'role' (fast / balanced / deep) picks the worker template jev_router/templates/agents/<role>-worker.md for the model's generated agents; a model without one uses 'balanced'.",
+  "_comment": "Generic catalog of every model and reasoning-effort level the router may choose, per provider. 'selectable' is the DEFAULT availability; what a given account can really use differs by plan, so `python install.py models --probe` tests it and writes per-user overrides to ~/.trirouter/models.local.json (never committed). policy.excluded_efforts is removed from EVERY provider in code. Agents/roles enforcing a (model, effort) pair are generated from this file. 'role' (fast / balanced / deep) picks the worker template trirouter/templates/agents/<role>-worker.md for the model's generated agents; a model without one uses 'balanced'.",
   "policy": {
     "excluded_efforts": [
       "ultra"
@@ -303,7 +303,7 @@
       "config_path": "global ~/.gemini/config/hooks.json",
       "contract": "Fires before EVERY model call of a turn; stdin has no prompt text (conversationId, transcriptPath, invocationNum, ...); stdout {\"injectSteps\": [{\"ephemeralMessage\": ...}]}.",
       "transcript_format": "VERIFIED 2026-09-23: transcriptPath = ~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl; the user turn is type=USER_INPUT with content '<USER_REQUEST>...</USER_REQUEST><ADDITIONAL_METADATA>...'; already written when PreInvocation fires.",
-      "windows_quoting": "VERIFIED: hook commands run via `cmd /c`, which breaks quoted paths with spaces - hooks call the space-free shim ~/.jev-router/bin/run_hook.py.",
+      "windows_quoting": "VERIFIED: hook commands run via `cmd /c`, which breaks quoted paths with spaces - hooks call the space-free shim ~/.trirouter/bin/run_hook.py.",
       "trust": "No trust gate: the hook ran on the first real call."
     },
     "skills": {

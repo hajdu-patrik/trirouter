@@ -23,7 +23,7 @@ for _var in [v for v in os.environ if v.startswith("ROUTER_")]:
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from jev_router import core  # noqa: E402
+from trirouter import core  # noqa: E402
 
 TARGETS = {"task": 0.85, "destr_recall": 1.0, "destr_fp": 0.05, "lang": 1.0, "uncertain": 0.30}
 # Regression gates for the real-traffic set, not goals: the local classifier is weak on it by design,

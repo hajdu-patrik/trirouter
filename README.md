@@ -18,9 +18,11 @@ in every project, in the desktop apps and in remote sessions – and decides for
 * whether the request is **irreversible** (then the model must ask before acting),
 * **which language** to answer in (the language of the prompt).
 
-> Formerly **jev-router**, renamed because unrelated packages already use that name on npm and PyPI.
-> Internal names stay the same, so existing installs keep working: the `jev_router` Python package,
-> `~/.jev-router/` and the `jev-router` MCP server.
+> Formerly **jev-router** (repository `claude-workspace`), renamed to trirouter everywhere: the Python
+> package, `~/.trirouter/`, the `trirouter` MCP server and the scheduled tasks. An existing install is
+> migrated by `python install.py` (the state folder moves, hooks, MCP entries, PATH and remote-access
+> services are rewritten); see the CHANGELOG for the steps. `JEV` alone is the external routing engine
+> and keeps its name.
 
 It also **protects running work**: a prompt sent while an earlier one is still being processed is
 queued behind it and must not stop or overwrite it.
@@ -37,15 +39,15 @@ Requirements: Python 3.10+ and at least one of [Claude Code](https://code.claude
 [Codex CLI](https://developers.openai.com/codex) or [Antigravity CLI](https://antigravity.google/docs/cli/install/).
 
 ```bash
-git clone https://github.com/hajdu-patrik/claude-workspace.git trirouter
+git clone https://github.com/hajdu-patrik/trirouter.git trirouter
 cd trirouter
 python install.py          # first run: the `trirouter` command does not exist yet
 ```
 
-Setup also installs the **`trirouter` command** (a launcher in `~/.jev-router/bin`, put on your PATH).
+Setup also installs the **`trirouter` command** (a launcher in `~/.trirouter/bin`, put on your PATH).
 Open a new terminal afterwards and use `trirouter <command>` from any folder – `trirouter help` lists
 the commands, `trirouter help <command>` shows a man-page-like page, and **[docs/cli.md](docs/cli.md)**
-is the full reference. `python install.py <command>` and `python -m jev_router <command>` keep working
+is the full reference. `python install.py <command>` and `python -m trirouter <command>` keep working
 and do the same (use them for the first run, or when the launcher is not on PATH).
 
 The installer walks you through five steps:
@@ -83,14 +85,14 @@ getting-started guide and common tasks, are in **[docs/cli.md](docs/cli.md)**.
 
 **One-time steps after installing:** Codex runs a new hook only after you trust it (`codex` → `/hooks`).
 For Claude desktop *Chat/Cowork*, restart the app and add to *Settings → Profile → Personal preferences*:
-*"Before answering any new request, call the jev-router route_prompt tool with my message and follow its instructions."*
+*"Before answering any new request, call the trirouter route_prompt tool with my message and follow its instructions."*
 
 ---
 
 ## 🧭 How It Works
 
 ```
-prompt ─► hook / MCP tool ─► jev_router/core.route()
+prompt ─► hook / MCP tool ─► trirouter/core.route()
                                ├─ is_continuation()         "mehet" / "yes, do it" → keep the last decision
                                ├─ split_pasted()            pasted blocks never decide language or task
                                ├─ lang.detect()             answer language
@@ -110,7 +112,7 @@ prompt ─► hook / MCP tool ─► jev_router/core.route()
 | Antigravity (CLI, desktop app) | `PreInvocation` + `Stop` hooks (prompt read from the transcript, injected once per turn) |
 | Claude desktop *Chat / Cowork* (no hooks there) | MCP tool `route_prompt` |
 | Claude Code on the web (cloud sandbox) | project hook with `--cloud-only` |
-| Scripts, other agents and projects (per sub-task) | `route` command via the shim `~/.jev-router/bin/route.py` |
+| Scripts, other agents and projects (per sub-task) | `route` command via the shim `~/.trirouter/bin/route.py` |
 
 ### Model and effort are enforced, not suggested
 
@@ -122,10 +124,10 @@ pin only a model tier (flash / pro), not an effort, and only as subagents: triro
 delegated to the Pro one; otherwise the model choice is advisory (or enforced through `cli-bridge`).
 
 Each agent's instructions come from the template of its model's **role** in `models.json` –
-`fast`, `balanced`, `deep` (`jev_router/templates/agents/<role>-worker.md`), plus `test-worker` for
+`fast`, `balanced`, `deep` (`trirouter/templates/agents/<role>-worker.md`), plus `test-worker` for
 the test tier – so a new model needs one line in `models.json`, not a new template.
 
-| Provider | Models (catalog: `jev_router/config/models.json`) | Effort levels |
+| Provider | Models (catalog: `trirouter/config/models.json`) | Effort levels |
 | --- | --- | --- |
 | Claude | fable, sonnet, opus – generic aliases only, never Haiku | low · medium · high · xhigh · max |
 | Codex | gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, gpt-reserve by default; more after `models --probe` | low … max (per model) |
@@ -188,7 +190,7 @@ data exfiltration, privilege escalation, supply-chain risks, …) and acts on it
 | `CAUTION` | 21–50 | linked, named in one summary warning with the command to review it |
 | `DO_NOT_INSTALL` | 51–100 | after all scans you are asked **once** which of them to quarantine (all / none / select; default none); unattended runs (`--yes`, no terminal) only warn |
 
-**Quarantine** moves the skill folder from `~/.skills/<name>` to `~/.jev-router/quarantine/<name>`:
+**Quarantine** moves the skill folder from `~/.skills/<name>` to `~/.trirouter/quarantine/<name>`:
 no tool sees it any more – its links are removed, it leaves the catalog, and
 Antigravity (which reads the whole hub) no longer finds it. The question is asked once for the whole
 batch, as a numbered list:
@@ -204,10 +206,10 @@ and wants a final `y`. Skills you keep stay linked and are remembered for exactl
 asked again only when a skill changes.
 
 **Automatic purge:** a quarantined skill is **deleted for good after 3 days** (a sidecar
-`~/.jev-router/quarantine/<name>.json` records when it was quarantined, its risk and the purge date).
+`~/.trirouter/quarantine/<name>.json` records when it was quarantined, its risk and the purge date).
 `skillscan.quarantine_days` in `config.json` (`--quarantine-days=N`, remembered; `0` = never) changes
 the retention. Expired entries are purged by every `setup` and `skills --apply`, and, at most every 6
-hours, when a Claude Code session starts. Only folders inside `~/.jev-router/quarantine` are ever
+hours, when a Claude Code session starts. Only folders inside `~/.trirouter/quarantine` are ever
 deleted, and links are never followed. Within the 3 days: `trirouter quarantine` lists the entries with
 their purge date, `trirouter quarantine restore <name>` moves one back to `~/.skills` and allows it,
 `trirouter quarantine purge [--all]` deletes now.
@@ -229,11 +231,11 @@ and its LLM meta-analysis did not change those verdicts.
   its own variables (`SKILLSPECTOR_PROVIDER`, e.g. `claude_cli`, and that provider's key). Without a
   working provider the static verdict is used and not cached.
 * **Cache:** a verdict – a failed scan too – is kept per skill content hash, SkillSpector version and
-  scan mode (`~/.jev-router/state/skillscan.json`), so only new or changed skills are scanned again.
+  scan mode (`~/.trirouter/state/skillscan.json`), so only new or changed skills are scanned again.
   A first scan takes seconds per skill, minutes for a large one (timeout: 10 min static, 30 min with LLM);
   new or changed skills are scanned in parallel, up to 8 at a time (half the CPU cores), which makes
   a first scan of a large hub several times faster. Each outcome is reported in one summary line.
-* **Scope:** skills bundled with trirouter (`jev_router/skills/`) and app-managed skills (Claude
+* **Scope:** skills bundled with trirouter (`trirouter/skills/`) and app-managed skills (Claude
   desktop, plugins, Codex built-ins) are not scanned.
 * **Optional:** SkillSpector needs Python 3.12+ and runs as its own tool:
   `uv tool install git+https://github.com/NVIDIA/skillspector.git`. Without it, or when a scan fails,
@@ -259,7 +261,7 @@ has no side effects: no queue state, no log.
 ```bash
 trirouter route --json "add a pagination parameter to the quotes API endpoint"
 trirouter route [--provider claude|claude-chat|codex|antigravity] [--json] <text>   # no text: stdin
-python ~/.jev-router/bin/route.py --json "<text>"     # the same through the shim, from any program
+python ~/.trirouter/bin/route.py --json "<text>"     # the same through the shim, from any program
 ```
 
 Without `--json` it prints the `[router] …` instruction. With `--json` it prints one object:
@@ -292,9 +294,9 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 | Setting | Where |
 | --- | --- |
 | JEV access | `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`, or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
-| Per-user state | `~/.jev-router/` – `config.json`, `models.local.json`, `logs/`, `state/`, `quarantine/` (skills you quarantined), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
+| Per-user state | `~/.trirouter/` – `config.json`, `models.local.json`, `logs/`, `state/`, `quarantine/` (skills you quarantined), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
 | Skill scan | `config.json` → `skillscan`: `allow` (skills never asked about despite `DO_NOT_INSTALL`), `llm` (add the LLM analysis), `quarantine_days` (default 3, 0 = never purge); set with `--allow-skill` / `--scan-llm` / `--quarantine-days` |
-| Model catalog, tiers, routing table | `jev_router/config/models.json`, `targets.json`, `routes.json` |
+| Model catalog, tiers, routing table | `trirouter/config/models.json`, `targets.json`, `routes.json` |
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
@@ -313,21 +315,21 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 ## 📂 Repository Layout
 
 ```
-install.py                 entry point: `python install.py [command]` (same as `python -m jev_router` and `trirouter`)
+install.py                 entry point: `python install.py [command]` (same as `python -m trirouter` and `trirouter`)
 pyproject.toml             package metadata, console script `trirouter`, pytest settings
-jev_router/                the package
+trirouter/                 the package
 ├── cli.py                 the commands (setup, detect, models, skills, quarantine, remote, doctor, route, uninstall)
 ├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
 ├── cliparse.py            argument validation against manual.py
 ├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
 ├── lang.py                Hungarian / English detection
 ├── catalog.py             skill catalog and pre-filter
-├── hooks.py               hook entry point for all three tools (python -m jev_router.hooks)
+├── hooks.py               hook entry point for all three tools (python -m trirouter.hooks)
 ├── queue_state.py         queue protection
-├── mcp_server.py          MCP server: route_prompt, list_skills, get_skill (python -m jev_router.mcp_server)
+├── mcp_server.py          MCP server: route_prompt, list_skills, get_skill (python -m trirouter.mcp_server)
 ├── hub.py                 shared skill folder, links, worker generation
 ├── skillscan.py           SkillSpector gate: scan, cache, quarantine before skills are linked
-├── integrations.py        hook + MCP registration per tool, ~/.jev-router/bin shims
+├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
 ├── platforms.py           OS abstraction (paths, links, executables, detection)
 ├── remote.py              optional remote access
 ├── doctor.py              health report
@@ -348,7 +350,7 @@ docs/                      cli.md (command reference, generated), speech-to-text
 pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
 python -m pytest tests -q          # unit tests incl. the model-policy check
 python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
-trirouter help --markdown > docs/cli.md   # after editing jev_router/manual.py (a test checks the file)
+trirouter help --markdown > docs/cli.md   # after editing trirouter/manual.py (a test checks the file)
 ```
 
 Evaluation targets on the curated sets: task accuracy ≥ 85 % per language, "routing uncertain" ≤ 30 %,

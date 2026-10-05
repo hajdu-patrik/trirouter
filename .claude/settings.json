@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m jev_router.hooks claude UserPromptSubmit --cloud-only",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m trirouter.hooks claude UserPromptSubmit --cloud-only",
             "timeout": 10
           }
         ]

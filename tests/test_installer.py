@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jev_router import core, hooks as run_hook, integrations as install_hooks, platforms as P, queue_state
+from trirouter import core, hooks as run_hook, integrations as install_hooks, platforms as P, queue_state
 
 
 @pytest.fixture(autouse=True)
@@ -132,16 +132,16 @@ def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     assert set(json.loads(paths["codex_hooks"].read_text())["hooks"]) == {"UserPromptSubmit", "Stop"}
     agy = json.loads(paths["agy_hooks"].read_text())
     assert set(agy["router"]) == {"PreInvocation", "Stop"}
-    assert "jev-router" in paths["codex_config"].read_text()
+    assert "trirouter" in paths["codex_config"].read_text()
     install_hooks.install(apply=True, uninstall=True)
     s = json.loads(paths["claude_settings"].read_text())
     assert s["hooks"] == {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}
-    assert "jev-router" not in paths["codex_config"].read_text()
+    assert "trirouter" not in paths["codex_config"].read_text()
 
 
 def test_null_device_stdin_is_not_a_terminal(monkeypatch):
     """Windows: isatty() is True for NUL, so an unattended run waited forever at the first question."""
-    from jev_router import cli
+    from trirouter import cli
     with open(os.devnull, encoding="utf-8") as nul:
         assert not P.is_terminal(nul)
         monkeypatch.setattr(sys, "stdin", nul)
@@ -156,20 +156,20 @@ def test_python_cmd_has_no_spaces():
 
 def test_codex_mcp_keeps_following_generated_block(tmp_path):
     cfg = tmp_path / "config.toml"
-    cfg.write_text('model = "x"\n\n[mcp_servers.jev-router]\ncommand = "old"\nargs = ["a"]\n\n'
-                   "# >>> jev-router agents (generated - edit router/targets.json, not this block)\n"
-                   '[agents.a-low]\ndescription = "d"\n# <<< jev-router agents\n', encoding="utf-8")
+    cfg.write_text('model = "x"\n\n[mcp_servers.trirouter]\ncommand = "old"\nargs = ["a"]\n\n'
+                   "# >>> trirouter agents (generated - edit router/targets.json, not this block)\n"
+                   '[agents.a-low]\ndescription = "d"\n# <<< trirouter agents\n', encoding="utf-8")
     w = install_hooks.Writer(apply=True)
     install_hooks.codex_mcp(cfg, w)
     text = cfg.read_text(encoding="utf-8")
-    assert "# >>> jev-router agents" in text
-    assert text.count("[mcp_servers.jev-router]") == 1
+    assert "# >>> trirouter agents" in text
+    assert text.count("[mcp_servers.trirouter]") == 1
     w2 = install_hooks.Writer(apply=True)
     install_hooks.codex_mcp(cfg, w2)
     assert w2.changes == 0  # idempotent
     install_hooks.codex_mcp(cfg, install_hooks.Writer(apply=True), uninstall=True)
     text = cfg.read_text(encoding="utf-8")
-    assert "mcp_servers.jev-router" not in text
+    assert "mcp_servers.trirouter" not in text
     assert "[agents.a-low]" in text
 
 
@@ -184,7 +184,7 @@ def test_queue_drops_cancelled_turn(tmp_path):
 
 def test_antigravity_stop_waits_for_fully_idle(monkeypatch, capsys):
     hook(monkeypatch, capsys, "claude", "UserPromptSubmit", {"prompt": "long running work", "session_id": "g", "cwd": "/w"})
-    from jev_router import queue_state as q
+    from trirouter import queue_state as q
     q.on_submit(core.STATE_DIR, "antigravity", "conv", "/x", "bg work")
     hook(monkeypatch, capsys, "antigravity", "Stop", {"conversationId": "conv", "fullyIdle": False})
     assert q.on_submit(core.STATE_DIR, "antigravity", "conv", "/x", "next")["ahead"]   # still running
@@ -193,7 +193,7 @@ def test_antigravity_stop_waits_for_fully_idle(monkeypatch, capsys):
 
 
 def test_owned_is_real_containment(tmp_path, monkeypatch):
-    from jev_router import hub as skills_hub
+    from trirouter import hub as skills_hub
     hub, old = tmp_path / ".skills", tmp_path / ".skills-old"
     (hub / "a").mkdir(parents=True)
     (old / "b").mkdir(parents=True)
@@ -205,7 +205,7 @@ def test_owned_is_real_containment(tmp_path, monkeypatch):
 
 
 def test_agents_for_every_provider_follow_the_model_role(monkeypatch):
-    from jev_router import hub as skills_hub
+    from trirouter import hub as skills_hub
     monkeypatch.setattr(skills_hub, "PROVIDERS", ("claude", "codex", "antigravity"))
     plan = {(p, name): (model, effort, desc, body) for p, name, model, effort, desc, body in skills_hub.planned_agents()}
     deep = skills_hub._split_template(skills_hub.AGENT_TEMPLATES / "deep-worker.md")
@@ -220,7 +220,7 @@ def test_agents_for_every_provider_follow_the_model_role(monkeypatch):
 
 def test_antigravity_agent_files(tmp_path, monkeypatch, capsys):
     """Stale generated agents go, hand-written ones stay."""
-    from jev_router import hub as skills_hub
+    from trirouter import hub as skills_hub
     agents = tmp_path / "agents"
     for name, text in (("gemini-old-worker", f"---\nname: x\n# {skills_hub.GEN_MARK}\n---\n"), ("mine", "---\nname: mine\n---\n")):
         (agents / name).mkdir(parents=True)
@@ -245,7 +245,7 @@ def test_antigravity_agent_files(tmp_path, monkeypatch, capsys):
 def test_mcp_command_is_unquoted_interpreter(tmp_path, monkeypatch):
     monkeypatch.setattr(install_hooks, "SHIM_MCP", tmp_path / "bin" / "mcp_server.py")
     install_hooks.json_mcp(tmp_path / "mcp.json", "x", install_hooks.Writer(apply=True))
-    cmd = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["jev-router"]["command"]
+    cmd = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]["trirouter"]["command"]
     assert "'" not in cmd
     assert '"' not in cmd
     assert Path(cmd.replace("/", "\\") if P.IS_WINDOWS else cmd).name.startswith("python")
@@ -267,11 +267,11 @@ def test_bad_json_config_is_reported_not_fatal(tmp_path, monkeypatch, capsys):
 
 
 def test_windows_remote_loops_run_headless(tmp_path, monkeypatch):
-    from jev_router import remote
+    from trirouter import remote
     calls = []
     monkeypatch.setattr(remote, "BIN", tmp_path)
     monkeypatch.setattr(remote, "_ps", lambda script: calls.append(script) or (0, ""))
-    remote._win_loop("JevRouter-Test", "test-remote.cmd", tmp_path, 'call "codex.cmd" app-server', '$_.Name -eq "x"')
+    remote._win_loop("Trirouter-Test", "test-remote.cmd", tmp_path, 'call "codex.cmd" app-server', '$_.Name -eq "x"')
     script = (tmp_path / "test-remote.cmd").read_bytes().decode("utf-8")
     assert ':loop\r\ncall "codex.cmd" app-server\r\ntimeout /t 30' in script
     assert "goto loop\r\n" in script
@@ -287,7 +287,7 @@ def test_windows_remote_loops_run_headless(tmp_path, monkeypatch):
 
 
 def test_agy_setup_and_watchdog_scripts(monkeypatch):
-    from jev_router import remote
+    from trirouter import remote
     seen = []
     monkeypatch.setattr(remote, "_run_once", lambda script, wait_s=30: seen.append(script) or "ok")
     ok, msg = remote._setup_agy_windows(r"C:\agy\agy.exe", "Bob's PC")
@@ -309,7 +309,7 @@ def test_agy_setup_and_watchdog_scripts(monkeypatch):
 def test_codex_connection_from_log(tmp_path, monkeypatch):
     import sqlite3
     import time
-    from jev_router import remote
+    from trirouter import remote
     monkeypatch.setattr(P, "HOME", tmp_path)
     monkeypatch.setattr(remote.P, "HOME", tmp_path)
     (tmp_path / ".codex").mkdir()
@@ -331,11 +331,11 @@ def test_codex_connection_from_log(tmp_path, monkeypatch):
 
 
 def test_doctor_lists_hook_and_mcp_interpreters(tmp_path, monkeypatch):
-    from jev_router import doctor
+    from trirouter import doctor
     monkeypatch.setattr(P, "PATHS", {**P.PATHS, "agy_mcp": tmp_path / "mcp.json"})
     monkeypatch.setattr(P, "claude_desktop_config", lambda: tmp_path / "none.json")
-    (tmp_path / "mcp.json").write_text(json.dumps({"mcpServers": {"jev-router": {"command": "/opt/py/pythonw", "args": []}}}))
-    settings = {"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "/usr/bin/python3 ~/.jev-router/bin/run_hook.py claude x"}]}]}}
-    toml = '[mcp_servers.jev-router]\ncommand = "/opt/py/python"\nargs = []\n'
+    (tmp_path / "mcp.json").write_text(json.dumps({"mcpServers": {"trirouter": {"command": "/opt/py/pythonw", "args": []}}}))
+    settings = {"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "/usr/bin/python3 ~/.trirouter/bin/run_hook.py claude x"}]}]}}
+    toml = '[mcp_servers.trirouter]\ncommand = "/opt/py/python"\nargs = []\n'
     assert doctor.interpreters(settings, toml) == [("Claude hook", "/usr/bin/python3"), ("Antigravity MCP", "/opt/py/pythonw"),
                                                    ("Codex MCP", "/opt/py/python")]

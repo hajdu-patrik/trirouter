@@ -13,10 +13,11 @@ import unicodedata
 import urllib.request
 from pathlib import Path
 
-from . import catalog, lang
+from . import catalog, lang, legacy
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
-STATE_DIR = Path(os.environ.get("JEV_ROUTER_HOME", str(Path.home() / ".jev-router")))
+# ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it (hooks and the MCP server only read)
+STATE_DIR = legacy.state_dir()
 
 API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
 JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")

@@ -5,10 +5,10 @@ import os
 import re
 from pathlib import Path
 
-from . import integrations, platforms as P, remote, skillscan
+from . import integrations, legacy, platforms as P, remote, skillscan
 
 HOME = P.HOME
-STATE = HOME / ".jev-router"
+STATE = legacy.state_dir(HOME)
 CLAUDE_EVENTS = integrations.HOOK_EVENTS["claude"]
 
 
@@ -23,23 +23,35 @@ def jload(p):
         return None
 
 
+def _commands(cfg, event):
+    return [h.get("command", "") for g in (cfg or {}).get("hooks", {}).get(event, []) for h in g.get("hooks", [])]
+
+
 def has_hook(cfg, event):
-    return any("jev-router" in json.dumps(g) for g in (cfg or {}).get("hooks", {}).get(event, []))
+    """A router hook for the event, under the current or the pre-rename shim path (the latter is reported
+    separately by report_legacy)."""
+    return any(integrations.is_router_cmd(c) for c in _commands(cfg, event))
+
+
+def mcp_entry(cfg):
+    """The router's entry in an MCP config: the current name, else the pre-rename one."""
+    servers = (cfg or {}).get("mcpServers", {})
+    return servers.get(integrations.MCP_NAME) or servers.get(legacy.MCP_NAME)
 
 
 def interpreters(claude_settings, codex_toml):
     """A Python update that removes the registered interpreter silently stops every hook."""
     found = []
-    hook = next((h.get("command", "") for g in (claude_settings or {}).get("hooks", {}).get("UserPromptSubmit", [])
-                 for h in g.get("hooks", []) if "jev-router" in h.get("command", "")), "")
+    hook = next((c for c in _commands(claude_settings, "UserPromptSubmit") if integrations.is_router_cmd(c)), "")
     if hook:
         m = re.match(r'\s*"([^"]+)"|\s*\'([^\']+)\'|\s*(\S+)', hook)
         found.append(("Claude hook", next(g for g in m.groups() if g)))
     for label, cfg in (("Antigravity MCP", jload(P.PATHS["agy_mcp"])), ("Claude desktop MCP", jload(P.claude_desktop_config()))):
-        cmd = ((cfg or {}).get("mcpServers", {}).get("jev-router") or {}).get("command")
+        cmd = (mcp_entry(cfg) or {}).get("command")
         if cmd:
             found.append((label, cmd))
-    m = re.search(r'\[mcp_servers\.jev-router\]\ncommand = "([^"]+)"', codex_toml or "")
+    names = "|".join(re.escape(n) for n in (integrations.MCP_NAME, legacy.MCP_NAME))
+    m = re.search(r'\[mcp_servers\.(?:' + names + r')\]\ncommand = "([^"]+)"', codex_toml or "")
     if m:
         found.append(("Codex MCP", m.group(1)))
     return found
@@ -54,7 +66,7 @@ def report_tools():
 
 def report_hooks():
     print("\n== Router hooks")
-    line((STATE / "bin" / "run_hook.py").is_file(), "hook shim", "~/.jev-router/bin/run_hook.py")
+    line((STATE / "bin" / "run_hook.py").is_file(), "hook shim", "~/.trirouter/bin/run_hook.py")
     cs, cx = jload(P.PATHS["claude_settings"]), jload(P.PATHS["codex_hooks"])
     agy = (jload(P.PATHS["agy_hooks"]) or {}).get("router", {})
     missing = [e for e in CLAUDE_EVENTS if not has_hook(cs, e)]
@@ -67,13 +79,36 @@ def report_hooks():
 
 def report_mcp():
     print("\n== MCP router (hook-less modes)")
-    ok = "jev-router" in json.dumps(jload(P.claude_desktop_config()) or {})
+    ok = bool(mcp_entry(jload(P.claude_desktop_config())))
     line(ok, "Claude desktop (Chat/Cowork)", "" if ok else "missing - the app rewrites its config from memory: "
          f"close the Claude app, run {P.command_hint('setup --yes')}, reopen it")
     cfg_toml = P.PATHS["codex_config"].read_text(encoding="utf-8") if P.PATHS["codex_config"].exists() else ""
-    line("[mcp_servers.jev-router]" in cfg_toml, "Codex")
-    line("jev-router" in json.dumps(jload(P.PATHS["agy_mcp"]) or {}), "Antigravity")
+    line(any(f"[mcp_servers.{n}]" in cfg_toml for n in (integrations.MCP_NAME, legacy.MCP_NAME)), "Codex")
+    line(bool(mcp_entry(jload(P.PATHS["agy_mcp"]))), "Antigravity")
     return cfg_toml
+
+
+def report_legacy(claude_settings, cfg_toml):
+    """Everything from before the rename that is still around. Printed only when there is something."""
+    cmds = [c for event in integrations.ROUTER_EVENTS for c in _commands(claude_settings, event)]
+    cmds += [c for event in ("UserPromptSubmit", "Stop") for c in _commands(jload(P.PATHS["codex_hooks"]), event)]
+    cmds += [h.get("command", "") for spec in (jload(P.PATHS["agy_hooks"]) or {}).values() if isinstance(spec, dict)
+             for hooks in spec.values() if isinstance(hooks, list) for h in hooks if isinstance(h, dict)]
+    old_mcp = (legacy.MCP_NAME in (jload(P.claude_desktop_config()) or {}).get("mcpServers", {})
+               or legacy.MCP_NAME in (jload(P.PATHS["agy_mcp"]) or {}).get("mcpServers", {})
+               or f"[mcp_servers.{legacy.MCP_NAME}]" in cfg_toml)
+    problems = []
+    if legacy.old_state(HOME).is_dir():
+        problems.append(f"state folder ~/{legacy.STATE_NAME} (the new one is ~/{legacy.NEW_STATE_NAME})")
+    if any(integrations.is_legacy_cmd(c) for c in cmds):
+        problems.append("hook entries that call the old shim")
+    if old_mcp:
+        problems.append(f"MCP server entry '{legacy.MCP_NAME}' (now '{integrations.MCP_NAME}')")
+    if problems:
+        print("\n== Left over from before the rename to trirouter")
+        for p in problems:
+            line(False, "old", p)
+        line(False, "fix", f"{P.command_hint('setup --yes')} (it migrates the state folder and rewrites all of these)")
 
 
 def count_in(folder, test):
@@ -118,7 +153,7 @@ def report_command():
 
 
 def report_config():
-    print("\n== Configuration (~/.jev-router/config.json)")
+    print("\n== Configuration (~/.trirouter/config.json)")
     cfg = jload(STATE / "config.json") or {}
     if os.environ.get("TYPESAFE_API_KEY") or cfg.get("typesafe_api_key"):
         backend = "JEV (TypeSafe token)"
@@ -190,7 +225,7 @@ def delegation_compliance(routed, subagents):
 
 
 def report_activity():
-    print("\n== Router activity (~/.jev-router/logs/routing.jsonl)")
+    print("\n== Router activity (~/.trirouter/logs/routing.jsonl)")
     last = last_prompts(STATE / "logs" / "routing.jsonl")
     for p, ts in sorted(last.items()):
         line(True, f"last {p} prompt", ts)
@@ -215,4 +250,5 @@ def main():
     cfg = report_config()
     report_interpreters(claude_settings, cfg_toml)
     report_remote(cfg)
+    report_legacy(claude_settings, cfg_toml)
     report_activity()

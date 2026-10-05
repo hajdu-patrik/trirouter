@@ -24,22 +24,22 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hajdu-patrik/claude-workspace"
-Repository = "https://github.com/hajdu-patrik/claude-workspace"
-Issues = "https://github.com/hajdu-patrik/claude-workspace/issues"
-Changelog = "https://github.com/hajdu-patrik/claude-workspace/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hajdu-patrik/trirouter"
+Repository = "https://github.com/hajdu-patrik/trirouter"
+Issues = "https://github.com/hajdu-patrik/trirouter/issues"
+Changelog = "https://github.com/hajdu-patrik/trirouter/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
 [project.scripts]
-trirouter = "jev_router.cli:main"
+trirouter = "trirouter.cli:main"
 
 [tool.setuptools]
-packages = ["jev_router"]
+packages = ["trirouter"]
 
 [tool.setuptools.package-data]
-jev_router = ["config/*.json", "templates/agents/*.md", "skills/*/*"]
+trirouter = ["config/*.json", "templates/agents/*.md", "skills/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from jev_router import cli, hub, platforms as P, skillscan
+from trirouter import cli, hub, platforms as P, skillscan
 
 REPORTS = {"evil": {"recommendation": "DO_NOT_INSTALL", "score": 100, "max_severity": "CRITICAL"},
            "risky": {"recommendation": "CAUTION", "score": 40, "max_severity": "HIGH"},
@@ -255,7 +255,7 @@ def test_scanner_version_unexpected_output_still_scans(monkeypatch):
 
 
 def _two_checkouts(tmp_path, monkeypatch):
-    old, new = (tmp_path / d / "jev_router" / "skills" for d in ("old", "new"))
+    old, new = (tmp_path / d / "trirouter" / "skills" for d in ("old", "new"))
     make_skills(old, "bundled")
     make_skills(new, "bundled")
     monkeypatch.setattr(hub, "REPO_SKILLS", new)
@@ -265,11 +265,11 @@ def _two_checkouts(tmp_path, monkeypatch):
 
 def test_link_into_a_previous_checkout_is_re_pointed(tmp_path, monkeypatch):
     old, new = _two_checkouts(tmp_path, monkeypatch)
-    make_skills(tmp_path / "elsewhere" / "jev_router" / "skills", "unknown")
+    make_skills(tmp_path / "elsewhere" / "trirouter" / "skills", "unknown")
     link, stranger = tmp_path / "links" / "bundled", tmp_path / "links" / "unknown"
     link.parent.mkdir()
     P.link_dir(link, old / "bundled")
-    P.link_dir(stranger, tmp_path / "elsewhere" / "jev_router" / "skills" / "unknown")
+    P.link_dir(stranger, tmp_path / "elsewhere" / "trirouter" / "skills" / "unknown")
     assert hub.owned(link) and not hub.owned(stranger)
     monkeypatch.setattr(hub, "APPLY", True)
     hub.ensure_link(link, new / "bundled", "test")

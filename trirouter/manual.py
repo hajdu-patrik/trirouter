@@ -85,7 +85,11 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "is installed, linked into every tool, and expired quarantine entries are purged; worker agents are "
          "generated; (5) optional remote access and speech-to-text.\n\n"
          "Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. "
-         "`python install.py` with no arguments does the same."),
+         "`python install.py` with no arguments does the same.\n\n"
+         "An install from before the rename (state folder ~/.jev-router) is migrated first: the folder moves to "
+         "~/.trirouter, and the hooks, MCP entries (renamed to `trirouter`), PATH entry and remote-access services "
+         "that point into it are rewritten. A dry run only reports this. `skills --apply`, `remote`, `models` and "
+         "`uninstall` do the same before they write."),
      flags=(YES, DRY,
             Flag("--providers", value="LIST", default="every installed, logged-in tool",
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
@@ -121,7 +125,7 @@ _add(key="detect", summary="Report which AI tools are installed and logged in",
 _add(key="models", summary="Test which Codex and Antigravity models your accounts can use",
      synopsis=("{prog} models [--probe] [-n]",),
      description="Sends a one-word prompt to every Codex model (about 10-60 s each) and reads Antigravity's model list, "
-                 "stores the result per user in ~/.jev-router/models.local.json and regenerates the worker agents "
+                 "stores the result per user in ~/.trirouter/models.local.json and regenerates the worker agents "
                  "from it. The command always probes; --probe is accepted for compatibility.",
      flags=(Flag("--probe", doc="Accepted for compatibility: probing is what the command does."), DRY),
      changes="Changes files (models.local.json, worker agents); preview with --dry-run",
@@ -138,7 +142,7 @@ _add(key="skills", summary="Scan and re-link skills, regenerate worker agents, r
          "purged.\n\n"
          "A skill rated DO_NOT_INSTALL is not decided one by one: after all scans you are asked once -- "
          "[a]ll / [n]one / [s]elect (default: none) -- which of them go to quarantine "
-         "(~/.jev-router/quarantine, linked nowhere, deleted after 3 days). A skill you keep is remembered for its "
+         "(~/.trirouter/quarantine, linked nowhere, deleted after 3 days). A skill you keep is remembered for its "
          "exact content. With --yes or without a terminal nothing is quarantined and only a warning is printed."),
      flags=(APPLY, YES, DRY, ALLOW, SCAN_LLM, ACCEPT, QDAYS),
      changes="Preview by default; --apply writes",
@@ -153,7 +157,7 @@ _add(key="quarantine", summary="List, restore or purge skills the scan moved to 
      synopsis=("{prog} quarantine [list]", "{prog} quarantine restore NAME... [-n]",
                "{prog} quarantine purge [--all] [-y] [-n] [--quarantine-days=N]"),
      description=(
-         "A skill moved to quarantine (~/.jev-router/quarantine) is linked nowhere and left out of the catalog. "
+         "A skill moved to quarantine (~/.trirouter/quarantine) is linked nowhere and left out of the catalog. "
          "It is deleted for good after 3 days (setting skillscan.quarantine_days; 0 = never) -- automatically at "
          "every `setup`, every `skills --apply` and at most every 6 hours when Claude Code starts a session.\n\n"
          "Subcommands: list (default), restore, purge. Run `{prog} help quarantine <subcommand>` for each."),
@@ -190,7 +194,7 @@ _add(key="quarantine purge", summary="Delete expired quarantine entries now",
      synopsis=("{prog} quarantine purge [--all] [-y] [-n] [--quarantine-days=N]",),
      description="Permanently deletes the quarantined skills whose retention has run out (folder and metadata). "
                  "With --all it deletes every entry, expired or not, after a confirmation. Only entries directly inside "
-                 "~/.jev-router/quarantine are ever deleted; links are never followed.",
+                 "~/.trirouter/quarantine are ever deleted; links are never followed.",
      flags=(Flag("--all", doc="Delete every quarantined skill, not only the expired ones. Asks first."), YES, DRY, QDAYS),
      changes="Changes files (deletes for good); preview with --dry-run",
      examples=(("{prog} quarantine purge", "delete the expired entries"),
@@ -281,7 +285,7 @@ GETTING_STARTED = """\
    python install.py               # interactive setup (same as `python install.py setup`)
    ```
 
-3. Setup writes the `trirouter` launcher to `~/.jev-router/bin` and puts that folder on your PATH
+3. Setup writes the `trirouter` launcher to `~/.trirouter/bin` and puts that folder on your PATH
    (Windows: the user PATH, never the system one; macOS / Linux: a link in `~/.local/bin`, and setup prints the
    line to add to your shell profile if that folder is not on PATH). **Reopen your terminal**, then:
 
@@ -291,7 +295,7 @@ GETTING_STARTED = """\
    ```
 
 If you move the checkout, run `python install.py` from its new place once: the launcher and the hooks are
-re-pointed. `python install.py <command>` and `python -m jev_router <command>` always keep working and
+re-pointed. `python install.py <command>` and `python -m trirouter <command>` always keep working and
 behave like `trirouter <command>`."""
 
 CONVENTIONS = """\
@@ -302,7 +306,7 @@ CONVENTIONS = """\
   help page.
 * `-h`, `--help` anywhere after a command shows its page; `trirouter help <command>` does the same.
 * Short flags: `-h` help, `-y` --yes, `-n` --dry-run, `-a` --apply (boolean ones can be combined: `-yn`).
-* Flags marked "remembered" are saved in `~/.jev-router/config.json` when the command writes, and apply to
+* Flags marked "remembered" are saved in `~/.trirouter/config.json` when the command writes, and apply to
   later runs.
 * Exit status: 0 success, 2 usage error, 1 the command ran but failed."""
 
@@ -426,7 +430,7 @@ def _md_command(c, level):
 def render_markdown():
     p = DOC_PROG
     out = ["# trirouter command reference", "",
-           "<!-- generated by `trirouter help --markdown` from jev_router/manual.py; do not edit by hand -->", "",
+           "<!-- generated by `trirouter help --markdown` from trirouter/manual.py; do not edit by hand -->", "",
            "`trirouter <command> [subcommand] [flags]` -- the same pages are shown by `trirouter help <command>`.", "",
            "## Contents", "", "* [Getting started](#getting-started)", "* [Conventions](#conventions)",
            "* [Common tasks](#common-tasks)"]

@@ -1,4 +1,4 @@
-from jev_router import core
+from trirouter import core
 
 
 def _make_project(tmp_path, name):

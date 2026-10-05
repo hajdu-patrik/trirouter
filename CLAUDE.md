@@ -1,8 +1,8 @@
 # Working in this repository
 
-jev-router: a prompt router for Claude Code, OpenAI Codex and Google Antigravity (see README.md).
+trirouter: a prompt router for Claude Code, OpenAI Codex and Google Antigravity (see README.md).
 Everything in the repository is English and generic: no personal data, machine names, account
-details or absolute user paths. Per-user state belongs in `~/.jev-router/`, never in the repo.
+details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never in the repo.
 
 ## Answering
 
@@ -21,16 +21,18 @@ details or absolute user paths. Per-user state belongs in `~/.jev-router/`, neve
 ## Conventions
 
 - Python 3.10+, standard library only (no third-party runtime dependencies). Must work on
-  Windows, macOS and Linux – go through `jev_router/platforms.py` for paths, links and executables.
-- Package layout: code in `jev_router/` (relative imports), data in `jev_router/config/`, worker
-  templates in `jev_router/templates/agents/`, bundled skills in `jev_router/skills/`. One CLI
-  (`trirouter <command>` = `python install.py <command>` = `python -m jev_router <command>`; the launcher
+  Windows, macOS and Linux – go through `trirouter/platforms.py` for paths, links and executables.
+- Package layout: code in `trirouter/` (relative imports), data in `trirouter/config/`, worker
+  templates in `trirouter/templates/agents/`, bundled skills in `trirouter/skills/`. One CLI
+  (`trirouter <command>` = `python install.py <command>` = `python -m trirouter <command>`; the launcher
   only exists after the first setup); no stand-alone scripts. Commands, flags and help texts are data in
-  `jev_router/manual.py`: after editing it run `trirouter help --markdown > docs/cli.md` (a test checks it).
+  `trirouter/manual.py`: after editing it run `trirouter help --markdown > docs/cli.md` (a test checks it).
+  `jev_router/` is a thin compatibility package for shims written before the rename (remove it after the
+  next release); `trirouter/legacy.py` holds the old names and the state-folder migration.
 - Hooks must never block or crash the host tool: catch everything, always exit 0.
-- Model policy (`jev_router/config/models.json`): Claude only via generic aliases (fable / sonnet / opus),
+- Model policy (`trirouter/config/models.json`): Claude only via generic aliases (fable / sonnet / opus),
   never Haiku, never a dated model ID; `ultra` effort is banned for every provider.
-- Worker agents are generated from `jev_router/templates/agents/*.md` + `config/targets.json` +
+- Worker agents are generated from `trirouter/templates/agents/*.md` + `config/targets.json` +
   `config/models.json` (`trirouter skills --apply`, or `python install.py skills --apply`) – edit the sources, never the generated files.
 - Installers are idempotent and dry-run by default; changed user config files get a `.bak` copy.
 

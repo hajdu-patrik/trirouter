@@ -14,6 +14,7 @@ from pathlib import Path
 HOME = Path.home()
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
+STATE = HOME / ".trirouter"  # per-user state; see legacy.state_dir() for the pre-migration fallback
 
 
 def claude_desktop_config():
@@ -231,7 +232,7 @@ def hostname():
 
 def launcher_path():
     """The `trirouter` launcher the installer writes (see integrations.install_launcher)."""
-    return HOME / ".jev-router" / "bin" / ("trirouter.cmd" if IS_WINDOWS else "trirouter")
+    return STATE / "bin" / ("trirouter.cmd" if IS_WINDOWS else "trirouter")
 
 
 def command_hint(args=""):

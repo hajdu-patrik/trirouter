@@ -64,7 +64,7 @@ def main():
         return 2
     argv, stdin = build(a.tool, exe, a.model, a.effort, prompt)
     env = os.environ.copy()
-    env["JEV_ROUTER_NESTED"] = "1"
+    env["TRIROUTER_NESTED"] = "1"
     try:
         r = subprocess.run(argv, input=stdin, capture_output=True, timeout=TIMEOUT_S + 30, env=env,
                            stdin=None if stdin is not None else subprocess.DEVNULL)

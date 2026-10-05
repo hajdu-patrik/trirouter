@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = ROOT / "jev_router"
+PKG = ROOT / "trirouter"
 
 
 def main():
