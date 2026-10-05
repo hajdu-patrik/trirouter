@@ -254,7 +254,7 @@ def _remote_claude(name, workdir):
         return None
     if not claude_trusts(workdir):
         return ("claude", False, f"{workdir} is not a trusted Claude Code folder: run `claude` there once, "
-                                 "accept the trust dialog, then re-run `python install.py remote`")
+                                 f"accept the trust dialog, then re-run `{P.command_hint('remote')}`")
     ok, out = _setup_claude(name, claude, workdir)
     return ("claude", ok, f"Remote Control server \"{name}\" (sessions start in {workdir})" if ok else out[:200])
 

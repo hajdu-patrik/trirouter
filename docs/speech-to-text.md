@@ -17,7 +17,7 @@ Whisper-family models locally.
 
 | OS | Command / download |
 | --- | --- |
-| Windows | `winget install --id cjpais.Handy -e` (the installer offers this during `python install.py`) |
+| Windows | `winget install --id cjpais.Handy -e` (the installer offers this during `trirouter setup`, or `python install.py` on the first run) |
 | macOS | download the `.dmg` from the [Handy releases](https://github.com/cjpais/Handy/releases) |
 | Linux | download the `.AppImage` or `.deb` from the [Handy releases](https://github.com/cjpais/Handy/releases) |
 

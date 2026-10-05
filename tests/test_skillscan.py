@@ -41,14 +41,14 @@ def apply_act(msg, fn=None):
         fn()
 
 
-def yes(question):
-    return True
+def all_of(items):
+    return {i["name"] for i in items}
 
 
 def test_do_not_install_is_quarantined_on_yes_and_caution_is_linked(tmp_path, scans, capsys):
     hub_dir = tmp_path / ".skills"
     skills = make_skills(hub_dir, "evil", "risky", "fine", "broken")
-    blocked = skillscan.gate(skills, apply_act, apply=True, confirm=yes)
+    blocked = skillscan.gate(skills, apply_act, apply=True, choose=all_of)
     assert blocked == {"evil"}
     assert not (hub_dir / "evil").exists() and (skillscan.QUARANTINE / "evil" / "SKILL.md").is_file()
     assert all((hub_dir / n).is_dir() for n in ("risky", "fine", "broken"))
@@ -69,7 +69,7 @@ def test_unattended_run_only_warns(tmp_path, scans, capsys):
 def test_dry_run_moves_nothing(tmp_path, scans):
     hub_dir = tmp_path / ".skills"
     skills = make_skills(hub_dir, "evil")
-    assert skillscan.gate(skills, lambda msg, fn=None: None, apply=False, confirm=yes) == {"evil"}
+    assert skillscan.gate(skills, lambda msg, fn=None: None, apply=False, choose=all_of) == {"evil"}
     assert (hub_dir / "evil").is_dir() and not skillscan.QUARANTINE.exists() and not skillscan.CACHE.exists()
 
 
@@ -77,15 +77,15 @@ def test_a_kept_skill_is_asked_again_only_after_a_change(tmp_path, scans):
     hub_dir, asked = tmp_path / ".skills", []
     skills = make_skills(hub_dir, "evil")
     for _ in range(2):
-        assert skillscan.gate(skills, apply_act, apply=True, confirm=lambda q: asked.append(q) or False) == set()
+        assert skillscan.gate(skills, apply_act, apply=True, choose=lambda items: asked.append(items) or set()) == set()
     assert len(asked) == 1
     (hub_dir / "evil" / "run.py").write_text("print(2)\n", encoding="utf-8")
-    assert skillscan.gate(skills, apply_act, apply=True, confirm=yes) == {"evil"}
+    assert skillscan.gate(skills, apply_act, apply=True, choose=all_of) == {"evil"}
 
 
 def test_allow_overrides_and_restores_from_quarantine(tmp_path, scans):
     hub_dir = tmp_path / ".skills"
-    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, confirm=yes)
+    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, choose=all_of)
     skillscan.restore_allowed(hub_dir, ["evil"], apply_act)
     assert (hub_dir / "evil" / "SKILL.md").is_file() and not (skillscan.QUARANTINE / "evil").exists()
     assert skillscan.gate([hub_dir / "evil"], apply_act, apply=True, allow=["evil"]) == set()
@@ -93,9 +93,9 @@ def test_allow_overrides_and_restores_from_quarantine(tmp_path, scans):
 
 def test_second_quarantine_of_the_same_name_keeps_the_first(tmp_path, scans):
     hub_dir = tmp_path / ".skills"
-    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, confirm=yes)
-    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, confirm=yes)
-    assert len([q for q in skillscan.QUARANTINE.iterdir() if q.name.startswith("evil")]) == 2
+    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, choose=all_of)
+    skillscan.gate(make_skills(hub_dir, "evil"), apply_act, apply=True, choose=all_of)
+    assert len([q for q in skillscan.QUARANTINE.iterdir() if q.is_dir() and q.name.startswith("evil")]) == 2
 
 
 def test_cache_skips_unchanged_skills_and_failed_scans(tmp_path, scans):
@@ -146,11 +146,11 @@ def test_a_cached_run_scans_nothing(tmp_path, scans, capsys):
 def test_accept_flagged_keeps_flagged_skills_until_they_change(tmp_path, scans, capsys):
     hub_dir, asked = tmp_path / ".skills", []
     skills = make_skills(hub_dir, "evil", "fine")
-    assert skillscan.gate(skills, apply_act, apply=True, confirm=yes, accept_flagged=True) == set()
+    assert skillscan.gate(skills, apply_act, apply=True, choose=all_of, accept_flagged=True) == set()
     assert (hub_dir / "evil").is_dir() and "accepted with --accept-flagged (asked again only if it changes): evil (100)" in capsys.readouterr().out
-    assert skillscan.gate(skills, apply_act, apply=True, confirm=lambda q: asked.append(q)) == set() and not asked
+    assert skillscan.gate(skills, apply_act, apply=True, choose=lambda items: asked.append(items)) == set() and not asked
     (hub_dir / "evil" / "run.py").write_text("print(3)\n", encoding="utf-8")
-    assert skillscan.gate(skills, apply_act, apply=True, confirm=yes) == {"evil"}
+    assert skillscan.gate(skills, apply_act, apply=True, choose=all_of) == {"evil"}
 
 
 def test_accept_flagged_in_a_dry_run_remembers_nothing(tmp_path, scans):
@@ -190,7 +190,7 @@ def test_hub_links_neither_blocked_nor_scans_bundled_skills(tmp_path, scans, mon
     for name, value in (("HUB", hub_dir), ("REPO_SKILLS", repo_skills), ("CLAUDE_SKILLS", claude),
                         ("CODEX_SKILLS", tmp_path / "codex"), ("LEGACY_CODEX_SKILLS", tmp_path / "legacy"),
                         ("PROVIDERS", ("claude",)), ("APPLY", True), ("SCAN", {"llm": False, "allow": ()}),
-                        ("CONFIRM", yes)):
+                        ("CHOOSE", all_of)):
         monkeypatch.setattr(hub, name, value)
     P.link_dir(claude / "evil", hub_dir / "evil")  # linked by an earlier, unscanned run
     hub.cmd_link()
@@ -203,9 +203,9 @@ def test_scan_flags_are_remembered_only_when_applied(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "STATE", tmp_path)
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "FLAGS", {"--allow-skill": "b, a", "--scan-llm": "on"})
-    monkeypatch.setattr(hub, "CONFIRM", hub.CONFIRM)
+    monkeypatch.setattr(hub, "CHOOSE", hub.CHOOSE)
     cli.scan_settings({"skillscan": {"allow": ["c"]}}, persist=False)
-    assert hub.SCAN == {"llm": True, "allow": ("a", "b", "c"), "accept_flagged": False}
+    assert hub.SCAN == {"llm": True, "allow": ("a", "b", "c"), "accept_flagged": False, "quarantine_days": 3}
     assert not (tmp_path / "config.json").exists()
     cli.scan_settings({}, persist=True)
     assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))["skillscan"] == {"allow": ["a", "b"], "llm": True}

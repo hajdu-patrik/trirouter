@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Read-only health report (`python install.py doctor`)."""
+"""Read-only health report (`trirouter doctor`)."""
 import json
 import os
 import re
 from pathlib import Path
 
-from . import integrations, platforms as P, remote
+from . import integrations, platforms as P, remote, skillscan
 
 HOME = P.HOME
 STATE = HOME / ".jev-router"
@@ -59,7 +59,7 @@ def report_hooks():
     agy = (jload(P.PATHS["agy_hooks"]) or {}).get("router", {})
     missing = [e for e in CLAUDE_EVENTS if not has_hook(cs, e)]
     line(not missing, "Claude prompt/stop/session hooks",
-         f"missing {', '.join(missing)} - re-run: python install.py --yes" if missing else "")
+         f"missing {', '.join(missing)} - re-run: {P.command_hint('setup --yes')}" if missing else "")
     line(has_hook(cx, "UserPromptSubmit") and has_hook(cx, "Stop"), "Codex UserPromptSubmit + Stop", "(trust once: codex -> /hooks)")
     line("PreInvocation" in agy and "Stop" in agy, "Antigravity PreInvocation + Stop")
     return cs
@@ -69,7 +69,7 @@ def report_mcp():
     print("\n== MCP router (hook-less modes)")
     ok = "jev-router" in json.dumps(jload(P.claude_desktop_config()) or {})
     line(ok, "Claude desktop (Chat/Cowork)", "" if ok else "missing - the app rewrites its config from memory: "
-         "close the Claude app, run python install.py --yes, reopen it")
+         f"close the Claude app, run {P.command_hint('setup --yes')}, reopen it")
     cfg_toml = P.PATHS["codex_config"].read_text(encoding="utf-8") if P.PATHS["codex_config"].exists() else ""
     line("[mcp_servers.jev-router]" in cfg_toml, "Codex")
     line("jev-router" in json.dumps(jload(P.PATHS["agy_mcp"]) or {}), "Antigravity")
@@ -99,6 +99,24 @@ def report_skills(cfg_toml):
     line(n_agy > 0, "Antigravity worker agents", f"{n_agy}")
 
 
+def report_command():
+    print("\n== trirouter command and quarantine")
+    ok, detail = integrations.launcher_status()
+    line(ok, "trirouter command", detail)
+    try:
+        rows = skillscan.entries(apply=False)
+    except Exception as exc:  # noqa: BLE001 - a read-only report never fails
+        line(False, "quarantine", f"unreadable ({type(exc).__name__})")
+        return
+    if not rows:
+        line(True, "quarantine", "empty")
+        return
+    due = [r for r in rows if r["purge_at"]]
+    nxt = min(due, key=lambda r: r["purge_at"]) if due else None
+    tail = f"next purge {nxt['purge_at']:%Y-%m-%d} ({nxt['name']})" if nxt else "retention off, never purged"
+    line(True, "quarantine", f"{len(rows)} skill(s); {tail}")
+
+
 def report_config():
     print("\n== Configuration (~/.jev-router/config.json)")
     cfg = jload(STATE / "config.json") or {}
@@ -107,11 +125,11 @@ def report_config():
     elif os.environ.get("JEV_OPENROUTER_API_KEY") or cfg.get("openrouter_api_key"):
         backend = "JEV through OpenRouter"
     else:
-        backend = "built-in local model (python install.py --jev-token=<TypeSafe token or OpenRouter key>)"
+        backend = f"built-in local model ({P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')})"
     line(True, "Decision backend", backend)
-    line(True, "Remote access name", cfg.get("remote_name") or "not set up (python install.py remote)")
+    line(True, "Remote access name", cfg.get("remote_name") or f"not set up ({P.command_hint('remote')})")
     line(True, "Per-account model overrides", "yes" if (STATE / "models.local.json").exists()
-         else "no (python install.py models --probe)")
+         else f"no ({P.command_hint('models --probe')})")
     return cfg
 
 
@@ -119,7 +137,7 @@ def report_interpreters(claude_settings, cfg_toml):
     print("\n== Interpreter used by hooks and MCP")
     for label, exe in interpreters(claude_settings, cfg_toml):
         line(Path(exe).is_file(), label, exe if Path(exe).is_file() else
-             f"{exe} is gone (Python updated or removed?) - re-run: python install.py --yes")
+             f"{exe} is gone (Python updated or removed?) - re-run: {P.command_hint('setup --yes')}")
 
 
 def report_remote(cfg):
@@ -193,6 +211,7 @@ def main():
     claude_settings = report_hooks()
     cfg_toml = report_mcp()
     report_skills(cfg_toml)
+    report_command()
     cfg = report_config()
     report_interpreters(claude_settings, cfg_toml)
     report_remote(cfg)

@@ -50,7 +50,7 @@ TOML_BEGIN, TOML_END = "# >>> jev-router agents (generated - edit jev_router/con
 
 APPLY = False
 SCAN = {"llm": False, "allow": ()}  # skillscan settings, set by the installer from config.json + flags
-CONFIRM = lambda question: None  # noqa: E731 - the installer's yes/no prompt; None: nobody to ask
+CHOOSE = lambda items: None  # noqa: E731 - the installer's quarantine question: names to quarantine, None: nobody to ask
 
 
 def act(msg, fn=None):
@@ -179,8 +179,8 @@ def _scan_hub_skills():
     bundled = target_of(REPO_SKILLS)
     third_party = [s for s in hub_skills() if bundled is None or bundled not in (target_of(s) or s).parents]
     return skillscan.gate(third_party, act, APPLY, llm=SCAN.get("llm", False), allow=SCAN.get("allow", ()),
-                          confirm=CONFIRM if APPLY else lambda question: None,
-                          accept_flagged=SCAN.get("accept_flagged", False))
+                          choose=CHOOSE if APPLY else (lambda items: None),
+                          accept_flagged=SCAN.get("accept_flagged", False), days=SCAN.get("quarantine_days"))
 
 
 def _link_hub_skills(blocked=frozenset()):

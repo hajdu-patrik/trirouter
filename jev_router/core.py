@@ -425,7 +425,7 @@ def build_questions(skills, effort=None, models=None):
 def ask_jev(prompt, questions):
     endpoint = jev_endpoint()
     if not endpoint:
-        raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: python install.py --jev-token=...)")
+        raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: trirouter setup --jev-token=...)")
     _, url, key, model = endpoint
     body = json.dumps({"state": prompt[:MAX_STATE_CHARS], "model": model, "questions": questions}).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST",

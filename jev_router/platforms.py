@@ -227,3 +227,14 @@ def detect(deep=True):
 def hostname():
     import socket
     return socket.gethostname()
+
+
+def launcher_path():
+    """The `trirouter` launcher the installer writes (see integrations.install_launcher)."""
+    return HOME / ".jev-router" / "bin" / ("trirouter.cmd" if IS_WINDOWS else "trirouter")
+
+
+def command_hint(args=""):
+    """How to spell a command in a hint: `trirouter ...` once the launcher exists, else `python install.py ...`."""
+    prog = "trirouter" if os.environ.get("TRIROUTER_PROG") == "trirouter" or launcher_path().exists() else "python install.py"
+    return f"{prog} {args}".strip()

@@ -1,10 +1,20 @@
 """SkillSpector gate for the shared skill folder (https://github.com/NVIDIA/SkillSpector).
 
-Every hub skill is scanned before it is linked into the tools. On a DO_NOT_INSTALL verdict the user is
-asked (default: no) whether to move it to ~/.jev-router/quarantine/, where no tool (Antigravity reads the
-whole hub) and no catalog sees it; a "no" is remembered for that exact content. Unattended runs only
-warn: static analysis also flags legitimate skills that run scripts. `skillscan.allow` in config.json
-(or --allow-skill) silences the verdict and restores a quarantined skill. CAUTION only warns.
+Every hub skill is scanned before it is linked into the tools. When all verdicts are known, the
+DO_NOT_INSTALL skills nobody has decided on yet are put to the user in ONE question (all / none /
+select, default none): the chosen ones move to ~/.jev-router/quarantine/, where no tool (Antigravity
+reads the whole hub) and no catalog sees them; the others are kept, remembered for that exact content.
+Unattended runs (no terminal, --yes) only warn: static analysis also flags legitimate skills that run
+scripts. `skillscan.allow` in config.json (or --allow-skill) silences the verdict and restores a
+quarantined skill. CAUTION only warns.
+
+Quarantine entries are `<name>` folders with a sidecar `<name>.json` (name, quarantined_at, purge_after,
+risk, max_severity; an entry without one gets it from its folder's mtime). They are deleted for good
+after `skillscan.quarantine_days` days (default 3, 0 = never) by `purge_expired`, which runs at every
+setup / `skills --apply` and, at most every 6 hours, from the Claude SessionStart hook. The retention
+now in force decides, not the purge_after written earlier. Only folders directly inside the quarantine
+folder are ever deleted, and links are never followed.
+
 Static analysis by default (`--no-llm`: nothing leaves the machine); `skillscan.llm: true` lets
 SkillSpector's own provider settings (SKILLSPECTOR_PROVIDER, ...) add its LLM analysis.
 SkillSpector is optional (Python 3.12+, installed as its own tool): without it skills are linked
@@ -14,9 +24,11 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -25,6 +37,8 @@ from . import platforms as P
 STATE = P.HOME / ".jev-router"
 QUARANTINE = STATE / "quarantine"
 CACHE = STATE / "state" / "skillscan.json"
+CONFIG = STATE / "config.json"
+DEFAULT_DAYS = 3  # quarantine retention; 0 = never purge
 EXE = "skillspector"
 INSTALL_HINT = "uv tool install git+https://github.com/NVIDIA/skillspector.git"
 SAFE, CAUTION, BLOCK = "SAFE", "CAUTION", "DO_NOT_INSTALL"
@@ -149,45 +163,254 @@ def verdicts(skills, exe, version, llm, cache):
     return out
 
 
+_TS = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt):
+    return dt.astimezone(timezone.utc).strftime(_TS)
+
+
+def _parse_iso(text):
+    try:
+        return datetime.strptime(text, _TS).replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def configured_days(default=DEFAULT_DAYS):
+    """`skillscan.quarantine_days` from config.json; never raises."""
+    try:
+        days = json.loads(CONFIG.read_text(encoding="utf-8"))["skillscan"]["quarantine_days"]
+        return days if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else default
+    except (OSError, ValueError, KeyError, TypeError):
+        return default
+
+
 def _quarantine_dest(name):
     dest = QUARANTINE / name
     return dest if not dest.exists() else QUARANTINE / f"{name}@{time.strftime('%Y%m%d-%H%M%S')}"
 
 
+def sidecar(entry):
+    return QUARANTINE / f"{Path(entry).name}.json"
+
+
+def write_sidecar(entry, name, risk, max_severity, quarantined_at, days):
+    meta = {"name": name, "quarantined_at": _iso(quarantined_at),
+            "purge_after": _iso(quarantined_at + timedelta(days=days)) if days else None,
+            "risk": risk, "max_severity": max_severity}
+    sidecar(entry).write_text(json.dumps(meta, indent=1), encoding="utf-8")
+
+
+def _move_to_quarantine(skill, dest, risk, max_severity, days):
+    QUARANTINE.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(skill), str(dest))
+    write_sidecar(dest, Path(skill).name, risk, max_severity, utcnow(), days)
+
+
+def entries(apply=False, days=None):
+    """Quarantine entries, oldest first: [{entry, name, quarantined_at, purge_at, risk, max_severity}].
+    purge_at is quarantined_at + the retention now in force (None: never). An entry without a sidecar takes
+    its folder's mtime as quarantined_at; the sidecar is written then only when `apply`."""
+    days = configured_days() if days is None else days
+    out = []
+    if not QUARANTINE.is_dir():
+        return out
+    for e in sorted(QUARANTINE.iterdir()):
+        if not e.is_dir():
+            continue
+        meta = {}
+        try:
+            meta = json.loads(sidecar(e).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        meta = meta if isinstance(meta, dict) else {}
+        when = _parse_iso(meta.get("quarantined_at"))
+        if when is None:
+            try:
+                when = datetime.fromtimestamp(e.lstat().st_mtime, timezone.utc).replace(microsecond=0)
+            except OSError:
+                continue
+            if apply and not P.is_link(e):
+                try:
+                    write_sidecar(e, e.name.split("@")[0], None, None, when, days)
+                except OSError:
+                    pass
+        out.append({"entry": e, "name": meta.get("name") or e.name.split("@")[0], "quarantined_at": when,
+                    "purge_at": when + timedelta(days=days) if days else None,
+                    "risk": meta.get("risk"), "max_severity": meta.get("max_severity")})
+    return sorted(out, key=lambda r: r["quarantined_at"])
+
+
+def inside_quarantine(path):
+    """True only for a real entry directly inside the quarantine folder: no link, no escape."""
+    try:
+        p = Path(path)
+        if P.is_link(p) or not p.exists():
+            return False
+        root = QUARANTINE.resolve(strict=True)
+        return p.resolve(strict=True).parent == root and p.parent.resolve(strict=True) == root
+    except (OSError, RuntimeError):
+        return False
+
+
+def _clear_readonly(func, path, *_):
+    os.chmod(path, stat.S_IRWXU)
+    func(path)
+
+
+def _unlink_inner_links(root):
+    """Links inside a skill (a junction, a symlink) are removed as links, so nothing ever follows them out."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        for d in list(dirnames):
+            full = Path(dirpath, d)
+            if P.is_link(full):
+                dirnames.remove(d)
+                try:
+                    P.unlink_dir(full)
+                except OSError:
+                    full.unlink()
+        for f in filenames:
+            full = Path(dirpath, f)
+            if full.is_symlink():
+                full.unlink()
+
+
+def _delete_entry(entry):
+    if not inside_quarantine(entry):
+        raise OSError(f"refusing to delete {entry}: not a plain entry of the quarantine folder")
+    entry = Path(entry)
+    _unlink_inner_links(entry)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(entry, onexc=_clear_readonly)
+    else:
+        shutil.rmtree(entry, onerror=_clear_readonly)
+    side = sidecar(entry)
+    if side.is_file() and not side.is_symlink():
+        side.unlink()
+
+
+def purge_expired(apply, now=None, days=None, say=print, everything=False):
+    """Deletes quarantine entries older than the retention (all of them with `everything`); returns the
+    names purged (or that a dry run would purge). `say=None` is silent (the hook). Never raises."""
+    now = now or utcnow()
+    purged = []
+    try:
+        days = configured_days() if days is None else days
+        if not days and not everything:
+            return purged
+        for r in entries(apply, days):
+            if not everything and not (r["purge_at"] and r["purge_at"] <= now):
+                continue
+            try:
+                if apply:
+                    _delete_entry(r["entry"])
+                if say:
+                    say(("[DO]  " if apply else "[DRY] ") + f"skillscan: purge {r['name']} "
+                        f"(quarantined {r['quarantined_at']:%Y-%m-%d})")
+                purged.append(r["name"])
+            except OSError as exc:
+                if say:
+                    say(f"[WARN] skillscan: could not purge {r['name']}: {exc}")
+        if apply and QUARANTINE.is_dir():  # metadata whose folder is gone
+            for f in QUARANTINE.glob("*.json"):
+                if f.is_file() and not f.is_symlink() and not (QUARANTINE / f.stem).exists():
+                    f.unlink()
+    except Exception as exc:  # noqa: BLE001 - housekeeping must never break its caller
+        if say:
+            say(f"[WARN] skillscan: purge failed: {type(exc).__name__}")
+    return purged
+
+
+def human_left(delta):
+    secs = int(delta.total_seconds())
+    if secs <= 0:
+        return "expired"
+    days, hours = secs // 86400, secs % 86400 // 3600
+    if days:
+        return f"in {days} day{'s' if days != 1 else ''} {hours} h"
+    return f"in {hours} h" if hours else "in under 1 h"
+
+
+def find_copies(name):
+    """Quarantine entries for a skill name (or one exact entry name), newest last."""
+    return [r for r in entries() if name in (r["name"], r["entry"].name)]
+
+
+def restore(names, hub, act):
+    """Moves the newest quarantined copy of each name back to hub/<name> (unless that name is taken).
+    Returns (restored names, problems)."""
+    restored, problems = [], []
+    for name in names:
+        copies = find_copies(name)
+        if not copies:
+            problems.append(f"{name}: not in quarantine")
+            continue
+        src, skill = copies[-1]["entry"], copies[-1]["name"]
+        dest = Path(hub) / skill
+        if dest.exists():
+            problems.append(f"{name}: {dest} already exists - remove or rename it first")
+            continue
+        act(f"skillscan: restore {src} -> {dest}", lambda s=src, d=dest: (
+            Path(hub).mkdir(parents=True, exist_ok=True), shutil.move(str(s), str(d)),
+            sidecar(s).unlink(missing_ok=True)))
+        restored.append(skill)
+    return restored, problems
+
+
+def parse_selection(text, count):
+    """'1,3,5-8' -> {0, 2, 4, 5, 6, 7} (zero-based); ValueError with a user-facing message otherwise."""
+    picked = set()
+    for part in text.replace(" ", "").split(","):
+        if not part:
+            continue
+        lo, dash, hi = part.partition("-")
+        if not lo.isdigit() or (dash and not hi.isdigit()):
+            raise ValueError(f"'{part}' is not a number or a range like 5-8")
+        a, b = int(lo), int(hi) if dash else int(lo)
+        if a > b:
+            raise ValueError(f"'{part}' is a backwards range")
+        if a < 1 or b > count:
+            raise ValueError(f"'{part}' is out of range: choose from 1 to {count}")
+        picked.update(range(a - 1, b))
+    return picked
+
+
 def restore_allowed(hub, allow, act):
     """An allowed skill comes back from quarantine (the newest copy) unless the hub has that name again."""
-    if not QUARANTINE.is_dir():
-        return
     for name in sorted(allow):
-        copies = sorted(q for q in QUARANTINE.iterdir() if q.is_dir() and q.name.split("@")[0] == name)
-        if copies and not (hub / name).exists():
-            src = copies[-1]
-            act(f"skillscan: restore allowed skill {src} -> {hub / name}", lambda s=src: shutil.move(str(s), str(hub / name)))
+        if find_copies(name):
+            restore([name], hub, act)
 
 
-def _decide(s, r, act, confirm, cache, accept_flagged=False):
-    """A DO_NOT_INSTALL skill: "kept earlier", "accepted", "unasked" (confirm() is None: nobody to ask), "kept"
-    or "quarantined". --accept-flagged keeps it like a "no" answer: bound to this content, not to the name."""
-    if r.get("accepted"):
-        return "kept earlier"
-    if accept_flagged:
-        cache.get(s.name, {})["accepted"] = True
-        return "accepted"
-    head = f"skillscan: {s.name}: {BLOCK} (risk {r.get('score')}, max {r.get('max_severity')})"
-    answer = confirm(f"  {head}. Review: {EXE} scan \"{s}\"\n  Move it to quarantine (linked nowhere)?")
-    if answer is None:
-        return "unasked"
-    if not answer:
-        cache.get(s.name, {})["accepted"] = True
-        return "kept"
-    dest = _quarantine_dest(s.name)
-    act(f"{head} - quarantine -> {dest}",
-        lambda: (QUARANTINE.mkdir(parents=True, exist_ok=True), shutil.move(str(s), str(dest))))
-    return "quarantined"
+def _resolve_flagged(flagged, act, choose, cache, days):
+    """The one decision for the undecided DO_NOT_INSTALL skills: [outcome, ...] in order, each
+    "quarantined", "kept" or "unasked" (choose() is None: nobody to ask)."""
+    items = [{"name": s.name, "score": r.get("score"), "max_severity": r.get("max_severity"), "path": str(s)}
+             for s, r in flagged]
+    chosen = choose(items)
+    out = []
+    for s, r in flagged:
+        if chosen is None:
+            out.append("unasked")
+        elif s.name in chosen:
+            dest = _quarantine_dest(s.name)
+            act(f"skillscan: {s.name}: {BLOCK} (risk {r.get('score')}, max {r.get('max_severity')}) "
+                f"- quarantine -> {dest}",
+                lambda s=s, r=r, dest=dest: _move_to_quarantine(s, dest, r.get("score"), r.get("max_severity"), days))
+            out.append("quarantined")
+        else:
+            cache.get(s.name, {})["accepted"] = True
+            out.append("kept")
+    return out
 
 
 # one summary line per outcome instead of a line per skill: a large hub has dozens of CAUTION verdicts
-_SUMMARY = (("unasked", f"{BLOCK}, linked - decide in an interactive `python install.py skills --apply`, "
+_SUMMARY = (("unasked", f"{BLOCK}, linked - decide in an interactive `{P.command_hint('skills --apply')}`, "
                         "or keep all of them after a review with --accept-flagged"),
             ("kept", f"{BLOCK}, linked - kept by you (asked again only if it changes)"),
             ("accepted", f"{BLOCK}, linked - accepted with --accept-flagged (asked again only if it changes)"),
@@ -197,8 +420,10 @@ _SUMMARY = (("unasked", f"{BLOCK}, linked - decide in an interactive `python ins
             ("failed", "scan failed, linked unscanned until they change"))
 
 
-def gate(skills, act, apply, llm=False, allow=(), confirm=lambda question: None, accept_flagged=False):
-    """Scan the given hub skills; returns the names that must not be linked."""
+def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, accept_flagged=False,
+         days=None):
+    """Scan the given hub skills; returns the names that must not be linked. `choose(items)` is asked once,
+    after all verdicts, which flagged skills to quarantine: a set of names, or None when nobody can be asked."""
     allow = set(allow)
     if not skills:
         return set()
@@ -214,15 +439,25 @@ def gate(skills, act, apply, llm=False, allow=(), confirm=lambda question: None,
         return set()
     cache = load_cache()
     print(f"skillscan: SkillSpector {version}, {'static + LLM' if llm else 'static'} analysis of {len(skills)} skill(s)")
-    results, groups = verdicts(skills, exe, version, llm, cache), {}
+    results, groups, flagged = verdicts(skills, exe, version, llm, cache), {}, []
+    days = configured_days() if days is None else days
     for s in skills:
         r = results[s.name]
         rec, score = r.get("recommendation"), r.get("score")
         if "error" in r:
             outcome, label = "failed", f"{s.name} ({r['error']})"
         elif rec == BLOCK:
-            outcome = "allowed" if s.name in allow else _decide(s, r, act, confirm, cache, accept_flagged)
             label = f"{s.name} ({score})"
+            if s.name in allow:
+                outcome = "allowed"
+            elif r.get("accepted"):
+                outcome = "kept earlier"
+            elif accept_flagged:
+                cache.get(s.name, {})["accepted"] = True
+                outcome = "accepted"
+            else:
+                flagged.append((s, r))
+                continue
         elif rec == CAUTION:
             outcome, label = CAUTION, f"{s.name} ({score})"
         elif rec == SAFE:
@@ -230,6 +465,9 @@ def gate(skills, act, apply, llm=False, allow=(), confirm=lambda question: None,
         else:
             outcome, label = "unknown", f"{s.name} ({rec!r})"
         groups.setdefault(outcome, []).append(label)
+    if flagged:
+        for (s, r), outcome in zip(flagged, _resolve_flagged(flagged, act, choose, cache, days)):
+            groups.setdefault(outcome, []).append(f"{s.name} ({r.get('score')})")
     for outcome, text in _SUMMARY + (("unknown", "unknown verdict, linked"),):
         if groups.get(outcome):
             print(f"[WARN] skillscan: {len(groups[outcome])} {text}: {', '.join(groups[outcome])}")
@@ -238,7 +476,7 @@ def gate(skills, act, apply, llm=False, allow=(), confirm=lambda question: None,
     blocked = {label.split(" (")[0] for label in groups.get("quarantined", [])}
     if blocked:
         print(f"skillscan: {len(blocked)} skill(s) quarantined: {', '.join(sorted(blocked))}; "
-              "restore one with --allow-skill=<name>")
+              f"restore one with `{P.command_hint('quarantine restore <name>')}`")
     if apply:
         save_cache(cache)
     return blocked

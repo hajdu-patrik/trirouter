@@ -1,46 +1,25 @@
 #!/usr/bin/env python3
-"""trirouter installer - one command for Windows, macOS and Linux.
+"""trirouter command line: `trirouter <command> [subcommand] [flags]`, or `python install.py ...` /
+`python -m jev_router ...` (same commands; without a command these two run the interactive setup).
 
-    python install.py                 interactive setup (recommended)
-    python install.py --yes           non-interactive, accept the defaults
-    python install.py --dry-run       show what would change, change nothing
-    python install.py detect          report which AI tools are installed and logged in
-    python install.py models --probe  test which Codex/Antigravity models your accounts can use
-    python install.py remote [--name "My PC"] [--workdir <folder>] [--remove]   phone / other-device access
-    python install.py skills [--apply]  scan + re-link skills, regenerate workers, rebuild the catalog
-    python install.py doctor          read-only health report
-    python install.py uninstall       remove hooks, MCP entries and remote access (skills stay)
-    python install.py route [--provider claude] [--json] <prompt text...>
-                                      the routing decision for one prompt or sub-task (no text: read
-                                      stdin); side-effect free; exit 0 ok, 2 usage error, 1 error
+The commands, flags and help texts live in manual.py (one source for the parser, the help pages and
+docs/cli.md); argument validation is in cliparse.py; this module does the work.
 
-`python -m jev_router <command>` is equivalent. Other programs call the route command through
-the installer's shim: python ~/.jev-router/bin/route.py --json "<text>"
+    trirouter help [command]     manual page; `trirouter <command> --help` too
+    trirouter setup | detect | models | skills | quarantine | remote | doctor | route | uninstall | version
 
-Options: --providers=claude,codex,antigravity  --jev-token=<TypeSafe token or OpenRouter key>
-         --openrouter-key=<key>  --remote[=<name>]  --no-migrate
-         --allow-skill=<name,...>  never ask about these skills; restore them from quarantine (remembered)
-         --scan-llm=on|off         add SkillSpector's LLM analysis to the static scan (remembered)
-         --accept-flagged          keep every skill now rated DO_NOT_INSTALL without asking (bound to its
-                                   current content: asked again when it changes)
-
-Steps of the interactive setup:
-  1. detect Claude Code, Codex and Antigravity (installed? logged in?) and help you log in
-  2. JEV / TypeSafe token (optional - without it the built-in local model decides)
-  3. hooks + MCP server for every logged-in tool
-  4. shared skill folder ~/.skills: existing skills moved there, scanned with SkillSpector when it
-     is installed (DO_NOT_INSTALL -> asks: quarantine?) and linked into every tool; worker agents
-     generated for every available model x effort
-  5. optional: remote access and speech-to-text
+`python install.py --help` prints the command list generated from manual.py. Other programs call the
+route command through the installer's shim: python ~/.jev-router/bin/route.py --json "<text>"
 Requires Python 3.10+ and nothing else.
 """
+import difflib
 import getpass
 import json
 import os
 import sys
 from pathlib import Path
 
-from . import core, doctor, hooks, hub, integrations, platforms as P, remote
+from . import __version__, cliparse, core, doctor, hooks, hub, integrations, manual, platforms as P, remote, skillscan
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -50,46 +29,23 @@ CONFIG = STATE / "config.json"
 MODELS_LOCAL = STATE / "models.local.json"
 ALL = ("claude", "codex", "antigravity")
 
-VALUE_FLAGS = ("--name", "--providers", "--jev-token", "--openrouter-key", "--remote", "--workdir", "--allow-skill",
-               "--scan-llm")
-
-
-def parse_args(argv):
-    flags, positional, i = {}, [], 0
-    while i < len(argv):
-        a = argv[i]
-        if a.startswith("--"):
-            key, eq, val = a.partition("=")
-            if eq:
-                flags[key] = val
-            elif key in VALUE_FLAGS and i + 1 < len(argv) and not argv[i + 1].startswith("--") \
-                    and not (key == "--remote" and argv[i + 1] in ("detect", "models", "remote", "uninstall")):
-                flags[key] = argv[i + 1]
-                i += 1
-            else:
-                flags[key] = True
-        else:
-            positional.append(a)
-        i += 1
-    return flags, positional
-
-
-COMMANDS = ("setup", "detect", "models", "remote", "skills", "doctor", "uninstall", "route")
 FLAGS, POSITIONAL, COMMAND, YES, DRY = {}, [], "setup", False, False
 
 
-def configure(argv):
+def program_name():
+    """`trirouter` when started through the launcher (it sets TRIROUTER_PROG), else how it was started."""
+    if os.environ.get("TRIROUTER_PROG"):
+        return os.environ["TRIROUTER_PROG"]
+    name = Path(sys.argv[0] or "").name.lower()
+    if name in ("trirouter", "trirouter.exe", "trirouter.py"):  # the launcher or a pip console script
+        return "trirouter"
+    return "python install.py" if name == "install.py" else "python -m jev_router"
+
+
+def configure(inv):
+    """Publishes a parsed invocation to the module-level state the commands read."""
     global FLAGS, POSITIONAL, COMMAND, YES, DRY
-    if any(a in ("-h", "--help", "help") for a in argv):
-        print(__doc__)
-        sys.exit(0)
-    FLAGS, POSITIONAL = parse_args(argv)
-    COMMAND = POSITIONAL[0] if POSITIONAL else "setup"
-    if COMMAND == "route":  # dispatched by main() only as the first argument
-        print(f"route: must be the first argument\n{ROUTE_USAGE}", file=sys.stderr)
-        sys.exit(2)
-    if COMMAND not in COMMANDS or len(POSITIONAL) > 1:
-        sys.exit(f"Unknown command: {' '.join(POSITIONAL)}. Use one of: {', '.join(COMMANDS)} (quote names with spaces).")
+    FLAGS, POSITIONAL, COMMAND = inv.flags, inv.positional, inv.key
     YES = "--yes" in FLAGS
     DRY = "--dry-run" in FLAGS
 
@@ -177,7 +133,7 @@ def jev_backend_label(cfg):
         return "JEV (TypeSafe token)"
     if cfg.get("openrouter_api_key") or os.environ.get("JEV_OPENROUTER_API_KEY"):
         return "JEV through OpenRouter"
-    return "built-in local model (add JEV later with --jev-token=<TypeSafe token or OpenRouter key>)"
+    return "built-in local model (add JEV later with `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`)"
 
 
 def configure_jev(cfg):
@@ -205,12 +161,59 @@ def scan_settings(cfg, persist):
     llm = FLAGS.get("--scan-llm")
     if isinstance(llm, str):
         sc["llm"] = llm.strip().lower() in ("on", "1", "true", "yes")
+    days = FLAGS.get("--quarantine-days")
+    if isinstance(days, str):
+        sc["quarantine_days"] = int(days)
     if persist and sc != (cfg.get("skillscan") or {}):
         cfg["skillscan"] = sc
         save_config(cfg)
     hub.SCAN = {"llm": bool(sc.get("llm")), "allow": tuple(sc.get("allow") or ()),
-                "accept_flagged": "--accept-flagged" in FLAGS}  # one-off, never saved
-    hub.CONFIRM = lambda question: ask(question, "n") if interactive() and not YES else None
+                "accept_flagged": "--accept-flagged" in FLAGS,  # one-off, never saved
+                "quarantine_days": sc.get("quarantine_days", skillscan.DEFAULT_DAYS)}
+    hub.CHOOSE = choose_quarantine
+
+
+def choose_quarantine(items):
+    """One question for all undecided DO_NOT_INSTALL skills: the set of names to quarantine, or None when
+    nobody can be asked (--yes, no terminal). Anything but an explicit choice keeps the skills."""
+    if YES or not interactive():
+        return None
+    say(f"\n{len(items)} skill(s) rated {skillscan.BLOCK} (review one: {skillscan.EXE} scan \"<path>\"):")
+    for n, it in enumerate(items, 1):
+        say(f"  {n}. {it['name']} (risk {it['score']}, max {it['max_severity']})")
+    names = [it["name"] for it in items]
+    while True:
+        ans = input("Quarantine these skills? [a]ll / [n]one / [s]elect (default: none) ").strip().lower()
+        if ans in ("", "n", "none"):
+            return set()
+        if ans in ("a", "all"):
+            return set(names)
+        if ans not in ("s", "select"):
+            say("  Please answer a, n or s.")
+            continue
+        picked = select_numbers(len(items))
+        if picked is None:
+            continue
+        chosen = {names[i] for i in picked}
+        say("  quarantine: " + (", ".join(n for n in names if n in chosen) or "-"))
+        say("  keep:       " + (", ".join(n for n in names if n not in chosen) or "-"))
+        if input("Go ahead? [y/N] ").strip().lower().startswith("y"):
+            return chosen
+
+
+def select_numbers(count):
+    """Asks for numbers like 1,3,5-8 until they are valid; the zero-based indexes, or None when the answer is empty."""
+    while True:
+        text = input("Numbers to quarantine (e.g. 1,3,5-8; Enter = none): ").strip()
+        if not text:
+            return None
+        try:
+            picked = skillscan.parse_selection(text, count)
+        except ValueError as exc:
+            say(f"  {exc}.")
+            continue
+        if picked:
+            return picked
 
 
 def connect(providers, cfg):
@@ -229,10 +232,16 @@ def connect(providers, cfg):
             hub.cmd_migrate()
         hub.APPLY = not DRY
     hub.cmd_link()
+    purge_old_quarantine()
     hub.cmd_agents()
     if not DRY:
         hub.cmd_catalog()
     hub.cmd_doctor()
+
+
+def purge_old_quarantine():
+    """Deletes quarantine entries past their retention (a dry run only reports them)."""
+    skillscan.purge_expired(apply=hub.APPLY, days=hub.SCAN.get("quarantine_days"))
 
 
 def ask_remote_name(cfg):
@@ -268,8 +277,11 @@ def next_steps(providers):
     if "claude" in providers:
         say("  * Claude desktop Chat/Cowork: restart the app, then add to Settings > Profile > Personal preferences:")
         say('      "Before answering any new request, call the jev-router route_prompt tool with my message and follow its instructions."')
-    say("  * Optional: `python install.py models --probe` checks which Codex/Antigravity models your account can use.")
-    say("  * Health check any time: python install.py doctor")
+    if not DRY:
+        say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
+            "then run `trirouter help`.")
+    say(f"  * Optional: `{P.command_hint('models')}` checks which Codex/Antigravity models your account can use.")
+    say(f"  * Health check any time: {P.command_hint('doctor')}")
 
 
 def codex_accepts(codex, model_id):
@@ -309,18 +321,22 @@ def probe_models():
 def run_skills():
     found = P.detect(deep=False)
     hub.PROVIDERS = tuple(p for p, i in found.items() if i["installed"])
-    hub.APPLY = "--apply" in FLAGS
+    hub.APPLY = "--apply" in FLAGS and not DRY
     scan_settings(load_config(), persist=hub.APPLY)
     hub.cmd_link()
+    purge_old_quarantine()
     hub.cmd_agents()
     if hub.APPLY:
         hub.cmd_catalog()
     hub.cmd_doctor()
     if not hub.APPLY:
-        say("\nDry run only. Re-run with --apply to write the changes.")
+        say(f"\nPreview only. Re-run with --apply to write the changes: {P.command_hint('skills --apply')}")
 
 
-ROUTE_USAGE = "usage: python install.py route [--provider claude] [--json] [--] <prompt text...>   (no text: read stdin)"
+def route_usage():
+    return f"usage: {program_name()} route [--provider claude] [--json] [--] <prompt text...>   (no text: read stdin)"
+
+
 ROUTE_PROVIDERS = ALL + ("claude-chat",)
 ROUTE_KEYS = ("provider", "model", "effort", "agent", "tier", "task", "difficulty", "extra_agents", "destructive",
               "skill", "verify", "lang", "backend", "text", "note")
@@ -352,7 +368,9 @@ def parse_route_args(argv):
         elif a == "--provider" or a.startswith("--provider="):
             provider, i = provider_option(argv, i)
         elif a.startswith("--"):
-            raise ValueError(f"unknown option {a.partition('=')[0]}")
+            name = a.partition("=")[0]
+            near = difflib.get_close_matches(name, ["--json", "--provider", "--help"], n=1, cutoff=0.5)
+            raise ValueError(f"unknown option {name}" + (f" (did you mean {near[0]}?)" if near else ""))
         else:
             words.append(a)
         i += 1
@@ -390,16 +408,16 @@ def run_route(argv):
     try:
         parsed = parse_route_args(argv)
     except ValueError as exc:
-        print(f"route: {exc}\n{ROUTE_USAGE}", file=sys.stderr)
+        print(f"route: {exc}\n{route_usage()}\nRun `{program_name()} help route` for the options.", file=sys.stderr)
         return 2
     if parsed is None:
-        print(ROUTE_USAGE)
+        print(manual.render_help("route", program_name()))
         return 0
     provider, as_json, prompt = parsed
     try:
         prompt = (read_stdin() if prompt is None else prompt).strip()
         if not prompt:
-            print(f"route: empty prompt\n{ROUTE_USAGE}", file=sys.stderr)
+            print(f"route: empty prompt\n{route_usage()}", file=sys.stderr)
             return 2
         result = route_decision(prompt, provider)
         if as_json:
@@ -449,11 +467,109 @@ def run_uninstall():
     say("Hooks, MCP entries and remote access removed. Your skills stay in ~/.skills (and linked).")
 
 
+def run_quarantine(key):
+    cfg = load_config()
+    if key == "quarantine list":
+        return quarantine_list(cfg)
+    if key == "quarantine restore":
+        return quarantine_restore(cfg)
+    return quarantine_purge(cfg)
+
+
+def quarantine_list(cfg):
+    days = cfg.get("skillscan", {}).get("quarantine_days", skillscan.DEFAULT_DAYS)
+    rows = skillscan.entries(apply=False, days=days)
+    if not rows:
+        say("Quarantine is empty.")
+        return 0
+    now = skillscan.utcnow()
+    say(f"{'NAME':<30}{'QUARANTINED':<13}{'PURGED':<28}RISK")
+    for r in rows:
+        left = f"{r['purge_at']:%Y-%m-%d} ({skillscan.human_left(r['purge_at'] - now)})" if r["purge_at"] else "never"
+        risk = f"{r['risk']} ({r['max_severity']})" if r["risk"] is not None else "-"
+        say(f"{r['name']:<30}{r['quarantined_at']:%Y-%m-%d}   {left:<28}{risk}")
+    say(f"\n{len(rows)} skill(s). Restore one: {P.command_hint('quarantine restore <name>')}")
+    return 0
+
+
+def quarantine_restore(cfg):
+    hub.APPLY = not DRY
+    restored, problems = skillscan.restore(POSITIONAL, hub.HUB, hub.act)
+    for msg in problems:
+        say(f"[!!]  {msg}")
+    if restored and not DRY:
+        sc = dict(cfg.get("skillscan") or {})
+        sc["allow"] = sorted(set(sc.get("allow") or []) | set(restored))
+        cfg["skillscan"] = sc
+        save_config(cfg)
+    if restored:
+        say(f"Restored {', '.join(restored)}: {'now in' if not DRY else 'would go to'} {hub.HUB} and allowed in "
+            f"config.json. Link {'it' if len(restored) == 1 else 'them'} into the tools with "
+            f"`{P.command_hint('skills --apply')}`.")
+    return 1 if problems else 0
+
+
+def quarantine_purge(cfg):
+    scan_settings(cfg, persist=not DRY)
+    days = hub.SCAN["quarantine_days"]
+    everything = "--all" in FLAGS
+    if everything:
+        rows = skillscan.entries(apply=False, days=days)
+        if not rows:
+            say("Quarantine is empty.")
+            return 0
+        if not DRY and not YES:
+            say(f"This permanently deletes {len(rows)} quarantined skill(s): {', '.join(r['name'] for r in rows)}")
+            if not (interactive() and input("Delete them all? [y/N] ").strip().lower().startswith("y")):
+                say("Cancelled: nothing deleted.")
+                return 1
+    elif not days:
+        say("Retention is off (quarantine_days = 0): nothing expires. Use --all to delete everything.")
+        return 0
+    purged = skillscan.purge_expired(apply=not DRY, days=days, everything=everything)
+    if not purged:
+        say("Nothing expired.")
+    return 0
+
+
+def show_help(inv):
+    prog = manual.DOC_PROG if inv.kind == "markdown" else program_name()
+    if inv.kind == "markdown":
+        sys.stdout.flush()  # bytes, so the file has LF endings on every platform
+        sys.stdout.buffer.write(manual.render_markdown().encode("utf-8"))
+        sys.stdout.buffer.flush()
+    elif inv.kind == "overview":
+        say(manual.render_overview(prog))
+    else:
+        say(manual.render_help(inv.key, prog))
+    return 0
+
+
+def usage_error(exc, prog):
+    print(f"{prog}: {exc}", file=sys.stderr)
+    if exc.hint:
+        print("  " + exc.hint.replace("\n", "\n  "), file=sys.stderr)
+    return 2
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv[:1] == ["route"]:  # before configure(): the prompt text is free-form
+    prog = program_name()
+    if argv[:1] == ["route"]:  # before parsing: the prompt text is free-form
         return run_route(argv[1:])
-    configure(argv)
+    legacy = prog != "trirouter"
+    try:
+        inv = cliparse.resolve(argv, prog, legacy)
+    except cliparse.UsageError as exc:
+        sys.exit(usage_error(exc, prog))
+    if inv.kind in ("help", "overview", "markdown"):
+        return show_help(inv)
+    if inv.kind == "version":
+        say(f"trirouter {__version__}")
+        return 0
+    configure(inv)
     commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": probe_models,
                 "detect": lambda: print_report(P.detect()), "remote": run_remote, "uninstall": run_uninstall}
-    return commands[COMMAND]() or 0
+    if inv.key.startswith("quarantine"):
+        return run_quarantine(inv.key)
+    return commands[inv.key]() or 0

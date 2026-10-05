@@ -5,10 +5,13 @@ feature. The router, skills and agents work exactly as when you type locally, be
 runs on your computer.
 
 ```bash
-python install.py remote --name "My Workstation"                  # name defaults to the hostname
-python install.py remote --name "My Workstation" --workdir ~/code  # folder remote sessions start in
-python install.py remote --remove                                 # undo
+trirouter remote --name "My Workstation"                  # name defaults to the hostname
+trirouter remote --name "My Workstation" --workdir ~/code  # folder remote sessions start in
+trirouter remote --remove                                 # undo
 ```
+
+(`trirouter` exists after the first `python install.py` setup; until then, or if it is not on PATH,
+use `python install.py remote ...`, which does the same. `trirouter help remote` lists the options.)
 
 The name and folder are stored in `~/.jev-router/config.json`; the name is shown on your other
 devices. Use the same name for every tool so you always recognize the machine.
@@ -31,7 +34,7 @@ autostart entry opens one in Windows Terminal, the default terminal on Windows 1
 also wraps Antigravity's own autostart entry this way. The desktop apps (Claude, ChatGPT,
 Antigravity) are not started – open them whenever you like, they work as usual.
 
-**Checking and self-repair.** `python install.py doctor` shows whether every task and server runs,
+**Checking and self-repair.** `trirouter doctor` shows whether every task and server runs,
 whether the Antigravity autostart entry is hidden, the Codex remote connection state and whether
 the installed Codex still accepts `app-server --remote-control` (an experimental flag). On Windows
 the task `JevRouter-Watchdog` runs at logon and every 30 minutes: it re-hides the Antigravity

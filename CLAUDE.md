@@ -24,12 +24,14 @@ details or absolute user paths. Per-user state belongs in `~/.jev-router/`, neve
   Windows, macOS and Linux – go through `jev_router/platforms.py` for paths, links and executables.
 - Package layout: code in `jev_router/` (relative imports), data in `jev_router/config/`, worker
   templates in `jev_router/templates/agents/`, bundled skills in `jev_router/skills/`. One CLI
-  (`python install.py <command>` = `python -m jev_router <command>`); no stand-alone scripts.
+  (`trirouter <command>` = `python install.py <command>` = `python -m jev_router <command>`; the launcher
+  only exists after the first setup); no stand-alone scripts. Commands, flags and help texts are data in
+  `jev_router/manual.py`: after editing it run `trirouter help --markdown > docs/cli.md` (a test checks it).
 - Hooks must never block or crash the host tool: catch everything, always exit 0.
 - Model policy (`jev_router/config/models.json`): Claude only via generic aliases (fable / sonnet / opus),
   never Haiku, never a dated model ID; `ultra` effort is banned for every provider.
 - Worker agents are generated from `jev_router/templates/agents/*.md` + `config/targets.json` +
-  `config/models.json` (`python install.py skills --apply`) – edit the sources, never the generated files.
+  `config/models.json` (`trirouter skills --apply`, or `python install.py skills --apply`) – edit the sources, never the generated files.
 - Installers are idempotent and dry-run by default; changed user config files get a `.bak` copy.
 
 ## Git

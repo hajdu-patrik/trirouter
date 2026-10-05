@@ -6,7 +6,7 @@ turn and carries no prompt text. So the latest user input is read back from the 
 context is injected only once per user turn.
 
     python -m jev_router.hooks claude|codex UserPromptSubmit|Stop [--cloud-only]
-    python -m jev_router.hooks claude StopFailure|SessionEnd|SubagentStart
+    python -m jev_router.hooks claude StopFailure|SessionEnd|SubagentStart|SessionStart
     python -m jev_router.hooks antigravity  PreInvocation|Stop
 """
 import hashlib
@@ -28,6 +28,7 @@ SKIP_TAGS = ("#norouter", "#privat")
 SYSTEM_PREFIXES = ("<task-notification", "<system-reminder", "[system notification", "<command-", "<local-command",
                    "caveat: the messages below", "<agent-message")
 STOP_EVENTS = ("Stop", "StopFailure", "SessionEnd")
+PURGE_EVERY_S = 6 * 3600  # SessionStart: at most one quarantine purge per 6 hours
 SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|xox[abp]-[\w-]{10,}"
                        r"|\b\d/0A[\w-]{20,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}|\b(?=[\w+=-]*\d)(?=[\w+=-]*[A-Za-z])[\w+=-]{32,}\b)")
 
@@ -164,6 +165,25 @@ def on_subagent_start(provider, raw):
          "prompt_id": payload.get("prompt_id"), "agent_type": payload["agent_type"]}, SUBAGENT_LOG)
 
 
+def on_session_start(provider, raw):
+    """Purges expired quarantine entries, at most every 6 hours. Cheap, silent (a SessionStart hook's stdout
+    becomes model context) and fully wrapped: it can never block or crash the hook."""
+    try:
+        stamp = core.STATE_DIR / "state" / "quarantine_purge.txt"
+        try:
+            last = float(stamp.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            last = 0.0
+        if 0 <= time.time() - last < PURGE_EVERY_S:
+            return
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(str(time.time()), encoding="utf-8")  # first: a slow purge is not repeated by a parallel session
+        from . import skillscan  # lazy: the prompt hooks never need it
+        skillscan.purge_expired(apply=True, say=None)
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+
+
 def on_prompt(provider, hook_event_name, raw):
     prompt, payload, turn_key = extract_prompt(raw, provider)
     if prompt is None:
@@ -235,6 +255,8 @@ def main(argv=None):
             on_stop(provider, hook_event_name, raw)
         elif hook_event_name == "SubagentStart":
             on_subagent_start(provider, raw)
+        elif hook_event_name == "SessionStart":
+            on_session_start(provider, raw)
         else:
             on_prompt(provider, hook_event_name, raw)
     return 0

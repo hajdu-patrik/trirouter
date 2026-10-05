@@ -102,6 +102,17 @@ def test_link_dir_roundtrip(tmp_path):
     assert (target / "SKILL.md").exists()  # the target is never touched
 
 
+def isolate_launcher(tmp_path, monkeypatch):
+    """The `trirouter` launcher writes a PATH entry: never let a test reach the real registry or ~/.local/bin."""
+    monkeypatch.setattr(install_hooks, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(install_hooks, "LOCAL_BIN", tmp_path / "local-bin")
+    store = {"path": ("C:/Windows", 2)}
+    monkeypatch.setattr(install_hooks, "user_path_read", lambda: store["path"])
+    monkeypatch.setattr(install_hooks, "user_path_write", lambda value, kind: store.update(path=(value, kind)))
+    monkeypatch.setattr(install_hooks, "broadcast_env_change", lambda: store.setdefault("broadcast", []).append(1))
+    return store
+
+
 def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     paths = {k: tmp_path / Path(v).relative_to(P.HOME) for k, v in P.PATHS.items()}
     monkeypatch.setattr(P, "PATHS", paths)
@@ -109,6 +120,7 @@ def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     monkeypatch.setattr(install_hooks, "SHIM_HOOK", tmp_path / "bin" / "run_hook.py")
     monkeypatch.setattr(install_hooks, "SHIM_MCP", tmp_path / "bin" / "mcp_server.py")
     monkeypatch.setattr(install_hooks, "SHIM_ROUTE", tmp_path / "bin" / "route.py")
+    isolate_launcher(tmp_path, monkeypatch)
     paths["claude_settings"].parent.mkdir(parents=True)
     paths["claude_settings"].write_text(json.dumps({"model": "sonnet", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}))
     assert install_hooks.install(apply=True) > 0
@@ -116,7 +128,7 @@ def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     s = json.loads(paths["claude_settings"].read_text())
     assert s["model"] == "sonnet"
     assert len(s["hooks"]["Stop"]) == 2                                # foreign hook kept, ours added
-    assert set(s["hooks"]) == {"UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart"}
+    assert set(s["hooks"]) == {"UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart"}
     assert set(json.loads(paths["codex_hooks"].read_text())["hooks"]) == {"UserPromptSubmit", "Stop"}
     agy = json.loads(paths["agy_hooks"].read_text())
     assert set(agy["router"]) == {"PreInvocation", "Stop"}

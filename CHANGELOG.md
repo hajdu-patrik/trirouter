@@ -8,6 +8,32 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- The `trirouter` command: `trirouter <command> [subcommand] [flags]` from any folder. Setup writes a
+  launcher to `~/.jev-router/bin` (Windows: `trirouter.cmd` running `python.exe`, with that folder added
+  to the user PATH through `HKCU\Environment`, type preserved, no duplicates, system PATH untouched,
+  `WM_SETTINGCHANGE` broadcast; macOS / Linux: an executable plus a link in `~/.local/bin`, and the
+  line for your shell profile is printed, never written). Dry-run aware, idempotent, removed by
+  `uninstall`, shown by `doctor`. `python install.py ...` and `python -m jev_router ...` keep working.
+- Man-page-like help for every command (NAME, SYNOPSIS, DESCRIPTION, OPTIONS with short/long form,
+  value, default and whether it is remembered, CHANGES, EXAMPLES, EXIT STATUS, SEE ALSO):
+  `trirouter help [command]`, `trirouter <command> --help`, `-h`. `trirouter` alone lists the commands.
+  Short flags `-y`, `-n`, `-a`. Commands, flags and texts are data in `jev_router/manual.py`;
+  `docs/cli.md` (getting started, common tasks, one section per command) is generated from it by
+  `trirouter help --markdown`, and a test keeps the two identical. New commands `help` and `version`.
+- Quarantine in one question: after all scans, the skills rated `DO_NOT_INSTALL` that nobody has decided
+  on are listed and asked about once (`[a]ll / [n]one / [s]elect`, default none; `s` takes numbers like
+  `1,3,5-8` and a final confirmation). A "none" is remembered for the skill's content as before;
+  unattended runs still only warn.
+- Quarantined skills are deleted for good after 3 days (`skillscan.quarantine_days`,
+  `--quarantine-days=N`, `0` = never). Each entry gets a sidecar `~/.jev-router/quarantine/<name>.json`
+  (name, quarantined_at, purge_after, risk, max_severity). The purge runs at every `setup` and
+  `skills --apply` (dry runs only report) and, at most every 6 hours, from a new Claude `SessionStart`
+  hook that prints nothing and cannot fail. It only ever deletes folders directly inside the quarantine
+  folder, never follows a link and clears read-only files on Windows.
+- `trirouter quarantine [list]`, `quarantine restore <name>...` (back to `~/.skills`, allowed in
+  `skillscan.allow`) and `quarantine purge [--all]`; `doctor` reports the number of entries and the next
+  purge date.
+
 - Skill security scan with NVIDIA [SkillSpector](https://github.com/NVIDIA/SkillSpector): `setup`
   (step 4) and `skills` scan every third-party skill in `~/.skills` before it is linked into a tool.
   On `DO_NOT_INSTALL` you are asked (default: no) whether to move it to `~/.jev-router/quarantine/`
@@ -42,6 +68,12 @@ dates are ISO 8601.
   any local `ROUTER_*` setting first, so its numbers always match CI.
 
 ### Changed
+- Every command validates its flags: an unknown or not-applicable flag, a value flag without a value
+  or a boolean flag given a value is a usage error (exit 2) with a "did you mean" suggestion, where
+  flags used to be global and silently ignored. `python install.py` without a command still runs the
+  interactive setup; `trirouter` without a command prints the command list. `route` parsing is unchanged.
+- Hints in `doctor`, `setup`, the remote setup and the skill scan name `trirouter ...` once the launcher
+  exists (otherwise `python install.py ...`); the README and guides use the `trirouter` form.
 - JEV's destructive question leaves out drafts, planning and purchase advice ("write an email to my
   colleague", "which domain should I buy?"): JEV's false positives on the eval sets fell from 4 / 4 / 5 %
   to 1 / 2 / 2 % (Hungarian / English / real traffic), recall unchanged at 100 %.
