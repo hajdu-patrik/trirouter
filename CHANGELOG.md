@@ -17,6 +17,10 @@ dates are ISO 8601.
   terminal). Every file the commands write (config.json, models.local.json, agent files, Codex config.toml,
   settings and hook files, the catalog, profiles, launchers) is written to a temporary file first and then
   renamed over the old one, so an interrupt never leaves a half-written file.
+- In PowerShell, `trirouter` is a function in the profile block that setup writes (Windows PowerShell and pwsh): it starts
+  the launcher's Python directly instead of `trirouter.cmd`, so Ctrl+C no longer ends with cmd.exe's "Terminate batch
+  job (Y/N)?"; arguments and `$LASTEXITCODE` (130, 2) pass through and tab completion keeps working. `trirouter.cmd`
+  stays for cmd.exe; `uninstall` removes the function with the block.
 - `trirouter --version` (also `-V`) prints the version; it is listed in the command overview and completed.
 - Daily model discovery for all three tools. At most once every 24 hours a Claude Code session start (or a
   Codex / Antigravity prompt) starts a detached background check -- the hook returns at once; an `O_EXCL` lock

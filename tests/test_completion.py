@@ -275,3 +275,29 @@ foreach ($line in @('trirouter mo', 'trirouter models --', 'trirouter models --a
     assert out.returncode == 0 and not out.stderr.strip(), out.stderr
     assert out.stdout.splitlines() == ["models", "--discover --auto= --dry-run --help", "--auto=on --auto=off",
                                        "list restore purge", "--version -V --help -h"]
+
+
+# ---- the PowerShell `trirouter` function (no trirouter.cmd, so no "Terminate batch job" after Ctrl+C) ------------
+
+def test_powershell_block_defines_a_trirouter_function_that_bypasses_the_cmd_launcher(monkeypatch):
+    monkeypatch.setattr(P, "IS_WINDOWS", True)
+    monkeypatch.setattr(P, "python_exe", lambda: r"C:\Program Files\Py'thon\python.exe")
+    block = C.profile_block("powershell")
+    assert block.startswith(C.BEGIN) and block.endswith(C.END + "\n")
+    assert ("function global:trirouter { & 'C:\Program Files\Py''thon\python.exe' "
+            '"$HOME/.trirouter/bin/trirouter.py" @args }') in block
+    assert ".cmd" not in block and "exit" not in block  # $LASTEXITCODE is left as the program set it
+    assert C.with_block(C.with_block("", block), block) == block  # idempotent
+
+
+def test_posix_powershell_function_runs_the_launcher_and_other_shells_get_none(monkeypatch):
+    monkeypatch.setattr(P, "IS_WINDOWS", False)
+    assert '& "$HOME/.trirouter/bin/trirouter" @args' in C.profile_block("powershell")
+    assert "function" not in C.profile_block("bash")
+
+
+def test_removing_the_block_removes_the_function(monkeypatch):
+    block = C.profile_block("powershell")
+    text = C.with_block("Set-Alias a b\n", block)
+    assert "function global:trirouter" in text
+    assert "trirouter" not in C.with_block(text, None)

@@ -455,6 +455,18 @@ def script_path(shell):
     return script_dir() / f"trirouter.{EXT[shell]}"
 
 
+def powershell_function():
+    """`trirouter` as a PowerShell function that starts the launcher's Python directly. Going through
+    trirouter.cmd makes cmd.exe ask "Terminate batch job (Y/N)?" after Ctrl+C. All arguments are passed on and
+    $LASTEXITCODE (130 interrupted, 2 usage error) is left as the program set it. trirouter.cmd stays for cmd.exe."""
+    if P.IS_WINDOWS:
+        python = "'" + str(P.python_exe()).replace("'", "''") + "'"
+        target = f'& {python} "$HOME/.trirouter/bin/trirouter.py" @args'
+    else:
+        target = '& "$HOME/.trirouter/bin/trirouter" @args'
+    return f"function global:trirouter {{ {target} }}"
+
+
 def profile_block(shell):
     """The marked block for a profile; None for fish, which autoloads its completions folder."""
     if shell == "fish":
@@ -462,7 +474,7 @@ def profile_block(shell):
     if shell == "powershell":
         body = ("$trirouterCompletion = Join-Path $HOME '.trirouter/completion/trirouter.ps1'\n"
                 "if (Test-Path $trirouterCompletion) { . $trirouterCompletion }\n"
-                "Remove-Variable trirouterCompletion")
+                "Remove-Variable trirouterCompletion\n" + powershell_function())
     else:
         rel = f".trirouter/completion/trirouter.{EXT[shell]}"
         body = f'[ -f "$HOME/{rel}" ] && . "$HOME/{rel}"'
