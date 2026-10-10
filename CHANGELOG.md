@@ -144,6 +144,12 @@ dates are ISO 8601.
 - Removed `gpt-5.4` from the Codex catalog (dropped from Codex's bundled catalogs in 0.158).
 
 ### Fixed
+- A tier in `targets.json` that names a model the daily discovery (or `models`) marked unavailable -- e.g.
+  Codex's `deep` tier on `gpt-5.6-terra`, `cli:codex`, or Antigravity's `deep` tier on `gemini-3.1-pro` --
+  now falls back to the closest selectable model of that tool: same role first, then the nearest role
+  (ties go to the stronger one). A literal agent such as `gemini-pro-worker` follows the substitute's agent
+  tier, the tier-specific agents (`test-worker-*`) are generated on the substitute, a `cli:` tier is checked
+  against the other tool's models, and the `[router]` context notes the substitution.
 - A go-ahead is answered in its own language: "Mehet" after a prompt that was only a pasted English
   block asked for an English reply, because a continuation kept the previous language. A go-ahead
   with Hungarian or English words now sets the language; an ambiguous one ("ok", "lgtm") keeps it.

@@ -402,6 +402,33 @@ def models_for(provider):
     return out
 
 
+ROLE_ORDER = ("fast", "balanced", "deep")
+
+
+def _catalog_role(provider, model_id):
+    """The role models.json (or models.local.json) gives the model, even when it is not selectable."""
+    cfg = load_json("models.json", {})
+    base = base_provider(provider)
+    for model in (cfg.get(provider) or cfg.get(base) or {}).get("models", []):
+        if model.get("id") == model_id:
+            return model.get("role", "balanced")
+    entry = model_overrides().get(base, {}).get(model_id)
+    return (entry.get("role") if isinstance(entry, dict) else None) or "balanced"
+
+
+def available_model(provider, model_id, models=None):
+    """`model_id` while it is selectable. Once it is not (a tier in targets.json names a model the daily discovery
+    removed), the closest selectable model of the provider: the same role first, then the nearest role (ties go to
+    the stronger one), in catalog order. With no selectable model at all, `model_id` unchanged."""
+    models = models_for(provider) if models is None else models
+    if not model_id or not models or model_id in models:
+        return model_id
+    rank = {r: i for i, r in enumerate(ROLE_ORDER)}
+    want = rank.get(_catalog_role(provider, model_id), 1)
+    return min(models, key=lambda m: (abs(rank.get(models[m].get("role"), 1) - want),
+                                      -rank.get(models[m].get("role"), 1)))
+
+
 def effort_levels_for(provider):
     models = models_for(provider)
     levels = sorted({l for m in models.values() for l in m["levels"]},
@@ -607,13 +634,17 @@ def extra_agents(ans, level):
     return max(0, min(n, MAX_EXTRA_AGENTS))
 
 
-def resolve_tier(d, targets, models=None, session_model=None):
+def resolve_tier(d, targets, models=None, session_model=None, provider=None):
     """(text, effort, model, agent). A plain-text tier answers in-session (model and agent None).
-    Placeholders in agent/text: {model}, {model_} (TOML-safe), {effort}, {slug}, {agent}."""
+    Placeholders in agent/text: {model}, {model_} (TOML-safe), {effort}, {slug}, {agent}.
+    With `provider`, a tier whose model is no longer selectable falls back to the closest one that is."""
     spec = _tier_spec(d, targets)
     if isinstance(spec, str):
         return spec, d.get("effort"), None, None
     model = spec.get("model", "")
+    if provider:
+        spec, models = _available_spec(d, spec, targets, models, provider)
+        model = spec.get("model", "")
     mdef = (models or {}).get(model)
     effort = _tier_effort(d, spec, mdef)
     slug = ((mdef or {}).get("slug") or spec.get("slug") or "{id}").format(id=model, effort=effort or "")
@@ -633,6 +664,32 @@ def _tier_spec(d, targets):
     return tiers.get(d["primary"]) or tiers.get("main") or "Answer directly in this session."
 
 
+def tier_provider(tier, provider):
+    """The provider whose models a tier names: `cli:codex` runs Codex models whatever tool routes it."""
+    name = tier or ""
+    return name.split(":", 1)[1] if name.startswith("cli:") else base_provider(provider)
+
+
+def _available_spec(d, spec, targets, models, provider):
+    """(spec, models of the tier's provider), the spec re-pointed at a selectable model when its own is not."""
+    owner = tier_provider(d.get("primary"), provider)
+    pool = models if models is not None and owner == base_provider(provider) else models_for(owner)
+    model = spec.get("model", "")
+    substitute = available_model(owner, model, pool)
+    if substitute == model:
+        return spec, pool
+    d.setdefault("notes", []).append(f"{model} is not available, using {substitute}")
+    agent = spec.get("agent", "")
+    if not agent or "{" in agent:
+        return dict(spec, model=substitute), pool
+    # A literal agent (Antigravity's gemini-pro-worker) belongs to the old model's agent tier.
+    tier = pool[substitute].get("agent_tier")
+    template = targets.get("agent_template", "")
+    if tier and "{tier}" in template:
+        return dict(spec, model=substitute, agent=template.format(tier=tier)), pool
+    return dict(targets.get("model_pick") or {"text": "Answer directly in this session."}, model=substitute), pool
+
+
 def _tier_effort(d, spec, mdef):
     """JEV's own model pick is not bound to the tier's effort range, only to the model's levels."""
     effort = d.get("effort")
@@ -644,7 +701,7 @@ def _tier_effort(d, spec, mdef):
 
 
 def render(d, destructive_hit, targets, provider="claude", lang_code="hu", models=None, session_model=None):
-    text, effort, model, agent = resolve_tier(d, targets, models, session_model)
+    text, effort, model, agent = resolve_tier(d, targets, models, session_model, provider)
     d["effort"] = effort
     if model:
         d["target_model"] = model

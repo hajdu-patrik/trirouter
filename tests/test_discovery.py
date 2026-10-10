@@ -514,3 +514,86 @@ def test_doctor_shows_the_last_check(fake, monkeypatch, capsys, tmp_path):
     assert "Daily model check" in out and "on; last " in out and "no change" in out
     doctor.report_discovery({"model_discovery": {"auto": False}})
     assert "off (" in capsys.readouterr().out
+
+
+# ---- tiers naming a model that is no longer available -----------------------------------------------------------
+
+def retire(provider, *ids):
+    path = D.local_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = local()
+    for model_id in ids:
+        data.setdefault(provider, {})[model_id] = {"selectable": False}
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def tier_decision(tier):
+    return {"primary": tier, "effort": "high", "task": "code", "level": 1, "task_conf": 1.0, "notes": []}
+
+
+CODEX_TARGETS = {"agent_template": "{model_}-{effort}", "tiers": {"deep": {
+    "model": "gpt-a", "efforts": ["high"], "agent": "{model_}-{effort}",
+    "text": "Spawn a subagent with agent_type `{agent}` ({model}, effort {effort})."}}}
+
+
+def test_available_model_keeps_a_selectable_model(fake):
+    assert core.available_model("codex", "gpt-a") == "gpt-a"
+
+
+def test_removed_tier_model_falls_back_to_the_closest_selectable_one(fake):
+    retire("codex", "gpt-a")
+    assert core.available_model("codex", "gpt-a") == "gpt-b"
+    d = tier_decision("deep")
+    text, effort, model, agent = core.resolve_tier(d, CODEX_TARGETS, core.models_for("codex"), provider="codex")
+    assert (model, agent, effort) == ("gpt-b", "gpt-b-high", "high") and "gpt-b-high" in text
+    assert d["notes"] == ["gpt-a is not available, using gpt-b"]
+
+
+def test_fallback_prefers_the_same_role_then_the_stronger_neighbour(fake):
+    catalog = json.loads(json.dumps(CATALOG))
+    catalog["codex"]["models"] += [{"id": "gpt-deep", "selectable": True, "role": "deep", "levels": ["high"]},
+                                   {"id": "gpt-bal", "selectable": True, "role": "balanced", "levels": ["high"]}]
+    (core.CFG_DIR / "models.json").write_text(json.dumps(catalog), encoding="utf-8")
+    retire("codex", "gpt-a")
+    assert core.available_model("codex", "gpt-a") == "gpt-bal"   # same role
+    retire("codex", "gpt-bal")
+    assert core.available_model("codex", "gpt-a") == "gpt-deep"  # fast and deep are equally near: the stronger
+
+
+def test_cli_tier_checks_the_other_tools_models(fake):
+    retire("codex", "gpt-a")
+    targets = {"tiers": {"cli:codex": {"model": "gpt-a", "efforts": ["high"], "text": "Codex --model {model}"}}}
+    text, _, model, _ = core.resolve_tier(tier_decision("cli:codex"), targets, core.models_for("claude"),
+                                          provider="claude")
+    assert model == "gpt-b" and text == "Codex --model gpt-b"
+
+
+def test_literal_tier_agent_follows_the_substitutes_agent_tier(fake):
+    catalog = json.loads(json.dumps(CATALOG))
+    catalog["antigravity"]["models"][0]["agent_tier"] = "flash"
+    catalog["antigravity"]["models"][1]["agent_tier"] = "pro"
+    (core.CFG_DIR / "models.json").write_text(json.dumps(catalog), encoding="utf-8")
+    retire("antigravity", "gem-pro")
+    targets = {"agent_template": "gemini-{tier}-worker", "tiers": {"deep": {
+        "model": "gem-pro", "efforts": ["high"], "agent": "gemini-pro-worker", "text": "Delegate to `{agent}` ({slug})."}}}
+    text, _, model, agent = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
+                                              provider="antigravity")
+    assert (model, agent, text) == ("gem-flash", "gemini-flash-worker", "Delegate to `gemini-flash-worker` (gem-flash-high).")
+
+
+def test_literal_tier_agent_without_a_substitute_tier_uses_model_pick(fake):
+    retire("antigravity", "gem-pro")
+    targets = {"agent_template": "gemini-{tier}-worker", "model_pick": {"text": "Best-fit model: `{slug}`."},
+               "tiers": {"deep": {"model": "gem-pro", "efforts": ["high"], "agent": "gemini-pro-worker",
+                                  "text": "Delegate to `{agent}`."}}}
+    text, _, model, agent = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
+                                              provider="antigravity")
+    assert (model, agent, text) == ("gem-flash", None, "Best-fit model: `gem-flash-high`.")
+
+
+def test_tier_agents_are_generated_on_the_substitute_model(fake):
+    from trirouter import hub
+    retire("claude", "sonnet")
+    tiers = {"test": {"model": "sonnet", "efforts": ["high"], "agent": "test-worker-{effort}"}}
+    assert list(hub._tier_variants("claude", tiers, "{model}-worker-{effort}")) == \
+        [("test-worker-{effort}", "opus", "high", "test-worker")]

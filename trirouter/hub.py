@@ -262,11 +262,14 @@ def _generic_variants(provider, generic):
             yield generic, model, effort, _role_template(mdef)
 
 
-def _tier_variants(tiers, generic):
+def _tier_variants(provider, tiers, generic):
+    """Tier-specific agents (test-worker-*), on the closest selectable model when the tier's own is not."""
+    from . import core
     specs = [s for s in tiers.values() if isinstance(s, dict) and s.get("agent") and s["agent"] != generic]
     for spec in specs:
+        model = core.available_model(provider, spec["model"])
         for effort in spec.get("efforts", []):
-            yield spec["agent"], spec["model"], effort, spec["agent"].split("-{")[0]
+            yield spec["agent"], model, effort, spec["agent"].split("-{")[0]
 
 
 def planned_agents():
@@ -278,7 +281,7 @@ def planned_agents():
     for provider in (p for p in ("claude", "codex") if p in PROVIDERS):
         cfg = targets.get(provider, {})
         generic = cfg.get("agent_template")
-        variants = itertools.chain(_generic_variants(provider, generic), _tier_variants(cfg.get("tiers", {}), generic))
+        variants = itertools.chain(_generic_variants(provider, generic), _tier_variants(provider, cfg.get("tiers", {}), generic))
         for agent_tpl, model, effort, tpl_name in variants:
             name = agent_tpl.format(model=model, model_=model.replace(".", "_"), effort=effort)
             if (provider, name) in seen:
