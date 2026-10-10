@@ -69,21 +69,23 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 | Command | Purpose |
 | --- | --- |
 | `trirouter setup [--dry-run]` | the interactive setup (what `python install.py` runs) |
-| `trirouter detect` | report installed / logged-in tools |
 | `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
 | `trirouter remote --name "My PC" [--workdir <folder>]` | remote access from other devices ([guide](docs/remote-access.md)) |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
 | `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N]` | scan + re-link skills, regenerate workers, rebuild the catalog |
 | `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
-| `trirouter doctor` | health report |
+| `trirouter doctor` | health report (also: which tools are installed, their version, logged in or not) |
 | `trirouter route [--provider claude] [--json] <text>` | routing decision for one prompt or sub-task, side-effect free ([details](#routing-decision-on-demand)) |
-| `trirouter completion [--shell=bash\|zsh\|fish\|powershell] [--install \| --remove]` | shell tab completion (setup installs it) |
-| `trirouter help [<command>]`, `trirouter version` | the manual pages, the version |
+| `trirouter help [<command>]`, `trirouter --version` | the manual pages, the version |
 
 **Tab completion:** setup installs it for your shell – PowerShell (Windows PowerShell and pwsh), bash
 (`~/.bashrc`; macOS: `~/.bash_profile`), zsh (`~/.zshrc`, the macOS default) or fish – as one marked block
-in the profile (with a `.bak` of the original; skip it with `--no-completion`). In a new terminal type
+in the profile (with a `.bak` of the original; skip it with `--no-completion`; `trirouter uninstall` removes it). In a new terminal type
 `mo` + Tab after `trirouter` completes to `models`; after `trirouter models`, `--` + Tab lists its flags and `--auto=` + Tab offers `on` / `off`.
+
+**Interrupting:** Ctrl+C (and Ctrl+D, also at a question) stops any command at once: it prints `Interrupted: nothing was
+left half-written.`, ends the programs it started and exits with status 130. Config files are written atomically
+(temporary file, then rename), so an interrupt never leaves a half-written file.
 
 Every command validates its flags (an unknown or misplaced one is an error with a "did you mean"
 hint) and has its own page: `trirouter help skills`, `trirouter skills --help`. The same pages, with a
@@ -337,7 +339,7 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 install.py                 entry point: `python install.py [command]` (same as `python -m trirouter` and `trirouter`)
 pyproject.toml             package metadata, console script `trirouter`, pytest settings
 trirouter/                 the package
-├── cli.py                 the commands (setup, detect, models, skills, quarantine, remote, doctor, route, completion, uninstall)
+├── cli.py                 the commands (setup, models, skills, quarantine, remote, doctor, route, uninstall)
 ├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
 ├── cliparse.py            argument validation against manual.py
 ├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
@@ -348,7 +350,8 @@ trirouter/                 the package
 ├── mcp_server.py          MCP server: route_prompt, list_skills, get_skill (python -m trirouter.mcp_server)
 ├── hub.py                 shared skill folder, links, worker generation
 ├── discovery.py           daily model discovery (new / retired models per tool, background run, lock)
-├── completion.py          shell tab completion generated from manual.py, profile install
+├── completion.py          shell tab completion generated from manual.py, profile install (used by setup / uninstall)
+├── interrupt.py           Ctrl+C / Ctrl+D handling for the commands (exit 130, key watcher)
 ├── skillscan.py           SkillSpector gate: scan, cache, quarantine before skills are linked
 ├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
 ├── platforms.py           OS abstraction (paths, links, executables, detection)

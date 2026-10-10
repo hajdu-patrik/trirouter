@@ -6,21 +6,23 @@ The commands, flags and help texts live in manual.py (one source for the parser,
 docs/cli.md); argument validation is in cliparse.py; this module does the work.
 
     trirouter help [command]     manual page; `trirouter <command> --help` too
-    trirouter setup | detect | models | skills | quarantine | remote | doctor | route | completion | uninstall | version
+    trirouter setup | models | skills | quarantine | remote | doctor | route | uninstall | help
+    trirouter --version | -V     the version
+
+Ctrl+C (and Ctrl+D) stop a command at once: exit status 130, files are written atomically (interrupt.py).
 
 `python install.py --help` prints the command list generated from manual.py. Other programs call the
 route command through the installer's shim: python ~/.trirouter/bin/route.py --json "<text>"
 Requires Python 3.10+ and nothing else.
 """
 import difflib
-import getpass
 import json
 import os
 import sys
 from pathlib import Path
 
-from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, legacy, manual,
-               platforms as P, remote, skillscan)
+from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt, legacy,
+               manual, platforms as P, remote, skillscan)
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -66,13 +68,16 @@ def interactive():
     return P.is_terminal(sys.stdin)
 
 
+ask_line = interrupt.ask_line  # input() that steps the Ctrl+D key watcher aside; Ctrl+D / Ctrl+C end the command
+
+
 def ask(question, default="y"):
     """Without a terminal or --yes every answer is "no": an unattended run never moves files unasked."""
     if YES:
         return default.lower().startswith("y")
     if not interactive():
         return False
-    ans = input(f"{question} [{'Y/n' if default.lower().startswith('y') else 'y/N'}] ").strip().lower()
+    ans = ask_line(f"{question} [{'Y/n' if default.lower().startswith('y') else 'y/N'}] ").strip().lower()
     return (ans or default).startswith("y")
 
 
@@ -86,13 +91,8 @@ def load_config():
 def save_config(cfg):
     if DRY:
         return
-    STATE.mkdir(parents=True, exist_ok=True)
-    # owner-only from the start: it holds the JEV token
-    fd = os.open(CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(json.dumps(cfg, indent=2))
-    if not P.IS_WINDOWS:
-        os.chmod(CONFIG, 0o600)  # os.open's mode does not apply to an existing file
+    # atomic and owner-only from the start: it holds the JEV token
+    P.atomic_write(CONFIG, json.dumps(cfg, indent=2), mode=0o600)
 
 
 def rebase_state(state):
@@ -165,7 +165,7 @@ def detect_and_login():
             continue
         while info["logged_in"] is False and not YES and interactive():
             say(f"\n  {spec['label']} is installed but NOT logged in. In another terminal run:\n      {spec['login']}")
-            if input("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
+            if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
                 break
             info.update(P.detect_one(p))
     chosen = FLAGS.get("--providers")
@@ -200,7 +200,7 @@ def configure_jev(cfg):
     elif cfg.get("typesafe_api_key") or cfg.get("openrouter_api_key"):
         say("  A JEV key is already configured.")
     elif not YES and interactive():
-        token = getpass.getpass("  TypeSafe token or OpenRouter key (input hidden; Enter = built-in local model): ").strip()
+        token = interrupt.ask_secret("  TypeSafe token or OpenRouter key (input hidden; Enter = built-in local model): ").strip()
         if token:
             store_jev_key(cfg, token)
     say("  Backend: " + jev_backend_label(cfg))
@@ -237,7 +237,7 @@ def choose_quarantine(items):
         say(f"  {n}. {it['name']} (risk {it['score']}, max {it['max_severity']})")
     names = [it["name"] for it in items]
     while True:
-        ans = input("Quarantine these skills? [a]ll / [n]one / [s]elect (default: none) ").strip().lower()
+        ans = ask_line("Quarantine these skills? [a]ll / [n]one / [s]elect (default: none) ").strip().lower()
         if ans in ("", "n", "none"):
             return set()
         if ans in ("a", "all"):
@@ -251,14 +251,14 @@ def choose_quarantine(items):
         chosen = {names[i] for i in picked}
         say("  quarantine: " + (", ".join(n for n in names if n in chosen) or "-"))
         say("  keep:       " + (", ".join(n for n in names if n not in chosen) or "-"))
-        if input("Go ahead? [y/N] ").strip().lower().startswith("y"):
+        if ask_line("Go ahead? [y/N] ").strip().lower().startswith("y"):
             return chosen
 
 
 def select_numbers(count):
     """Asks for numbers like 1,3,5-8 until they are valid; the zero-based indexes, or None when the answer is empty."""
     while True:
-        text = input("Numbers to quarantine (e.g. 1,3,5-8; Enter = none): ").strip()
+        text = ask_line("Numbers to quarantine (e.g. 1,3,5-8; Enter = none): ").strip()
         if not text:
             return None
         try:
@@ -303,7 +303,7 @@ def ask_remote_name(cfg):
     default = cfg.get("remote_name") or P.hostname()
     if YES or not interactive():
         return default
-    return input(f"  Name shown on your other devices [{default}]: ").strip() or default
+    return ask_line(f"  Name shown on your other devices [{default}]: ").strip() or default
 
 
 def extras(providers, cfg):
@@ -316,7 +316,9 @@ def extras(providers, cfg):
     say("  Speech-to-text (dictation into any app): see docs/speech-to-text.md")
     offer_handy = P.IS_WINDOWS and not YES and not DRY and not P.find_exe("handy")
     if offer_handy and ask("  Install Handy (offline dictation) with winget now?", "n"):
-        os.system("winget install --id cjpais.Handy -e --accept-source-agreements --accept-package-agreements")
+        with interrupt.question():
+            P.call(["winget", "install", "--id", "cjpais.Handy", "-e", "--accept-source-agreements",
+                    "--accept-package-agreements"])
 
 
 def remote_workdir(cfg):
@@ -337,7 +339,9 @@ def next_steps(providers):
     if not DRY:
         say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
             "then run `trirouter help`.")
-    say("  * Type `trirouter ` and press Tab (in a new terminal) to complete commands, flags and values.")
+    if "--no-completion" not in FLAGS:
+        say("  * Tab completion is installed: in a new terminal type `trirouter ` and press Tab to complete commands, "
+            "flags and values (`trirouter uninstall` removes it).")
     say(f"  * New and retired models are picked up once a day by themselves; `{P.command_hint('models')}` checks "
         "now which models your accounts can use.")
     say(f"  * Health check any time: {P.command_hint('doctor')}")
@@ -360,7 +364,7 @@ def run_models():
     auto = FLAGS.get("--auto")
     if isinstance(auto, str):
         set_model_auto(auto)
-        if "--discover" not in FLAGS and "--probe" not in FLAGS:
+        if "--discover" not in FLAGS:
             return 0
     mode = "discover" if "--discover" in FLAGS else "probe"
     say(("Daily model check" if mode == "discover" else "Full model check (every Codex model gets a one-word prompt, "
@@ -380,26 +384,6 @@ def run_models():
         say(f"{'Would save' if DRY else 'Saved'} to {discovery.local_file()}")
     else:
         say("Nothing to change.")
-    return 0
-
-
-def completion_shells():
-    shell = FLAGS.get("--shell")
-    return [shell.lower()] if isinstance(shell, str) else [completion.detect_shell()]
-
-
-def run_completion():
-    if "--remove" in FLAGS:
-        if not completion.remove(apply=not DRY, say=say):
-            say("No trirouter completion installed.")
-        return 0
-    shells = completion_shells()
-    if "--install" not in FLAGS:
-        completion.print_script(shells[0])
-        return 0
-    changed = completion.install(shells, apply=not DRY, say=say)
-    if changed and not DRY:
-        say("Open a new terminal (or load your profile again), then type `trirouter ` and press Tab.")
     return 0
 
 
@@ -620,7 +604,7 @@ def quarantine_purge(cfg):
             return 0
         if not DRY and not YES:
             say(f"This permanently deletes {len(rows)} quarantined skill(s): {', '.join(r['name'] for r in rows)}")
-            if not (interactive() and input("Delete them all? [y/N] ").strip().lower().startswith("y")):
+            if not (interactive() and ask_line("Delete them all? [y/N] ").strip().lower().startswith("y")):
                 say("Cancelled: nothing deleted.")
                 return 1
     elif not days:
@@ -653,7 +637,12 @@ def usage_error(exc, prog):
 
 
 def main(argv=None):
+    """Runs a command; Ctrl+C / Ctrl+D end it with exit status 130 (see interrupt.run_guarded)."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    return interrupt.run_guarded(_main, argv)
+
+
+def _main(argv):
     prog = program_name()
     if argv[:1] == ["route"]:  # before parsing: the prompt text is free-form
         return run_route(argv[1:])
@@ -670,8 +659,8 @@ def main(argv=None):
     configure(inv)
     if (code := prepare_state(inv.key)) is not None:
         return code
-    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models, "completion": run_completion,
-                "detect": lambda: print_report(P.detect()), "remote": run_remote, "uninstall": run_uninstall}
+    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models,
+                "remote": run_remote, "uninstall": run_uninstall}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)
     return commands[inv.key]() or 0

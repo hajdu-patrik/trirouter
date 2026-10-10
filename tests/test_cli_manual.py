@@ -56,8 +56,7 @@ def test_changes_lines_are_plain_statements():
 
 
 def test_all_commands_of_the_spec_exist():
-    assert set(manual.ORDER) == {"setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route", "completion",
-                                 "uninstall", "help", "version"}
+    assert list(manual.ORDER) == ["setup", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
     assert {"quarantine list", "quarantine restore", "quarantine purge"} <= set(manual.COMMANDS)
 
 
@@ -78,9 +77,37 @@ def test_launcher_without_arguments_prints_the_overview(capsys):
     assert all(f"  {c} " in out for c in manual.ORDER)
 
 
-def test_version(capsys):
+@pytest.mark.parametrize("flag", ["--version", "-V"])
+def test_version_flag(capsys, flag):
     from trirouter import __version__
-    assert run(capsys, "version") == (0, f"trirouter {__version__}\n", "")
+    assert run(capsys, flag) == (0, f"trirouter {__version__}\n", "")
+
+
+def test_overview_lists_exactly_the_nine_commands_and_the_version_flag(capsys):
+    _, out, _ = run(capsys)
+    rows = [line.split()[0] for line in out.split("Commands:\n")[1].split("\n\n")[0].splitlines()]
+    assert rows == ["setup", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
+    assert "-V, --version" in out and "-h, --help" in out
+
+
+@pytest.mark.parametrize("old, replacement", [("detect", "trirouter doctor"), ("version", "trirouter --version"),
+                                              ("completion", "trirouter setup")])
+@pytest.mark.parametrize("extra", [[], ["--yes"], ["--help"], ["--shell=bash", "--install"]])
+def test_removed_commands_give_a_usage_error_naming_the_replacement(capsys, old, replacement, extra):
+    code, out, err = run(capsys, old, *extra)
+    assert code == 2 and out == "" and f"{old} was removed" in err and replacement in err
+
+
+def test_removed_models_probe_flag(capsys):
+    code, out, err = run(capsys, "models", "--probe")
+    assert code == 2 and out == "" and "--probe was removed" in err and "trirouter models" in err
+
+
+def test_install_py_forms_of_the_removed_commands():
+    for argv in (["detect"], ["--yes", "detect"], ["completion", "--install"], ["version"]):
+        with pytest.raises(cliparse.UsageError, match="was removed"):
+            cliparse.resolve(argv, "python install.py", True)
+    assert cliparse.resolve(["--version"], "python install.py", True).kind == "version"
 
 
 def test_unknown_help_topic_suggests(capsys):
@@ -97,7 +124,7 @@ def test_unknown_flag_is_exit_2_with_a_suggestion_and_a_pointer(capsys):
 
 
 def test_a_flag_of_another_command_is_not_applicable(capsys):
-    code, _, err = run(capsys, "detect", "--yes")
+    code, _, err = run(capsys, "doctor", "--yes")
     assert code == 2 and "option --yes does not apply here" in err and "accepted by:" in err and "setup" in err
     code, _, err = run(capsys, "skills", "--providers=claude")
     assert code == 2 and "does not apply here" in err and "accepted by:" in err and "setup" in err
@@ -118,14 +145,14 @@ def test_short_flags_and_clusters():
     assert inv.flags == {"--apply": True, "--yes": True}
     assert cliparse.resolve(["setup", "-n"], "trirouter", False).flags == {"--dry-run": True}
     with pytest.raises(cliparse.UsageError):
-        cliparse.resolve(["detect", "-n"], "trirouter", False)
+        cliparse.resolve(["doctor", "-n"], "trirouter", False)
     with pytest.raises(cliparse.UsageError):
         cliparse.resolve(["skills", "-q"], "trirouter", False)
 
 
 def test_each_command_accepts_exactly_its_flags():
     for key, c in manual.COMMANDS.items():
-        if key in ("route", "help", "version", "quarantine") or key == "quarantine restore":
+        if key in ("route", "help", "quarantine") or key == "quarantine restore":
             continue
         for f in c.flags:
             arg = [f.long + ("=1" if f.kind == "int" else ("=" + f.choices[0]) if f.choices else "=x")] if f.value else [f.long]
@@ -167,7 +194,7 @@ def test_install_py_keeps_its_old_forms():
     assert inv.key == "setup" and set(inv.flags) == {"--yes", "--providers", "--no-migrate"}
     assert cliparse.resolve(["--dry-run", "skills"], "python install.py", True).key == "skills"
     assert cliparse.resolve(["--name", "My PC", "remote"], "python install.py", True).flags == {"--name": "My PC"}
-    assert cliparse.resolve(["models", "--probe"], "python install.py", True).flags == {"--probe": True}
+    assert cliparse.resolve(["models", "--discover"], "python install.py", True).flags == {"--discover": True}
     assert cliparse.resolve([], "trirouter", False).kind == "overview"
     with pytest.raises(cliparse.UsageError, match="unknown option --bogus"):
         cliparse.resolve(["setup", "--bogus"], "python install.py", True)
@@ -202,7 +229,7 @@ def test_markdown_has_contents_and_a_section_per_command():
 def test_every_command_in_docs_exists():
     """No doc mentions a trirouter command or flag that does not exist."""
     import re
-    known_flags = {f.long for c in manual.COMMANDS.values() for f in manual.all_flags(c)}
+    known_flags = {f.long for c in manual.COMMANDS.values() for f in manual.all_flags(c)} | {t[0] for t in manual.TOP_FLAGS}
     for path in [ROOT / "README.md", ROOT / "CLAUDE.md", *(ROOT / "docs").glob("*.md")]:
         text = path.read_text(encoding="utf-8")
         for m in re.finditer(r"(?:`|^\s*(?:\$ )?)(?:trirouter|python install\.py|python -m trirouter) ([a-z]+)", text, re.M):

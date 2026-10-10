@@ -15,6 +15,8 @@ import os
 import shutil
 from pathlib import Path
 
+from . import platforms as P
+
 NAME = "jev-router"                 # the old product name
 STATE_NAME = ".jev-router"          # ~/.jev-router
 PACKAGE = "jev_router"              # old Python package (kept as a thin compatibility package)
@@ -71,11 +73,7 @@ def _merge_json_config(src, dst):
         if not isinstance(old, dict) or not isinstance(new, dict):
             return False
         merged = {**old, **new}
-        fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(merged, indent=2))
-        if os.name != "nt":
-            os.chmod(dst, 0o600)
+        P.atomic_write(dst, json.dumps(merged, indent=2), mode=0o600)
         return True
     except (OSError, ValueError):
         return False

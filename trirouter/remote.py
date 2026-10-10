@@ -43,8 +43,7 @@ def save_name(name, workdir=None):
     cfg["remote_name"] = name
     if workdir:
         cfg["remote_workdir"] = str(workdir)
-    CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    P.atomic_write(CONFIG, json.dumps(cfg, indent=2), mode=0o600)
 
 
 def _ps(script):
@@ -136,8 +135,7 @@ foreach ($t in {_psq(TASK_CLAUDE)}, {_psq(TASK_CODEX)}) {{
 
 def _setup_watchdog():
     script = BIN / "remote-watchdog.ps1"
-    script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(_watchdog_script(), encoding="utf-8")
+    P.atomic_write(script, _watchdog_script())
     _drop_old_task("watchdog")
     return _win_task(TASK_WATCHDOG, _conhost(), f'--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}"',
                      str(P.HOME), repeat_min=30)
@@ -168,9 +166,8 @@ def _win_loop(task, script_name, workdir, command, kill):
     """Keeps `command` running from logon in a restart loop. `kill` matches a previous instance's
     processes: the scheduler ignores Start while the old loop still runs."""
     script = BIN / script_name
-    script.parent.mkdir(parents=True, exist_ok=True)
-    script.write_text(f'@echo off\ncd /d "{workdir}"\n:loop\n{command}\ntimeout /t 30 /nobreak >nul\ngoto loop\n',
-                      encoding="utf-8", newline="\r\n")
+    P.atomic_write(script, f'@echo off\ncd /d "{workdir}"\n:loop\n{command}\ntimeout /t 30 /nobreak >nul\ngoto loop\n',
+                   newline="\r\n")
     _ps(f'Stop-ScheduledTask -TaskName "{task}" -ErrorAction SilentlyContinue; '
         f'Get-CimInstance Win32_Process | ? {{ ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "{script_name}") -or ({kill}) }} '
         '| % { Stop-Process -Id $_.ProcessId -Force }')
@@ -257,7 +254,7 @@ def _setup_claude(name, claude, workdir):
         _drop_old_launchd()
         LAUNCHD.parent.mkdir(parents=True, exist_ok=True)
         LOG.parent.mkdir(parents=True, exist_ok=True)  # launchd does not create the log folder
-        LAUNCHD.write_bytes(_launchd_plist(name, claude, workdir))
+        P.atomic_write(LAUNCHD, _launchd_plist(name, claude, workdir))
         domain = f"gui/{os.getuid()}"
         P.run(["launchctl", "bootout", f"{domain}/{LAUNCHD_LABEL}"])  # fails harmlessly when not loaded
         out = ""
@@ -270,7 +267,7 @@ def _setup_claude(name, claude, workdir):
     else:
         _drop_old_systemd()
         SYSTEMD.parent.mkdir(parents=True, exist_ok=True)
-        SYSTEMD.write_text(_systemd_unit(name, claude, workdir), encoding="utf-8")
+        P.atomic_write(SYSTEMD, _systemd_unit(name, claude, workdir))
         P.run(["systemctl", "--user", "daemon-reload"])
         P.run(["systemctl", "--user", "enable", SYSTEMD.name])
         # restart, not start: a changed name or workdir must take effect on re-run

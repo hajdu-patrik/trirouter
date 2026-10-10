@@ -14,6 +14,8 @@ import time
 import unicodedata
 from pathlib import Path
 
+from . import platforms as P
+
 HOME = Path.home()
 HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
 CATALOG = HUB / "catalog.json"
@@ -161,8 +163,8 @@ def build_catalog():
 def write_catalog(items=None):
     items = build_catalog() if items is None else items
     HUB.mkdir(parents=True, exist_ok=True)
-    CATALOG.write_text(json.dumps({"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "skills": items},
-                                  indent=1, ensure_ascii=False), encoding="utf-8")
+    P.atomic_write(CATALOG, json.dumps({"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "skills": items},
+                                       indent=1, ensure_ascii=False))
     return items
 
 

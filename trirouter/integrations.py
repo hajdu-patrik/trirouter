@@ -59,8 +59,8 @@ class Writer:
             path.parent.mkdir(parents=True, exist_ok=True)
             bak = path.with_name(path.name + ".bak")
             if old is not None and not bak.exists():  # keep the original, pre-trirouter version
-                bak.write_text(old, encoding="utf-8")
-            path.write_text(content, encoding="utf-8")
+                P.atomic_write(bak, old)
+            P.atomic_write(path, content)
 
 
 def fwd(p):
@@ -405,11 +405,7 @@ def _file_matches(path, content):
 
 
 def _write_launcher(path, content):
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:  # keep the line endings exactly
-        f.write(content)
-    if not P.IS_WINDOWS:
-        os.chmod(path, 0o755)
+    P.atomic_write(path, content, mode=None if P.IS_WINDOWS else 0o755, newline="")  # line endings kept exactly
 
 
 def _make_posix_link():

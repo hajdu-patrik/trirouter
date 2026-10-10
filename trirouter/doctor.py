@@ -58,8 +58,8 @@ def interpreters(claude_settings, codex_toml):
 
 
 def report_tools():
-    print("== Tools")
-    for info in P.detect(deep=False).values():
+    print("== Tools (Antigravity is asked for its model list to check its login: this can take a minute)")
+    for info in P.detect().values():
         li = {True: "logged in", False: "NOT logged in", None: ""}[info["logged_in"]]
         line(info["installed"], info["label"], f"{info['version'] or 'not installed'}  {li}".strip())
 

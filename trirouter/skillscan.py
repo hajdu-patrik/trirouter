@@ -116,8 +116,7 @@ def load_cache():
 
 
 def save_cache(cache):
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE.write_text(json.dumps(cache, indent=1, sort_keys=True), encoding="utf-8")
+    P.atomic_write(CACHE, json.dumps(cache, indent=1, sort_keys=True))
 
 
 def _scan(exe, skill_dir, llm):
@@ -203,7 +202,7 @@ def write_sidecar(entry, name, risk, max_severity, quarantined_at, days):
     meta = {"name": name, "quarantined_at": _iso(quarantined_at),
             "purge_after": _iso(quarantined_at + timedelta(days=days)) if days else None,
             "risk": risk, "max_severity": max_severity}
-    sidecar(entry).write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    P.atomic_write(sidecar(entry), json.dumps(meta, indent=1))
 
 
 def _move_to_quarantine(skill, dest, risk, max_severity, days):

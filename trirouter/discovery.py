@@ -88,10 +88,7 @@ def _read_json(path, default):
 
 
 def _write_atomic(path, text):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    P.atomic_write(path, text)
 
 
 def read_state():

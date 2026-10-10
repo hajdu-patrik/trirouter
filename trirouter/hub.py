@@ -232,7 +232,7 @@ def _register_hub_with_antigravity():
     if new_entries != entries:
         cfg["entries"] = new_entries
         act(f"{AGY_SKILLS_JSON}: entries -> {new_entries}",
-            lambda: AGY_SKILLS_JSON.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8"))
+            lambda: P.atomic_write(AGY_SKILLS_JSON, json.dumps(cfg, indent=2) + "\n"))
 
 
 _TEMPLATE_FRONTMATTER = re.compile(r"---[ \t]*\n(.*?)\n---[ \t]*\n", re.S)
@@ -317,8 +317,7 @@ def _antigravity_agents(targets):
 
 def _write_if_changed(path, content):
     if not path.exists() or path.read_text(encoding="utf-8") != content:
-        act(f"write {path}", lambda: (path.parent.mkdir(parents=True, exist_ok=True),
-                                      path.write_text(content, encoding="utf-8")))
+        act(f"write {path}", lambda: P.atomic_write(path, content))
 
 
 def _remove_stale(folder, pattern, want, label, name_of=lambda f: f.stem, remove=lambda f: f.unlink()):
@@ -376,7 +375,7 @@ def _write_codex_agents(plan):
     new_cfg = _with_agents_block(cfg, "\n".join(block) + "\n")
     if new_cfg != cfg:
         act(f"{CODEX_CONFIG}: update [agents.*] block ({len(want)} roles)",
-            lambda: CODEX_CONFIG.write_text(new_cfg, encoding="utf-8"))
+            lambda: P.atomic_write(CODEX_CONFIG, new_cfg))
 
 
 def _with_agents_block(cfg, new_block):

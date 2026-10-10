@@ -9,6 +9,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 HOME = Path.home()
@@ -167,22 +169,163 @@ def python_cmd():
     return shell_arg(python_exe())
 
 
+# ---- files: atomic writes ----------------------------------------------------------------------------------
+
+def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
+    """Writes `text` (str, or bytes) to `path` so that an interrupt (Ctrl+C, a crash, a full disk) never leaves a half-written
+    file: the content goes to a temporary file in the same folder, which then replaces the target in one step
+    (os.replace). The old file stays intact until that last step. `mode` (e.g. 0o600) is applied to the new
+    file before it is put in place; `newline` is passed to open() ("" keeps the line ends exactly). A symlink
+    target is written through, the link itself is kept."""
+    path = Path(path)
+    if path.is_symlink():
+        path = Path(os.path.realpath(path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0),
+                     0o600 if mode is None else mode)
+        raw = isinstance(text, bytes)
+        with os.fdopen(fd, "wb" if raw else "w", **({} if raw else {"encoding": encoding, "newline": newline})) as f:
+            f.write(text)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        if mode is not None and not IS_WINDOWS:
+            os.chmod(tmp, mode)  # os.open's mode is subject to the umask
+        elif mode is None:
+            _copy_mode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _copy_mode(path, tmp):
+    """A file that is rewritten keeps its permissions; a new one gets the usual 0o666 & ~umask."""
+    try:
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        elif not IS_WINDOWS:
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
+    except OSError:
+        pass
+
+
+# ---- child processes ----------------------------------------------------------------------------------------
+
 # Windows: set by a background process that has no console (spawn_detached), so the console programs it runs
 # (codex.cmd, agy.exe, ...) do not each open a visible console window.
 NO_WINDOW = False
 _CREATE_NO_WINDOW = 0x08000000
 _DETACHED_PROCESS, _NEW_GROUP, _BREAKAWAY = 0x00000008, 0x00000200, 0x01000000
 
+_CHILDREN = set()  # running children started by run() / call(): killed when the command is interrupted
+_CHILDREN_LOCK = threading.Lock()
+
+
+def kill_tree(proc):
+    """Ends `proc` and everything it started (codex.cmd -> cmd.exe -> node, ...); never raises."""
+    try:
+        if IS_WINDOWS:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=20, creationflags=_CREATE_NO_WINDOW)
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)  # run() starts children in their own session/group
+            except (ProcessLookupError, PermissionError):
+                pass
+        proc.kill()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+
+
+def kill_children():
+    """Kills every child started through run() / call() that is still running."""
+    with _CHILDREN_LOCK:
+        procs = list(_CHILDREN)
+    for proc in procs:
+        if proc.poll() is None:
+            kill_tree(proc)
+
+
+def _popen(argv, **kw):
+    extra = {"creationflags": _CREATE_NO_WINDOW} if IS_WINDOWS and NO_WINDOW else {}
+    if not IS_WINDOWS:
+        extra["start_new_session"] = True  # one group per child, so it can be ended as a whole
+    proc = subprocess.Popen(argv, **kw, **extra)
+    with _CHILDREN_LOCK:
+        _CHILDREN.add(proc)
+    return proc
+
+
+def _forget(proc):
+    with _CHILDREN_LOCK:
+        _CHILDREN.discard(proc)
+
 
 def run(argv, timeout=30, env=None):
-    """(returncode, combined output); never raises."""
-    extra = {"creationflags": _CREATE_NO_WINDOW} if IS_WINDOWS and NO_WINDOW else {}
+    """(returncode, combined output); never raises, except for KeyboardInterrupt (Ctrl+C), which first ends the
+    child and its whole process tree. The wait polls in short sleeps: unlike a lock wait, a sleep is
+    interrupted by Ctrl+C on Windows too."""
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                           encoding="utf-8", errors="replace", env=env, **extra)
-        return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = _popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
+                      encoding="utf-8", errors="replace", env=env)
+    except (OSError, ValueError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
+    box = {}
+
+    def collect():
+        try:
+            box["out"] = proc.communicate()
+        except Exception as exc:  # noqa: BLE001 - reported below
+            box["err"] = exc
+
+    reader = threading.Thread(target=collect, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + timeout if timeout else None
+    try:
+        while reader.is_alive():
+            if deadline is not None and time.monotonic() > deadline:
+                kill_tree(proc)
+                reader.join(5)
+                return None, f"TimeoutExpired: Command '{argv}' timed out after {timeout} seconds"
+            time.sleep(0.05)
+    except BaseException:
+        kill_tree(proc)
+        raise
+    finally:
+        _forget(proc)
+    if "err" in box:
+        return None, f"{type(box['err']).__name__}: {box['err']}"
+    out, err = box["out"]
+    return proc.returncode, ((out or "") + (err or "")).strip()
+
+
+def call(argv):
+    """Runs argv with the console's stdin/stdout/stderr and returns its exit code (None when it cannot start). Ctrl+C
+    ends the child and its tree."""
+    try:
+        proc = _popen(argv)
+    except (OSError, ValueError):
+        return None
+    try:
+        while proc.poll() is None:
+            time.sleep(0.05)
+        return proc.returncode
+    except BaseException:
+        kill_tree(proc)
+        raise
+    finally:
+        _forget(proc)
 
 
 def spawn_detached(argv, env=None, cwd=None):

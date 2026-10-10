@@ -105,7 +105,7 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
                  doc="Folder remote Claude sessions start in. Only used together with remote access."),
             Flag("--no-migrate", doc="Do not move the skills of other tools into ~/.skills."),
             Flag("--no-completion", doc="Do not install tab completion for `trirouter` into your shell profile "
-                                        "(see `trirouter help completion`)."),
+                                        "(`uninstall` removes it again)."),
             ALLOW, SCAN_LLM, ACCEPT, QDAYS),
      changes="Changes files; preview with --dry-run",
      examples=(("{prog} setup", "interactive setup (python install.py alone does the same)"),
@@ -114,19 +114,10 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
                ("{prog} setup --jev-token=sk-or-...", "add an OpenRouter key and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
      exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found.",
-     see_also=("detect", "skills", "remote", "doctor", "uninstall"))
-
-_add(key="detect", summary="Report which AI tools are installed and logged in",
-     synopsis=("{prog} detect",),
-     description="Checks Claude Code, Codex and Antigravity: installed, logged in, version. The Antigravity login check "
-                 "asks it for its model list, so this can take a minute.",
-     flags=(),
-     changes="Changes nothing",
-     examples=(("{prog} detect", "print the table"),),
-     see_also=("setup", "doctor"))
+     see_also=("models", "skills", "remote", "doctor", "uninstall"))
 
 _add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
-     synopsis=("{prog} models [--probe] [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off"),
+     synopsis=("{prog} models [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off"),
      description=(
          "Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; "
          "Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family "
@@ -138,14 +129,13 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
          "worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are "
          "always dropped.\n\n"
          "Without --discover the command also sends the one-word prompt to every known Codex model, the full "
-         "account check (--probe is accepted for compatibility). --discover runs only the cheap daily check, which "
+         "account check. --discover runs only the cheap daily check, which "
          "also runs by itself in the background at most once every 24 hours, started by a Claude Code session start "
          "or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next "
          "Claude Code session is told once what changed, and `{prog} doctor` shows the last check. "
          "--auto=off switches the background check off."),
      flags=(Flag("--discover", doc="Only the daily check: list every tool's models, try only the new ones "
                                    "(and ones offered again)."),
-            Flag("--probe", doc="Accepted for compatibility: the full check is what the command does without --discover."),
             Flag("--auto", value="on|off", default="on", remembered="yes (model_discovery.auto)",
                  choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
                  doc="Switch the automatic daily check on or off. Given alone, only the setting is saved."),
@@ -247,7 +237,8 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
 
 _add(key="doctor", summary="Read-only health report",
      synopsis=("{prog} doctor",),
-     description="Checks the tools, hooks, MCP entries, skill hub and agents, configuration, interpreters, the "
+     description="Checks the tools (installed, version, logged in; Antigravity is asked for its model list to tell, "
+                 "which can take a minute), hooks, MCP entries, skill hub and agents, configuration, interpreters, the "
                  "`trirouter` command, the quarantine and recent router activity. Problems are marked [!!] with the "
                  "command that fixes them.",
      flags=(), changes="Changes nothing",
@@ -275,33 +266,6 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      exit_status="0 on success. 2 on a usage error (unknown option, empty prompt). 1 on an unexpected error.",
      see_also=("doctor",))
 
-_add(key="completion", summary="Print or install shell tab completion for trirouter",
-     synopsis=("{prog} completion [--shell=bash|zsh|fish|powershell]", "{prog} completion --install [--shell=SHELL] [-n]",
-               "{prog} completion --remove [-n]"),
-     description=(
-         "Prints a completion script for commands, subcommands, flags and flag values, generated from the same "
-         "definitions as this manual, like `gh completion -s bash`. Without --shell the current shell is used "
-         "($SHELL when it is bash, zsh or fish -- Git Bash sets it on Windows -- else PowerShell on Windows, zsh "
-         "on macOS and bash on Linux).\n\n"
-         "--install writes the script to ~/.trirouter/completion/ and one marked block that loads it into the "
-         "shell's profile: ~/.bashrc (macOS: ~/.bash_profile), ~/.zshrc ($ZDOTDIR is respected), the PowerShell "
-         "$PROFILE of every installed edition (Windows PowerShell and pwsh, also on macOS and Linux); fish loads "
-         "$XDG_CONFIG_HOME/fish/completions/trirouter.fish by itself. Setup installs it for your shell and, "
-         "on Windows or wherever pwsh is installed, for PowerShell too. Re-running changes "
-         "nothing when everything is up to date; a changed profile keeps its original once as <file>.bak. "
-         "`{prog} setup` does this by default, and keeps the script current. Open a new terminal afterwards "
-         "(or load the profile again)."),
-     flags=(Flag("--shell", value="SHELL", default="the current shell", choices=("bash", "zsh", "fish", "powershell"),
-                 choices_hint="bash, zsh, fish or powershell", doc="The shell to print or install the script for."),
-            Flag("--install", doc="Install the script and the profile block instead of printing the script."),
-            Flag("--remove", doc="Remove the profile blocks and scripts of every shell."), DRY),
-     changes="Prints only; --install and --remove change files (preview with --dry-run)",
-     examples=(("{prog} completion --install", "tab completion for the current shell"),
-               ("{prog} completion --install --shell=powershell -n", "show what would change"),
-               ("{prog} completion --shell=bash > ~/.trirouter-completion.bash", "just the script"),
-               ("{prog} completion --remove", "take it out again")),
-     see_also=("setup", "uninstall"))
-
 _add(key="uninstall", summary="Remove hooks, MCP entries, remote access and the trirouter command",
      synopsis=("{prog} uninstall [-n]",),
      description="Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access "
@@ -320,14 +284,20 @@ _add(key="help", summary="Show the manual of a command",
      changes="Changes nothing",
      examples=(("{prog} help", "the command list"), ("{prog} help skills", "the skills page"),
                ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
-     see_also=("version",))
+     see_also=("doctor",))
 
-_add(key="version", summary="Print the version",
-     synopsis=("{prog} version",), description="Prints the installed version.", flags=(), changes="Changes nothing",
-     examples=(("{prog} version", ""),), see_also=("help",))
+ORDER = ("setup", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help")
 
-ORDER = ("setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route", "completion", "uninstall",
-         "help", "version")
+# Flags of the bare program (no command): (long, short, help text)
+TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))
+# Commands and flags that no longer exist: what to say, with {prog} for the program name
+REMOVED_COMMANDS = {
+    "detect": "detect was removed: use `{prog} doctor` (it shows whether each tool is installed, its version and whether it is logged in)",
+    "completion": "completion was removed: `{prog} setup` installs tab completion (skip it with --no-completion) and "
+                  "`{prog} uninstall` removes it",
+    "version": "version was removed: use `{prog} --version`",
+}
+REMOVED_FLAGS = {("models", "--probe"): "--probe was removed: plain `{prog} models` already does the full check"}
 SUBCOMMANDS = {"quarantine": ("list", "restore", "purge")}
 DEFAULT_SUBCOMMAND = {"quarantine": "list"}
 
@@ -366,7 +336,10 @@ CONVENTIONS = """\
 * Short flags: `-h` help, `-y` --yes, `-n` --dry-run, `-a` --apply (boolean ones can be combined: `-yn`).
 * Flags marked "remembered" are saved in `~/.trirouter/config.json` when the command writes, and apply to
   later runs.
-* Exit status: 0 success, 2 usage error, 1 the command ran but failed."""
+* `trirouter --version` (`-V`) prints the version; `trirouter -h` shows the command list.
+* Ctrl+C stops a command at once (Ctrl+D does the same, also at a question): one line "Interrupted: nothing was
+  left half-written." on stderr, exit status 130, started child processes ended, files written atomically.
+* Exit status: 0 success, 2 usage error, 1 the command ran but failed, 130 interrupted."""
 
 TASKS = (
     ("See what setup would do", "trirouter setup --dry-run"),
@@ -379,7 +352,7 @@ TASKS = (
     ("Get the routing decision for a sub-task from a script", "trirouter route --json \"add a CSV export\""),
     ("Check for new or retired models now", "trirouter models --discover"),
     ("Turn the daily model check off", "trirouter models --auto=off"),
-    ("Tab completion for trirouter in your shell", "trirouter completion --install"),
+    ("Print the version", "trirouter --version"),
     ("Reach this computer from a phone", "trirouter remote --name \"My PC\""),
     ("Remove everything the installer added", "trirouter uninstall"),
 )
@@ -432,6 +405,9 @@ def render_overview(prog=None):
     prog = prog_name(prog)
     lines = [f"usage: {prog} <command> [subcommand] [flags]", "", "Commands:"]
     lines += overview_lines(prog)
+    lines += ["", "Options:"]
+    labels = [f"{short}, {long}" for long, short, _ in TOP_FLAGS]
+    lines += [f"  {label:<{max(map(len, labels)) + 2}}{doc}" for label, (_, _, doc) in zip(labels, TOP_FLAGS)]
     lines += ["", f"Run `{prog} help <command>` for details, e.g. `{prog} help skills`.",
               "Full reference: docs/cli.md"]
     return "\n".join(lines)

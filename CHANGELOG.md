@@ -8,6 +8,16 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- Clean interruption of every command (the hooks and the MCP server are unchanged). Ctrl+C at any point stops
+  the command at once, prints `Interrupted: nothing was left half-written.` to stderr and exits with 130, with no
+  traceback; the programs it started (Codex / Claude model probes, `agy`, SkillSpector, PowerShell helpers,
+  winget) are ended with their whole process tree, on Windows too. Ctrl+D (end of input) does the same, at any
+  question and while a command runs (a small key watcher, active only when stdin is a terminal: `msvcrt` on
+  Windows, `termios` cbreak on macOS / Linux; it steps aside while a question is shown and always restores the
+  terminal). Every file the commands write (config.json, models.local.json, agent files, Codex config.toml,
+  settings and hook files, the catalog, profiles, launchers) is written to a temporary file first and then
+  renamed over the old one, so an interrupt never leaves a half-written file.
+- `trirouter --version` (also `-V`) prints the version; it is listed in the command overview and completed.
 - Daily model discovery for all three tools. At most once every 24 hours a Claude Code session start (or a
   Codex / Antigravity prompt) starts a detached background check -- the hook returns at once; an `O_EXCL` lock
   file and a timestamp in `~/.trirouter/state/` make parallel sessions start it only once; works on Windows,
@@ -22,9 +32,9 @@ dates are ISO 8601.
   outcome is logged to `~/.trirouter/logs/model_discovery.log`, and the next Claude Code session gets a
   one-line note. `trirouter models --discover [--dry-run]` runs it by hand, `--auto=on|off` (remembered as
   `model_discovery.auto`, default on) switches the background check, and `doctor` shows the last check.
-- `trirouter completion [--shell=bash|zsh|fish|powershell]` prints a tab-completion script generated from
-  the manual (commands, subcommands, flags, flag values), like `gh completion`; `--install` / `--remove`
-  manage it. Setup installs it by default (`--no-completion` skips it) for the user's shell -- `$SHELL`,
+- Shell tab completion, generated from the manual (commands, subcommands, flags, flag values, and the top-level
+  `--version` / `-V` / `--help`). There is no command for it: `setup` installs it by default (`--no-completion`
+  skips it) for the user's shell -- `$SHELL`,
   else PowerShell on Windows, zsh on macOS, bash on Linux -- and for PowerShell on Windows or wherever
   `pwsh` is installed: the script goes to `~/.trirouter/completion/` (fish:
   `$XDG_CONFIG_HOME/fish/completions/trirouter.fish`) and one marked block into `~/.bashrc` (macOS:
@@ -65,8 +75,14 @@ dates are ISO 8601.
   67 % to 42 % and reply language from 87 % to 100 %, without tuning the vocabulary. The eval drops
   any local `ROUTER_*` setting first, so its numbers always match CI.
 
+### Removed
+- The `detect` command: `doctor` shows each tool's installed / version / logged-in state (Antigravity's login is
+  now checked there too). The `completion` command and its `--shell`, `--install` and `--remove` flags: setup
+  installs the completion, uninstall removes it. The `version` command: use `--version`. The `models --probe`
+  flag. The old invocations give a usage error (exit 2) that names the replacement.
+
 ### Changed
-- `trirouter models` (without `--discover`) also discovers new models; `--probe` is still accepted.
+- `trirouter models` (without `--discover`) also discovers new models.
 - A catalog model marked `"routable": false` (`codex-auto-review`, `gpt-daybreak-*`) is never selectable,
   even when an older probe recorded it as available in `models.local.json`.
 - `platforms.run` takes an optional environment; `platforms.spawn_detached` starts a background process

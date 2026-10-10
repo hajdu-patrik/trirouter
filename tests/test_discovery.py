@@ -498,10 +498,11 @@ def test_models_refuses_while_a_check_runs(fake, monkeypatch, capsys):
     D.release_lock()
 
 
-def test_discover_and_probe_cannot_be_combined(capsys):
+def test_probe_flag_was_removed(capsys):
     with pytest.raises(SystemExit) as exc:
-        cli.main(["models", "--discover", "--probe"])
-    assert exc.value.code == 2 and "cannot be combined" in capsys.readouterr().err
+        cli.main(["models", "--probe"])
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "--probe was removed" in err and "models` already does the full check" in err
 
 
 def test_doctor_shows_the_last_check(fake, monkeypatch, capsys, tmp_path):

@@ -18,7 +18,7 @@ class UsageError(Exception):
 
 @dataclass
 class Invocation:
-    kind: str                  # "run" | "help" | "overview" | "version" | "markdown"
+    kind: str                  # "run" | "help" | "overview" | "version" (--version) | "markdown"
     key: str = ""              # command key ("skills", "quarantine restore"), the page for kind == "help"
     flags: dict = field(default_factory=dict)
     positional: list = field(default_factory=list)
@@ -41,6 +41,9 @@ def _check_value(f, text):
 
 
 def _unknown(name, cmd, prog):
+    removed = manual.REMOVED_FLAGS.get((cmd.key, name))
+    if removed:
+        return UsageError(f"{cmd.key}: {removed.replace('{prog}', prog)}", f"Run `{prog} help {cmd.key}` for the options.")
     own = [f.long for f in manual.all_flags(cmd)]
     near = difflib.get_close_matches(name, own, n=1, cutoff=0.5)
     elsewhere = sorted({c.key for c in manual.COMMANDS.values() if name in (f.long for f in c.flags)})
@@ -143,6 +146,8 @@ def resolve(argv, prog, legacy):
         return Invocation("run", "setup") if legacy else Invocation("overview")
     if args[0] in ("-h", "--help"):
         return Invocation("overview")
+    if args[0] in ("-V", "--version"):
+        return Invocation("version")
     if not args[0].startswith("-"):
         cmd, rest = args[0], args[1:]
     else:
@@ -156,6 +161,8 @@ def resolve(argv, prog, legacy):
             cmd, rest = args[idx], args[:idx] + args[idx + 1:]
             if cmd == "route":
                 raise UsageError("route: must be the first argument", f"Run `{prog} help route` for the usage.")
+    if cmd in manual.REMOVED_COMMANDS:
+        raise UsageError(manual.REMOVED_COMMANDS[cmd].replace("{prog}", prog))
     if cmd not in manual.COMMANDS or " " in cmd:
         raise UsageError(f"unknown command {cmd!r}", " ".join(
             x for x in (suggest(cmd, names), f"Run `{prog}` for the command list.") if x))
@@ -181,13 +188,8 @@ def resolve(argv, prog, legacy):
     if cmd == "route":
         return Invocation("run", "route", {}, rest)
     flags, pos = parse_flags(manual.COMMANDS[key], rest, prog, names)
-    if key == "version":
-        return Invocation("version")
     if pos and key != "quarantine restore":
         raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
-    for a, b in (("--discover", "--probe"), ("--install", "--remove")):
-        if a in flags and b in flags:
-            raise UsageError(f"{key}: {a} and {b} cannot be combined", f"Run `{prog} help {key}` for the usage.")
     if key == "quarantine restore" and not pos:
         raise UsageError("quarantine restore: give the name of at least one quarantined skill",
                          f"Run `{prog} quarantine` to list them.")
