@@ -165,9 +165,35 @@ def on_subagent_start(provider, raw):
          "prompt_id": payload.get("prompt_id"), "agent_type": payload["agent_type"]}, SUBAGENT_LOG)
 
 
+def start_model_discovery():
+    """The daily model check (discovery.py) in a detached background process when it is due; returns at once."""
+    try:
+        from . import discovery  # lazy: only its small scheduling part runs here
+        discovery.maybe_start()
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+
+
+def model_note():
+    """The one-line note about models the last daily check added or removed (shown once), or ''."""
+    try:
+        from . import discovery
+        return discovery.pending_note()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def on_session_start(provider, raw):
-    """Purges expired quarantine entries, at most every 6 hours. Cheap, silent (a SessionStart hook's stdout
-    becomes model context) and fully wrapped: it can never block or crash the hook."""
+    """Starts the daily model check when due, tells the session once what it changed, and purges expired
+    quarantine entries at most every 6 hours. Cheap, silent unless the model list changed (a SessionStart hook's
+    stdout becomes model context) and fully wrapped: it can never block or crash the hook."""
+    start_model_discovery()
+    note = model_note()
+    if note:
+        try:
+            emit(note, "SessionStart", provider)
+        except Exception:  # noqa: BLE001
+            pass
     try:
         stamp = core.STATE_DIR / "state" / "quarantine_purge.txt"
         try:
@@ -185,6 +211,8 @@ def on_session_start(provider, raw):
 
 
 def on_prompt(provider, hook_event_name, raw):
+    if provider != "claude":  # Codex and Antigravity have no SessionStart hook: the prompt hook starts the daily check
+        start_model_discovery()
     prompt, payload, turn_key = extract_prompt(raw, provider)
     if prompt is None:
         if payload is None:

@@ -164,8 +164,30 @@ def report_config():
     line(True, "Decision backend", backend)
     line(True, "Remote access name", cfg.get("remote_name") or f"not set up ({P.command_hint('remote')})")
     line(True, "Per-account model overrides", "yes" if (STATE / "models.local.json").exists()
-         else f"no ({P.command_hint('models --probe')})")
+         else f"no ({P.command_hint('models')})")
+    report_discovery(cfg)
     return cfg
+
+
+def report_discovery(cfg):
+    """The daily model check: on or off, and when it last ran with what outcome."""
+    try:
+        from . import discovery
+        auto = discovery.auto_enabled(cfg)
+        last = discovery.last_check()
+    except Exception as exc:  # noqa: BLE001 - a read-only report never fails
+        line(False, "Daily model check", f"unreadable ({type(exc).__name__})")
+        return
+    mode = "on" if auto else f"off ({P.command_hint('models --auto=on')})"
+    if not last:
+        line(True, "Daily model check", f"{mode}; no check yet ({P.command_hint('models --discover')})")
+        return
+    when, changed, results = last
+    unchecked = sorted(p for p, r in results.items() if r.get("status") != "checked")
+    detail = f"{mode}; last {when.replace('T', ' ')}, {'models changed' if changed else 'no change'}"
+    if unchecked:
+        detail += f"; could not check {', '.join(unchecked)}"
+    line(True, "Daily model check", detail)
 
 
 def report_interpreters(claude_settings, cfg_toml):

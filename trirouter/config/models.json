@@ -1,5 +1,5 @@
 {
-  "_comment": "Generic catalog of every model and reasoning-effort level the router may choose, per provider. 'selectable' is the DEFAULT availability; what a given account can really use differs by plan, so `python install.py models --probe` tests it and writes per-user overrides to ~/.trirouter/models.local.json (never committed). policy.excluded_efforts is removed from EVERY provider in code. Agents/roles enforcing a (model, effort) pair are generated from this file. 'role' (fast / balanced / deep) picks the worker template trirouter/templates/agents/<role>-worker.md for the model's generated agents; a model without one uses 'balanced'.",
+  "_comment": "Generic catalog of every model and reasoning-effort level the router may choose, per provider. 'selectable' is the DEFAULT availability; what a given account can really use differs by plan, so `python install.py models --probe` tests it and writes per-user overrides to ~/.trirouter/models.local.json (never committed). policy.excluded_efforts is removed from EVERY provider in code. Agents/roles enforcing a (model, effort) pair are generated from this file. 'role' (fast / balanced / deep) picks the worker template trirouter/templates/agents/<role>-worker.md for the model's generated agents; a model without one uses 'balanced'. 'routable': false marks a specialist model that is never a routing target: no probe, discovery or override makes it selectable. Models that appear later are found by the daily discovery (`trirouter models --discover`) and stored in models.local.json only.",
   "policy": {
     "excluded_efforts": [
       "ultra"
@@ -178,6 +178,7 @@
       {
         "id": "gpt-daybreak-blue-latest",
         "selectable": false,
+        "routable": false,
         "levels": [
           "low",
           "medium",
@@ -191,6 +192,7 @@
       {
         "id": "gpt-daybreak-red-latest",
         "selectable": false,
+        "routable": false,
         "levels": [
           "low",
           "medium",
@@ -204,6 +206,7 @@
       {
         "id": "codex-auto-review",
         "selectable": false,
+        "routable": false,
         "levels": [
           "low",
           "medium",

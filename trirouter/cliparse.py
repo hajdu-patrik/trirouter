@@ -185,6 +185,9 @@ def resolve(argv, prog, legacy):
         return Invocation("version")
     if pos and key != "quarantine restore":
         raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
+    for a, b in (("--discover", "--probe"), ("--install", "--remove")):
+        if a in flags and b in flags:
+            raise UsageError(f"{key}: {a} and {b} cannot be combined", f"Run `{prog} help {key}` for the usage.")
     if key == "quarantine restore" and not pos:
         raise UsageError("quarantine restore: give the name of at least one quarantined skill",
                          f"Run `{prog} quarantine` to list them.")

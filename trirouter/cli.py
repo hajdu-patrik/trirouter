@@ -6,7 +6,7 @@ The commands, flags and help texts live in manual.py (one source for the parser,
 docs/cli.md); argument validation is in cliparse.py; this module does the work.
 
     trirouter help [command]     manual page; `trirouter <command> --help` too
-    trirouter setup | detect | models | skills | quarantine | remote | doctor | route | uninstall | version
+    trirouter setup | detect | models | skills | quarantine | remote | doctor | route | completion | uninstall | version
 
 `python install.py --help` prints the command list generated from manual.py. Other programs call the
 route command through the installer's shim: python ~/.trirouter/bin/route.py --json "<text>"
@@ -19,7 +19,8 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, cliparse, core, doctor, hooks, hub, integrations, legacy, manual, platforms as P, remote, skillscan
+from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, legacy, manual,
+               platforms as P, remote, skillscan)
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -272,6 +273,7 @@ def select_numbers(count):
 def connect(providers, cfg):
     say("\n== 3/5  Hooks + MCP server")
     integrations.install(providers, apply=not DRY)
+    setup_completion()
     say("\n== 4/5  Shared skill folder (~/.skills) and worker agents")
     hub.PROVIDERS = tuple(providers)
     hub.APPLY = not DRY
@@ -335,42 +337,84 @@ def next_steps(providers):
     if not DRY:
         say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
             "then run `trirouter help`.")
-    say(f"  * Optional: `{P.command_hint('models')}` checks which Codex/Antigravity models your account can use.")
+    say("  * Type `trirouter ` and press Tab (in a new terminal) to complete commands, flags and values.")
+    say(f"  * New and retired models are picked up once a day by themselves; `{P.command_hint('models')}` checks "
+        "now which models your accounts can use.")
     say(f"  * Health check any time: {P.command_hint('doctor')}")
 
 
-def codex_accepts(codex, model_id):
-    code, out = P.run([codex, "exec", "--skip-git-repo-check", "-m", model_id, "-c", "model_reasoning_effort=low",
-                       "#norouter Reply with exactly: OK"], timeout=180)
-    low = out.lower()
-    return code == 0 and "ok" in low and "not supported" not in low and "does not exist" not in low
+ON_WORDS = ("on", "1", "true", "yes")
 
 
-def record_model(local, provider, model_id, ok):
-    local.setdefault(provider, {})[model_id] = {"selectable": ok}
-    say(f"  {model_id:<28} {'available' if ok else 'not available'}")
+def set_model_auto(value):
+    """`models --auto=on|off`, remembered as config.json model_discovery.auto."""
+    cfg = load_config()
+    on = value.strip().lower() in ON_WORDS
+    cfg["model_discovery"] = dict(cfg.get("model_discovery") or {}, auto=on)
+    save_config(cfg)
+    say(f"Daily model check: {'on' if on else 'off'}" + (" (dry run: not saved)" if DRY else " (saved in config.json)"))
 
 
-def probe_models():
-    """Writes models.local.json, which overrides models.json per account."""
-    catalog = json.loads((PKG / "config" / "models.json").read_text(encoding="utf-8"))
-    local = json.loads(MODELS_LOCAL.read_text(encoding="utf-8")) if MODELS_LOCAL.exists() else {}
-    if codex := P.find_exe("codex"):
-        say("Codex: testing each model with a one-word prompt (about 10-60 s per model)...")
-        for m in catalog["codex"]["models"]:
-            record_model(local, "codex", m["id"], codex_accepts(codex, m["id"]))
-    if agy := P.find_exe("agy"):
-        _, out = P.run([agy, "models"], timeout=180)
-        listed = {line.split()[0] for line in out.splitlines() if line.strip() and not line.startswith("Fetching")}
-        for m in catalog["antigravity"]["models"]:
-            slugs = {m["slug"].format(id=m["id"], effort=e) for e in (m["levels"] or [""])}
-            record_model(local, "antigravity", m["id"], bool(slugs & listed))
-    if not DRY:
-        STATE.mkdir(parents=True, exist_ok=True)
-        MODELS_LOCAL.write_text(json.dumps(local, indent=2), encoding="utf-8")
-        hub.APPLY = True
-        hub.cmd_agents()
-    say(f"Saved to {MODELS_LOCAL}")
+def run_models():
+    """The model check (discovery.py): --discover is the cheap daily one, without it every Codex model is tried."""
+    auto = FLAGS.get("--auto")
+    if isinstance(auto, str):
+        set_model_auto(auto)
+        if "--discover" not in FLAGS and "--probe" not in FLAGS:
+            return 0
+    mode = "discover" if "--discover" in FLAGS else "probe"
+    say(("Daily model check" if mode == "discover" else "Full model check (every Codex model gets a one-word prompt, "
+         "about 10-60 s each)") + (" - dry run, nothing is saved" if DRY else ""))
+    if not DRY and not discovery.acquire_lock():
+        say("Another model check is running (perhaps the daily one in the background); try again in a few minutes.")
+        return 1
+    try:
+        outcome = discovery.run(mode, apply=not DRY, say=say)
+    finally:
+        if not DRY:
+            discovery.release_lock()
+    say("\nResult:")
+    for line in discovery.summary_lines(outcome["results"]):
+        say(f"  {line}")
+    if outcome["changed"]:
+        say(f"{'Would save' if DRY else 'Saved'} to {discovery.local_file()}")
+    else:
+        say("Nothing to change.")
+    return 0
+
+
+def completion_shells():
+    shell = FLAGS.get("--shell")
+    return [shell.lower()] if isinstance(shell, str) else [completion.detect_shell()]
+
+
+def run_completion():
+    if "--remove" in FLAGS:
+        if not completion.remove(apply=not DRY, say=say):
+            say("No trirouter completion installed.")
+        return 0
+    shells = completion_shells()
+    if "--install" not in FLAGS:
+        completion.print_script(shells[0])
+        return 0
+    changed = completion.install(shells, apply=not DRY, say=say)
+    if changed and not DRY:
+        say("Open a new terminal (or load your profile again), then type `trirouter ` and press Tab.")
+    return 0
+
+
+def setup_completion():
+    """Setup step: tab completion for the current shell (and PowerShell on Windows), unless --no-completion.
+    Scripts installed earlier are refreshed either way, so they always match the commands."""
+    if "--no-completion" in FLAGS:
+        shells = completion.installed()
+        if not shells:
+            say("  Tab completion: skipped (--no-completion)")
+            return
+    else:
+        shells = completion.setup_shells()
+    say(f"  Tab completion ({', '.join(shells)}):")
+    completion.install(shells, apply=not DRY, say=lambda m: say("  " + m))
 
 
 def run_skills():
@@ -517,6 +561,7 @@ def run_remote():
 
 def run_uninstall():
     integrations.install(ALL, apply=not DRY, uninstall=True)
+    completion.remove(apply=not DRY, say=say)
     if not DRY:
         report(remote.remove())
     say("Hooks, MCP entries and remote access removed. Your skills stay in ~/.skills (and linked).")
@@ -625,7 +670,7 @@ def main(argv=None):
     configure(inv)
     if (code := prepare_state(inv.key)) is not None:
         return code
-    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": probe_models,
+    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models, "completion": run_completion,
                 "detect": lambda: print_report(P.detect()), "remote": run_remote, "uninstall": run_uninstall}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)

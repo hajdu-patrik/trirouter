@@ -70,14 +70,20 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 | --- | --- |
 | `trirouter setup [--dry-run]` | the interactive setup (what `python install.py` runs) |
 | `trirouter detect` | report installed / logged-in tools |
-| `trirouter models [--probe]` | test which models your accounts may use (stored per user) |
+| `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
 | `trirouter remote --name "My PC" [--workdir <folder>]` | remote access from other devices ([guide](docs/remote-access.md)) |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
 | `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N]` | scan + re-link skills, regenerate workers, rebuild the catalog |
 | `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
 | `trirouter doctor` | health report |
 | `trirouter route [--provider claude] [--json] <text>` | routing decision for one prompt or sub-task, side-effect free ([details](#routing-decision-on-demand)) |
+| `trirouter completion [--shell=bash\|zsh\|fish\|powershell] [--install \| --remove]` | shell tab completion (setup installs it) |
 | `trirouter help [<command>]`, `trirouter version` | the manual pages, the version |
+
+**Tab completion:** setup installs it for your shell – PowerShell (Windows PowerShell and pwsh), bash
+(`~/.bashrc`; macOS: `~/.bash_profile`), zsh (`~/.zshrc`, the macOS default) or fish – as one marked block
+in the profile (with a `.bak` of the original; skip it with `--no-completion`). In a new terminal type
+`mo` + Tab after `trirouter` completes to `models`; after `trirouter models`, `--` + Tab lists its flags and `--auto=` + Tab offers `on` / `off`.
 
 Every command validates its flags (an unknown or misplaced one is an error with a "did you mean"
 hint) and has its own page: `trirouter help skills`, `trirouter skills --help`. The same pages, with a
@@ -130,10 +136,22 @@ the test tier – so a new model needs one line in `models.json`, not a new temp
 | Provider | Models (catalog: `trirouter/config/models.json`) | Effort levels |
 | --- | --- | --- |
 | Claude | fable, sonnet, opus – generic aliases only, never Haiku | low · medium · high · xhigh · max |
-| Codex | gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, gpt-reserve by default; more after `models --probe` | low … max (per model) |
+| Codex | gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, gpt-reserve by default; more after `trirouter models` | low … max (per model) |
 | Antigravity | Gemini 3.8 / 3.7 / 3.6 Flash, Gemini 3.1 Pro, Claude Sonnet/Opus 4.6, GPT-OSS 120B | part of the model name |
 
 The `ultra` effort level is never offered, stripped from any answer and has no worker.
+
+**New and retired models are picked up by themselves.** Once a day (at most every 24 hours, started in the
+background by a Claude Code session start or a Codex / Antigravity prompt; the hook itself returns at
+once) trirouter compares what each tool offers with what it knows: `codex debug models`, `agy models`, and the
+model aliases `claude --help` names. A model seen for the first time is tried with a one-word prompt and
+becomes selectable when it answers – Claude only as a generic family alias, never Haiku or a dated ID; a
+model no longer offered leaves the selection. Results go to `~/.trirouter/models.local.json` (never into the
+repository), the worker agents are regenerated, the next Claude Code session gets a one-line note, and
+`trirouter doctor` shows the last check. A check that cannot run (tool missing, logged out, offline) changes
+nothing. Run it by hand with `trirouter models --discover [--dry-run]`; switch it off with
+`trirouter models --auto=off`. Cost: on an ordinary day no model is prompted at all – only the model lists
+are read; each newly listed Codex or Claude model costs one short prompt, once.
 
 ### Follow-ups and pasted text
 
@@ -294,7 +312,8 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 | Setting | Where |
 | --- | --- |
 | JEV access | `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`, or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
-| Per-user state | `~/.trirouter/` – `config.json`, `models.local.json`, `logs/`, `state/`, `quarantine/` (skills you quarantined), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
+| Per-user state | `~/.trirouter/` – `config.json`, `models.local.json` (per-account availability and discovered models), `logs/` (incl. `model_discovery.log`), `state/`, `quarantine/` (skills you quarantined), `completion/` (tab-completion scripts), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
+| Daily model check | `config.json` → `model_discovery.auto` (default on); set with `trirouter models --auto=on\|off` |
 | Skill scan | `config.json` → `skillscan`: `allow` (skills never asked about despite `DO_NOT_INSTALL`), `llm` (add the LLM analysis), `quarantine_days` (default 3, 0 = never purge); set with `--allow-skill` / `--scan-llm` / `--quarantine-days` |
 | Model catalog, tiers, routing table | `trirouter/config/models.json`, `targets.json`, `routes.json` |
 
@@ -318,7 +337,7 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 install.py                 entry point: `python install.py [command]` (same as `python -m trirouter` and `trirouter`)
 pyproject.toml             package metadata, console script `trirouter`, pytest settings
 trirouter/                 the package
-├── cli.py                 the commands (setup, detect, models, skills, quarantine, remote, doctor, route, uninstall)
+├── cli.py                 the commands (setup, detect, models, skills, quarantine, remote, doctor, route, completion, uninstall)
 ├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
 ├── cliparse.py            argument validation against manual.py
 ├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
@@ -328,6 +347,8 @@ trirouter/                 the package
 ├── queue_state.py         queue protection
 ├── mcp_server.py          MCP server: route_prompt, list_skills, get_skill (python -m trirouter.mcp_server)
 ├── hub.py                 shared skill folder, links, worker generation
+├── discovery.py           daily model discovery (new / retired models per tool, background run, lock)
+├── completion.py          shell tab completion generated from manual.py, profile install
 ├── skillscan.py           SkillSpector gate: scan, cache, quarantine before skills are linked
 ├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
 ├── platforms.py           OS abstraction (paths, links, executables, detection)

@@ -167,14 +167,46 @@ def python_cmd():
     return shell_arg(python_exe())
 
 
-def run(argv, timeout=30):
+# Windows: set by a background process that has no console (spawn_detached), so the console programs it runs
+# (codex.cmd, agy.exe, ...) do not each open a visible console window.
+NO_WINDOW = False
+_CREATE_NO_WINDOW = 0x08000000
+_DETACHED_PROCESS, _NEW_GROUP, _BREAKAWAY = 0x00000008, 0x00000200, 0x01000000
+
+
+def run(argv, timeout=30, env=None):
     """(returncode, combined output); never raises."""
+    extra = {"creationflags": _CREATE_NO_WINDOW} if IS_WINDOWS and NO_WINDOW else {}
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", env=env, **extra)
         return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
     except (OSError, subprocess.TimeoutExpired) as exc:
         return None, f"{type(exc).__name__}: {exc}"
+
+
+def spawn_detached(argv, env=None, cwd=None):
+    """Starts argv in the background, fully detached: no console window, no inherited stdin/stdout/stderr (a
+    hook's host waits for its output pipes to close, so they must never reach the child), its own process
+    group / session, and on Windows out of the host's job object when the job allows it. True when started;
+    never raises."""
+    common = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                  env=env, cwd=cwd)
+    try:
+        if not IS_WINDOWS:
+            subprocess.Popen(argv, start_new_session=True, **common)
+            return True
+        flags = _DETACHED_PROCESS | _NEW_GROUP | _CREATE_NO_WINDOW
+        for extra in (_BREAKAWAY, 0):  # breaking away is refused inside a job that forbids it
+            try:
+                subprocess.Popen(argv, creationflags=flags | extra, **common)
+                return True
+            except OSError:
+                if not extra:
+                    raise
+    except (OSError, ValueError):
+        return False
+    return False
 
 
 PROVIDERS = {

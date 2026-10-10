@@ -56,7 +56,7 @@ def test_changes_lines_are_plain_statements():
 
 
 def test_all_commands_of_the_spec_exist():
-    assert set(manual.ORDER) == {"setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route",
+    assert set(manual.ORDER) == {"setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route", "completion",
                                  "uninstall", "help", "version"}
     assert {"quarantine list", "quarantine restore", "quarantine purge"} <= set(manual.COMMANDS)
 
@@ -128,7 +128,7 @@ def test_each_command_accepts_exactly_its_flags():
         if key in ("route", "help", "version", "quarantine") or key == "quarantine restore":
             continue
         for f in c.flags:
-            arg = [f.long + ("=1" if f.kind == "int" else "=on" if f.choices else "=x")] if f.value else [f.long]
+            arg = [f.long + ("=1" if f.kind == "int" else ("=" + f.choices[0]) if f.choices else "=x")] if f.value else [f.long]
             cmd = key.split()
             assert cliparse.resolve(cmd + arg, "trirouter", False).flags[f.long]
     with pytest.raises(cliparse.UsageError):

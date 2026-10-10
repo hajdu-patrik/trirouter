@@ -11,7 +11,7 @@
 * [Common tasks](#common-tasks)
 * [setup](#setup) -- Detect the AI tools, connect hooks and MCP, link and scan skills
 * [detect](#detect) -- Report which AI tools are installed and logged in
-* [models](#models) -- Test which Codex and Antigravity models your accounts can use
+* [models](#models) -- Find new models, drop retired ones, test which ones your accounts can use
 * [skills](#skills) -- Scan and re-link skills, regenerate worker agents, rebuild the catalog
 * [quarantine](#quarantine) -- List, restore or purge skills the scan moved to quarantine
   * [quarantine list](#quarantine-list)
@@ -20,6 +20,7 @@
 * [remote](#remote) -- Set up or remove phone / other-device access
 * [doctor](#doctor) -- Read-only health report
 * [route](#route) -- The routing decision for one prompt or sub-task
+* [completion](#completion) -- Print or install shell tab completion for trirouter
 * [uninstall](#uninstall) -- Remove hooks, MCP entries, remote access and the trirouter command
 * [help](#help) -- Show the manual of a command
 * [version](#version) -- Print the version
@@ -42,6 +43,9 @@
    trirouter help                  # the command list
    trirouter doctor                # health report
    ```
+
+   Setup also installs tab completion for your shell (PowerShell, bash, zsh or fish): type `trirouter `, a
+   few letters, and press Tab to complete commands, subcommands, flags and flag values.
 
 If you move the checkout, run `python install.py` from its new place once: the launcher and the hooks are
 re-pointed. `python install.py <command>` and `python -m trirouter <command>` always keep working and
@@ -72,6 +76,9 @@ behave like `trirouter <command>`.
 | Keep quarantined skills a week instead of 3 days | `trirouter skills --apply --quarantine-days=7` |
 | Never delete quarantined skills automatically | `trirouter skills --apply --quarantine-days=0` |
 | Get the routing decision for a sub-task from a script | `trirouter route --json "add a CSV export"` |
+| Check for new or retired models now | `trirouter models --discover` |
+| Turn the daily model check off | `trirouter models --auto=off` |
+| Tab completion for trirouter in your shell | `trirouter completion --install` |
 | Reach this computer from a phone | `trirouter remote --name "My PC"` |
 | Remove everything the installer added | `trirouter uninstall` |
 
@@ -83,7 +90,7 @@ Detect the AI tools, connect hooks and MCP, link and scan skills.
 trirouter setup [-y] [-n] [--providers=LIST] [--jev-token=TOKEN] [--remote[=NAME]] [options]
 ```
 
-Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; (2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); (3) hooks and the MCP server for every logged-in tool, and the `trirouter` command itself; (4) the shared skill folder ~/.skills: existing skills are moved there, scanned with SkillSpector when it is installed, linked into every tool, and expired quarantine entries are purged; worker agents are generated; (5) optional remote access and speech-to-text.
+Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; (2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); (3) hooks and the MCP server for every logged-in tool, the `trirouter` command itself and its tab completion in your shell profile (PowerShell, bash, zsh or fish; skip it with --no-completion); (4) the shared skill folder ~/.skills: existing skills are moved there, scanned with SkillSpector when it is installed, linked into every tool, and expired quarantine entries are purged; worker agents are generated; (5) optional remote access and speech-to-text.
 
 Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. `python install.py` with no arguments does the same.
 
@@ -99,6 +106,7 @@ An install from before the rename (state folder ~/.jev-router) is migrated first
 | `--remote` | `NAME` (optional) | ask | yes (remote_name) | Also set up remote access, under NAME (default: the saved name or the hostname). |
 | `--workdir` | `DIR` | the checkout | yes (remote_workdir) | Folder remote Claude sessions start in. Only used together with remote access. |
 | `--no-migrate` | - | off | no | Do not move the skills of other tools into ~/.skills. |
+| `--no-completion` | - | off | no | Do not install tab completion for `trirouter` into your shell profile (see `trirouter help completion`). |
 | `--allow-skill` | `NAME,...` | none | yes (skillscan.allow) | Never ask about these skills and restore them from quarantine. Names are added to the saved list. |
 | `--scan-llm` | `on|off` | off | yes (skillscan.llm) | Add SkillSpector's LLM analysis to the static scan. Skill content then leaves the machine through SkillSpector's own provider settings. |
 | `--accept-flagged` | - | off | no (this run only) | Keep every skill now rated DO_NOT_INSTALL without asking, like answering "none" to the quarantine question. Bound to the skill's current content: it is asked about again when it changes. |
@@ -149,17 +157,23 @@ trirouter detect    # print the table
 
 ## models
 
-Test which Codex and Antigravity models your accounts can use.
+Find new models, drop retired ones, test which ones your accounts can use.
 
 ```
 trirouter models [--probe] [-n]
+trirouter models --discover [-n]
+trirouter models --auto=on|off
 ```
 
-Sends a one-word prompt to every Codex model (about 10-60 s each) and reads Antigravity's model list, stores the result per user in ~/.trirouter/models.local.json and regenerates the worker agents from it. The command always probes; --probe is accepted for compatibility.
+Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as opus or sonnet -- never Haiku, a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
+
+Without --discover the command also sends the one-word prompt to every known Codex model, the full account check (--probe is accepted for compatibility). --discover runs only the cheap daily check, which also runs by itself in the background at most once every 24 hours, started by a Claude Code session start or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next Claude Code session is told once what changed, and `trirouter doctor` shows the last check. --auto=off switches the background check off.
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
-| `--probe` | - | off | no | Accepted for compatibility: probing is what the command does. |
+| `--discover` | - | off | no | Only the daily check: list every tool's models, try only the new ones (and ones offered again). |
+| `--probe` | - | off | no | Accepted for compatibility: the full check is what the command does without --discover. |
+| `--auto` | `on|off` | on | yes (model_discovery.auto) | Switch the automatic daily check on or off. Given alone, only the setting is saved. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
 
@@ -168,11 +182,13 @@ Sends a one-word prompt to every Codex model (about 10-60 s each) and reads Anti
 Examples:
 
 ```bash
-trirouter models    # probe and save
-trirouter models --dry-run    # probe, save nothing
+trirouter models --discover    # the daily check now
+trirouter models --discover --dry-run    # show what it would add or remove, save nothing
+trirouter models    # full check: also try every known Codex model
+trirouter models --auto=off    # no automatic daily check
 ```
 
-**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+**Exit status:** 0 on success. 2 on a usage error. 1 when another model check is already running.
 
 **See also:** [skills](#skills), [doctor](#doctor)
 
@@ -429,6 +445,43 @@ trirouter route -- --not-an-option    # text that starts with dashes
 
 **See also:** [doctor](#doctor)
 
+## completion
+
+Print or install shell tab completion for trirouter.
+
+```
+trirouter completion [--shell=bash|zsh|fish|powershell]
+trirouter completion --install [--shell=SHELL] [-n]
+trirouter completion --remove [-n]
+```
+
+Prints a completion script for commands, subcommands, flags and flag values, generated from the same definitions as this manual, like `gh completion -s bash`. Without --shell the current shell is used ($SHELL when it is bash, zsh or fish -- Git Bash sets it on Windows -- else PowerShell on Windows, zsh on macOS and bash on Linux).
+
+--install writes the script to ~/.trirouter/completion/ and one marked block that loads it into the shell's profile: ~/.bashrc (macOS: ~/.bash_profile), ~/.zshrc ($ZDOTDIR is respected), the PowerShell $PROFILE of every installed edition (Windows PowerShell and pwsh, also on macOS and Linux); fish loads $XDG_CONFIG_HOME/fish/completions/trirouter.fish by itself. Setup installs it for your shell and, on Windows or wherever pwsh is installed, for PowerShell too. Re-running changes nothing when everything is up to date; a changed profile keeps its original once as <file>.bak. `trirouter setup` does this by default, and keeps the script current. Open a new terminal afterwards (or load the profile again).
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `--shell` | `SHELL` | the current shell | no | The shell to print or install the script for. |
+| `--install` | - | off | no | Install the script and the profile block instead of printing the script. |
+| `--remove` | - | off | no | Remove the profile blocks and scripts of every shell. |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Prints only; --install and --remove change files (preview with --dry-run).
+
+Examples:
+
+```bash
+trirouter completion --install    # tab completion for the current shell
+trirouter completion --install --shell=powershell -n    # show what would change
+trirouter completion --shell=bash > ~/.trirouter-completion.bash    # just the script
+trirouter completion --remove    # take it out again
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [setup](#setup), [uninstall](#uninstall)
+
 ## uninstall
 
 Remove hooks, MCP entries, remote access and the trirouter command.
@@ -437,7 +490,7 @@ Remove hooks, MCP entries, remote access and the trirouter command.
 trirouter uninstall [-n]
 ```
 
-Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access services and the `trirouter` launcher with its PATH entry. Your skills stay in ~/.skills (and linked).
+Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access services, the `trirouter` launcher with its PATH entry and the tab completion in your shell profiles. Your skills stay in ~/.skills (and linked).
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |

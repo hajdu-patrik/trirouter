@@ -8,32 +8,30 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
-- The `trirouter` command: `trirouter <command> [subcommand] [flags]` from any folder. Setup writes a
-  launcher to `~/.jev-router/bin` (Windows: `trirouter.cmd` running `python.exe`, with that folder added
-  to the user PATH through `HKCU\Environment`, type preserved, no duplicates, system PATH untouched,
-  `WM_SETTINGCHANGE` broadcast; macOS / Linux: an executable plus a link in `~/.local/bin`, and the
-  line for your shell profile is printed, never written). Dry-run aware, idempotent, removed by
-  `uninstall`, shown by `doctor`. `python install.py ...` and `python -m jev_router ...` keep working.
-- Man-page-like help for every command (NAME, SYNOPSIS, DESCRIPTION, OPTIONS with short/long form,
-  value, default and whether it is remembered, CHANGES, EXAMPLES, EXIT STATUS, SEE ALSO):
-  `trirouter help [command]`, `trirouter <command> --help`, `-h`. `trirouter` alone lists the commands.
-  Short flags `-y`, `-n`, `-a`. Commands, flags and texts are data in `jev_router/manual.py`;
-  `docs/cli.md` (getting started, common tasks, one section per command) is generated from it by
-  `trirouter help --markdown`, and a test keeps the two identical. New commands `help` and `version`.
-- Quarantine in one question: after all scans, the skills rated `DO_NOT_INSTALL` that nobody has decided
-  on are listed and asked about once (`[a]ll / [n]one / [s]elect`, default none; `s` takes numbers like
-  `1,3,5-8` and a final confirmation). A "none" is remembered for the skill's content as before;
-  unattended runs still only warn.
-- Quarantined skills are deleted for good after 3 days (`skillscan.quarantine_days`,
-  `--quarantine-days=N`, `0` = never). Each entry gets a sidecar `~/.jev-router/quarantine/<name>.json`
-  (name, quarantined_at, purge_after, risk, max_severity). The purge runs at every `setup` and
-  `skills --apply` (dry runs only report) and, at most every 6 hours, from a new Claude `SessionStart`
-  hook that prints nothing and cannot fail. It only ever deletes folders directly inside the quarantine
-  folder, never follows a link and clears read-only files on Windows.
-- `trirouter quarantine [list]`, `quarantine restore <name>...` (back to `~/.skills`, allowed in
-  `skillscan.allow`) and `quarantine purge [--all]`; `doctor` reports the number of entries and the next
-  purge date.
-
+- Daily model discovery for all three tools. At most once every 24 hours a Claude Code session start (or a
+  Codex / Antigravity prompt) starts a detached background check -- the hook returns at once; an `O_EXCL` lock
+  file and a timestamp in `~/.trirouter/state/` make parallel sessions start it only once; works on Windows,
+  macOS and Linux. It reads `codex debug models`, `agy models` and the `--model` aliases of `claude --help`.
+  A model seen for the first time is tried with a one-word prompt (Codex, Claude) and becomes selectable
+  when it answers; a hidden Codex model is recorded but not selected; a model no longer offered gets
+  `"selectable": false` and comes back by itself when offered again (Claude: only after a prompt confirms
+  it). Claude only ever gets generic family aliases: Haiku, dated IDs and mode aliases are rejected; the
+  `ultra` effort is stripped from every discovered model. A check that cannot run (tool missing, logged out,
+  network error, unreadable output, a list naming none of the models in use) changes nothing. Results go to
+  `~/.trirouter/models.local.json` only, the worker agents are regenerated when something changed, the
+  outcome is logged to `~/.trirouter/logs/model_discovery.log`, and the next Claude Code session gets a
+  one-line note. `trirouter models --discover [--dry-run]` runs it by hand, `--auto=on|off` (remembered as
+  `model_discovery.auto`, default on) switches the background check, and `doctor` shows the last check.
+- `trirouter completion [--shell=bash|zsh|fish|powershell]` prints a tab-completion script generated from
+  the manual (commands, subcommands, flags, flag values), like `gh completion`; `--install` / `--remove`
+  manage it. Setup installs it by default (`--no-completion` skips it) for the user's shell -- `$SHELL`,
+  else PowerShell on Windows, zsh on macOS, bash on Linux -- and for PowerShell on Windows or wherever
+  `pwsh` is installed: the script goes to `~/.trirouter/completion/` (fish:
+  `$XDG_CONFIG_HOME/fish/completions/trirouter.fish`) and one marked block into `~/.bashrc` (macOS:
+  `~/.bash_profile`), `~/.zshrc` (`$ZDOTDIR` respected) or each PowerShell edition's `$PROFILE`.
+  Idempotent, a `.bak` of a changed profile, line endings kept, `--dry-run` aware; `uninstall` removes it.
+  In PowerShell a bare `-` / `--` also completes the flags (PowerShell never passes those to a native
+  completer, so a narrow `TabExpansion2` fallback adds them when nothing else matched).
 - Skill security scan with NVIDIA [SkillSpector](https://github.com/NVIDIA/SkillSpector): `setup`
   (step 4) and `skills` scan every third-party skill in `~/.skills` before it is linked into a tool.
   On `DO_NOT_INSTALL` you are asked (default: no) whether to move it to `~/.jev-router/quarantine/`
@@ -68,6 +66,36 @@ dates are ISO 8601.
   any local `ROUTER_*` setting first, so its numbers always match CI.
 
 ### Changed
+- `trirouter models` (without `--discover`) also discovers new models; `--probe` is still accepted.
+- A catalog model marked `"routable": false` (`codex-auto-review`, `gpt-daybreak-*`) is never selectable,
+  even when an older probe recorded it as available in `models.local.json`.
+- `platforms.run` takes an optional environment; `platforms.spawn_detached` starts a background process
+  without a console window or inherited pipes on every OS.
+- The `trirouter` command: `trirouter <command> [subcommand] [flags]` from any folder. Setup writes a
+  launcher to `~/.jev-router/bin` (Windows: `trirouter.cmd` running `python.exe`, with that folder added
+  to the user PATH through `HKCU\Environment`, type preserved, no duplicates, system PATH untouched,
+  `WM_SETTINGCHANGE` broadcast; macOS / Linux: an executable plus a link in `~/.local/bin`, and the
+  line for your shell profile is printed, never written). Dry-run aware, idempotent, removed by
+  `uninstall`, shown by `doctor`. `python install.py ...` and `python -m jev_router ...` keep working.
+- Man-page-like help for every command (NAME, SYNOPSIS, DESCRIPTION, OPTIONS with short/long form,
+  value, default and whether it is remembered, CHANGES, EXAMPLES, EXIT STATUS, SEE ALSO):
+  `trirouter help [command]`, `trirouter <command> --help`, `-h`. `trirouter` alone lists the commands.
+  Short flags `-y`, `-n`, `-a`. Commands, flags and texts are data in `jev_router/manual.py`;
+  `docs/cli.md` (getting started, common tasks, one section per command) is generated from it by
+  `trirouter help --markdown`, and a test keeps the two identical. New commands `help` and `version`.
+- Quarantine in one question: after all scans, the skills rated `DO_NOT_INSTALL` that nobody has decided
+  on are listed and asked about once (`[a]ll / [n]one / [s]elect`, default none; `s` takes numbers like
+  `1,3,5-8` and a final confirmation). A "none" is remembered for the skill's content as before;
+  unattended runs still only warn.
+- Quarantined skills are deleted for good after 3 days (`skillscan.quarantine_days`,
+  `--quarantine-days=N`, `0` = never). Each entry gets a sidecar `~/.jev-router/quarantine/<name>.json`
+  (name, quarantined_at, purge_after, risk, max_severity). The purge runs at every `setup` and
+  `skills --apply` (dry runs only report) and, at most every 6 hours, from a new Claude `SessionStart`
+  hook that prints nothing and cannot fail. It only ever deletes folders directly inside the quarantine
+  folder, never follows a link and clears read-only files on Windows.
+- `trirouter quarantine [list]`, `quarantine restore <name>...` (back to `~/.skills`, allowed in
+  `skillscan.allow`) and `quarantine purge [--all]`; `doctor` reports the number of entries and the next
+  purge date.
 - Every command validates its flags: an unknown or not-applicable flag, a value flag without a value
   or a boolean flag given a value is a usage error (exit 2) with a "did you mean" suggestion, where
   flags used to be global and silently ignored. `python install.py` without a command still runs the

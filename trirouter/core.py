@@ -349,16 +349,56 @@ def excluded_efforts():
     return set(load_json("models.json", {}).get("policy", {}).get("excluded_efforts", ["ultra"]))
 
 
+# Claude Code aliases that name a mode or a setting, not a model family
+CLAUDE_MODE_ALIASES = frozenset({"default", "best", "inherit", "opusplan"})
+_GENERIC_ALIAS = re.compile(r"[a-z]+")
+
+
+def claude_alias_allowed(alias, cfg=None):
+    """The Claude policy: only a generic family alias (one plain word such as `opus`), never Haiku, never a
+    pinned or dated model ID (`claude-opus-4-1-20250805`), never a mode alias (`opusplan`, `default`)."""
+    claude = (cfg if cfg is not None else load_json("models.json", {})).get("claude", {})
+    a = str(alias or "").strip().lower()
+    if any(x in a for x in claude.get("excluded_families", ["haiku"])):
+        return False
+    return bool(_GENERIC_ALIAS.fullmatch(a)) and a not in CLAUDE_MODE_ALIASES
+
+
+def _local_model(provider, model_id, entry, cfg):
+    """A model only models.local.json knows (found by the daily discovery), or None when it is not usable."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("levels"), list):
+        return None
+    if provider == "claude" and not claude_alias_allowed(model_id, cfg):
+        return None
+    mdef = {k: v for k, v in entry.items() if k in ("role", "levels", "slug", "description", "agent_tier")}
+    mdef.setdefault("description", model_id)
+    if provider == "antigravity":
+        mdef.setdefault("slug", "{id}-{effort}" if mdef["levels"] else "{id}")
+    return dict(mdef, id=model_id, selectable=bool(entry.get("selectable")))
+
+
 def models_for(provider):
-    """Selectable models of the provider, with the excluded effort levels already stripped."""
+    """Selectable models of the provider, with the excluded effort levels already stripped: the catalog's, with
+    the per-account availability of models.local.json, plus the models only models.local.json knows. A model
+    marked `"routable": false` in the catalog is never selectable, whatever a probe recorded."""
     cfg = load_json("models.json", {})
-    m = cfg.get(provider) or cfg.get(base_provider(provider)) or {}
-    local = model_overrides().get(base_provider(provider), {})
+    base = base_provider(provider)
+    m = cfg.get(provider) or cfg.get(base) or {}
+    local = model_overrides().get(base, {})
+    local = local if isinstance(local, dict) else {}
     banned = excluded_efforts()
     out = {}
     for model in m.get("models", []):
-        if local.get(model["id"], {}).get("selectable", model.get("selectable")):
+        override = local.get(model["id"])
+        selectable = (override or {}).get("selectable", model.get("selectable")) if isinstance(override, dict) \
+            else model.get("selectable")
+        if selectable and model.get("routable", True):
             out[model["id"]] = dict(model, levels=[l for l in model.get("levels", []) if l not in banned])
+    known = {model["id"] for model in m.get("models", [])}
+    for model_id, entry in local.items():
+        mdef = None if model_id in known else _local_model(base, model_id, entry, cfg)
+        if mdef and mdef["selectable"]:
+            out[model_id] = dict(mdef, levels=[l for l in mdef["levels"] if l not in banned])
     return out
 
 

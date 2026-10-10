@@ -118,7 +118,8 @@ def _strip_router(groups):
 HOOK_EVENTS = {
     # StopFailure / SessionEnd release the queue when a turn dies on an API error or the session ends;
     # SubagentStart records which worker the model really delegated to.
-    # SessionStart purges expired quarantine entries (at most every 6 hours; prints nothing)
+    # SessionStart purges expired quarantine entries (at most every 6 hours) and starts the daily model check;
+    # it prints only a one-line note when that check changed the model list
     "claude": ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart"),
     "codex": ("UserPromptSubmit", "Stop"),
 }

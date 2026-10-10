@@ -28,3 +28,6 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(integrations, "user_path_write", lambda value, kind: store.update(path=(value, kind)))
     monkeypatch.setattr(integrations, "broadcast_env_change", lambda: None)
     monkeypatch.setattr(remote, "_ps", lambda script, *a, **k: (1, ""))
+    # the hooks start the daily model check in a detached process: never for real in a test
+    from trirouter import platforms
+    monkeypatch.setattr(platforms, "spawn_detached", lambda *a, **k: False)

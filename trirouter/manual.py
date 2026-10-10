@@ -80,7 +80,8 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
      description=(
          "Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; "
          "(2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); "
-         "(3) hooks and the MCP server for every logged-in tool, and the `trirouter` command itself; "
+         "(3) hooks and the MCP server for every logged-in tool, the `trirouter` command itself and its tab "
+         "completion in your shell profile (PowerShell, bash, zsh or fish; skip it with --no-completion); "
          "(4) the shared skill folder ~/.skills: existing skills are moved there, scanned with SkillSpector when it "
          "is installed, linked into every tool, and expired quarantine entries are purged; worker agents are "
          "generated; (5) optional remote access and speech-to-text.\n\n"
@@ -103,6 +104,8 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
             Flag("--workdir", value="DIR", default="the checkout", remembered="yes (remote_workdir)",
                  doc="Folder remote Claude sessions start in. Only used together with remote access."),
             Flag("--no-migrate", doc="Do not move the skills of other tools into ~/.skills."),
+            Flag("--no-completion", doc="Do not install tab completion for `trirouter` into your shell profile "
+                                        "(see `trirouter help completion`)."),
             ALLOW, SCAN_LLM, ACCEPT, QDAYS),
      changes="Changes files; preview with --dry-run",
      examples=(("{prog} setup", "interactive setup (python install.py alone does the same)"),
@@ -122,14 +125,37 @@ _add(key="detect", summary="Report which AI tools are installed and logged in",
      examples=(("{prog} detect", "print the table"),),
      see_also=("setup", "doctor"))
 
-_add(key="models", summary="Test which Codex and Antigravity models your accounts can use",
-     synopsis=("{prog} models [--probe] [-n]",),
-     description="Sends a one-word prompt to every Codex model (about 10-60 s each) and reads Antigravity's model list, "
-                 "stores the result per user in ~/.trirouter/models.local.json and regenerates the worker agents "
-                 "from it. The command always probes; --probe is accepted for compatibility.",
-     flags=(Flag("--probe", doc="Accepted for compatibility: probing is what the command does."), DRY),
+_add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
+     synopsis=("{prog} models [--probe] [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off"),
+     description=(
+         "Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; "
+         "Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family "
+         "aliases such as opus or sonnet -- never Haiku, a dated model ID or a mode alias). A model seen for the first "
+         "time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it "
+         "answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt "
+         "confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes "
+         "nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the "
+         "worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are "
+         "always dropped.\n\n"
+         "Without --discover the command also sends the one-word prompt to every known Codex model, the full "
+         "account check (--probe is accepted for compatibility). --discover runs only the cheap daily check, which "
+         "also runs by itself in the background at most once every 24 hours, started by a Claude Code session start "
+         "or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next "
+         "Claude Code session is told once what changed, and `{prog} doctor` shows the last check. "
+         "--auto=off switches the background check off."),
+     flags=(Flag("--discover", doc="Only the daily check: list every tool's models, try only the new ones "
+                                   "(and ones offered again)."),
+            Flag("--probe", doc="Accepted for compatibility: the full check is what the command does without --discover."),
+            Flag("--auto", value="on|off", default="on", remembered="yes (model_discovery.auto)",
+                 choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
+                 doc="Switch the automatic daily check on or off. Given alone, only the setting is saved."),
+            DRY),
      changes="Changes files (models.local.json, worker agents); preview with --dry-run",
-     examples=(("{prog} models", "probe and save"), ("{prog} models --dry-run", "probe, save nothing")),
+     examples=(("{prog} models --discover", "the daily check now"),
+               ("{prog} models --discover --dry-run", "show what it would add or remove, save nothing"),
+               ("{prog} models", "full check: also try every known Codex model"),
+               ("{prog} models --auto=off", "no automatic daily check")),
+     exit_status="0 on success. 2 on a usage error. 1 when another model check is already running.",
      see_also=("skills", "doctor"))
 
 _add(key="skills", summary="Scan and re-link skills, regenerate worker agents, rebuild the catalog",
@@ -249,10 +275,38 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      exit_status="0 on success. 2 on a usage error (unknown option, empty prompt). 1 on an unexpected error.",
      see_also=("doctor",))
 
+_add(key="completion", summary="Print or install shell tab completion for trirouter",
+     synopsis=("{prog} completion [--shell=bash|zsh|fish|powershell]", "{prog} completion --install [--shell=SHELL] [-n]",
+               "{prog} completion --remove [-n]"),
+     description=(
+         "Prints a completion script for commands, subcommands, flags and flag values, generated from the same "
+         "definitions as this manual, like `gh completion -s bash`. Without --shell the current shell is used "
+         "($SHELL when it is bash, zsh or fish -- Git Bash sets it on Windows -- else PowerShell on Windows, zsh "
+         "on macOS and bash on Linux).\n\n"
+         "--install writes the script to ~/.trirouter/completion/ and one marked block that loads it into the "
+         "shell's profile: ~/.bashrc (macOS: ~/.bash_profile), ~/.zshrc ($ZDOTDIR is respected), the PowerShell "
+         "$PROFILE of every installed edition (Windows PowerShell and pwsh, also on macOS and Linux); fish loads "
+         "$XDG_CONFIG_HOME/fish/completions/trirouter.fish by itself. Setup installs it for your shell and, "
+         "on Windows or wherever pwsh is installed, for PowerShell too. Re-running changes "
+         "nothing when everything is up to date; a changed profile keeps its original once as <file>.bak. "
+         "`{prog} setup` does this by default, and keeps the script current. Open a new terminal afterwards "
+         "(or load the profile again)."),
+     flags=(Flag("--shell", value="SHELL", default="the current shell", choices=("bash", "zsh", "fish", "powershell"),
+                 choices_hint="bash, zsh, fish or powershell", doc="The shell to print or install the script for."),
+            Flag("--install", doc="Install the script and the profile block instead of printing the script."),
+            Flag("--remove", doc="Remove the profile blocks and scripts of every shell."), DRY),
+     changes="Prints only; --install and --remove change files (preview with --dry-run)",
+     examples=(("{prog} completion --install", "tab completion for the current shell"),
+               ("{prog} completion --install --shell=powershell -n", "show what would change"),
+               ("{prog} completion --shell=bash > ~/.trirouter-completion.bash", "just the script"),
+               ("{prog} completion --remove", "take it out again")),
+     see_also=("setup", "uninstall"))
+
 _add(key="uninstall", summary="Remove hooks, MCP entries, remote access and the trirouter command",
      synopsis=("{prog} uninstall [-n]",),
      description="Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access "
-                 "services and the `trirouter` launcher with its PATH entry. Your skills stay in ~/.skills (and linked).",
+                 "services, the `trirouter` launcher with its PATH entry and the tab completion in your shell "
+                 "profiles. Your skills stay in ~/.skills (and linked).",
      flags=(DRY,), changes="Changes files; preview with --dry-run",
      examples=(("{prog} uninstall --dry-run", "show what would be removed"), ("{prog} uninstall", "remove it")),
      see_also=("setup", "remote"))
@@ -272,7 +326,8 @@ _add(key="version", summary="Print the version",
      synopsis=("{prog} version",), description="Prints the installed version.", flags=(), changes="Changes nothing",
      examples=(("{prog} version", ""),), see_also=("help",))
 
-ORDER = ("setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help", "version")
+ORDER = ("setup", "detect", "models", "skills", "quarantine", "remote", "doctor", "route", "completion", "uninstall",
+         "help", "version")
 SUBCOMMANDS = {"quarantine": ("list", "restore", "purge")}
 DEFAULT_SUBCOMMAND = {"quarantine": "list"}
 
@@ -293,6 +348,9 @@ GETTING_STARTED = """\
    trirouter help                  # the command list
    trirouter doctor                # health report
    ```
+
+   Setup also installs tab completion for your shell (PowerShell, bash, zsh or fish): type `trirouter `, a
+   few letters, and press Tab to complete commands, subcommands, flags and flag values.
 
 If you move the checkout, run `python install.py` from its new place once: the launcher and the hooks are
 re-pointed. `python install.py <command>` and `python -m trirouter <command>` always keep working and
@@ -319,6 +377,9 @@ TASKS = (
     ("Keep quarantined skills a week instead of 3 days", "trirouter skills --apply --quarantine-days=7"),
     ("Never delete quarantined skills automatically", "trirouter skills --apply --quarantine-days=0"),
     ("Get the routing decision for a sub-task from a script", "trirouter route --json \"add a CSV export\""),
+    ("Check for new or retired models now", "trirouter models --discover"),
+    ("Turn the daily model check off", "trirouter models --auto=off"),
+    ("Tab completion for trirouter in your shell", "trirouter completion --install"),
     ("Reach this computer from a phone", "trirouter remote --name \"My PC\""),
     ("Remove everything the installer added", "trirouter uninstall"),
 )
