@@ -7,6 +7,14 @@ dates are ISO 8601.
 
 ## [Unreleased]
 
+### Added
+- The MCP server hot-reloads: before each message it scans the mtimes of `trirouter/*.py` and
+  `trirouter/config/*.json` and, after a change, re-imports the tool module with its dependencies, so code and
+  config edits apply on the next call without restarting the host app. A failed reload (e.g. a syntax error
+  mid-edit) keeps the previous code and appends a warning to the tool result. The tools moved to
+  `trirouter/mcp_tools.py`; `mcp_server.py` keeps only the stdio loop, `hotreload.py` the reloader. A server
+  started before this change needs one more restart to gain it.
+
 ### Changed
 - Claude is no longer limited to three families: Haiku is routable like the others. The catalog now lists
   `haiku`, `sonnet`, `opus`, `fable` (cheapest first, generic aliases only, verified live with effort low and

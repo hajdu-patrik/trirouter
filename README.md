@@ -359,7 +359,8 @@ trirouter/                 the package
 ├── catalog.py             skill catalog and pre-filter
 ├── hooks.py               hook entry point for all three tools (python -m trirouter.hooks)
 ├── queue_state.py         queue protection
-├── mcp_server.py          MCP server: route_prompt, list_skills, get_skill (python -m trirouter.mcp_server)
+├── mcp_server.py          MCP stdio server; reloads the package on source/config changes (python -m trirouter.mcp_server)
+├── mcp_tools.py           MCP tools: route_prompt, list_skills, get_skill
 ├── hub.py                 shared skill folder, links, worker generation
 ├── discovery.py           daily model discovery (new / retired models per tool, background run, lock)
 ├── completion.py          shell tab completion generated from manual.py, profile install (used by setup / uninstall)
