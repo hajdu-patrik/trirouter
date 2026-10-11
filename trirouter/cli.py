@@ -478,7 +478,7 @@ def route_decision(prompt, provider):
                    note="#norouter / #privat: not routed, nothing sent to TypeSafe.")
         return out
     d, text, hit, error = core.route(prompt, provider)
-    out.update(model=d.get("target_model"), effort=d.get("effort"), agent=d.get("target_agent"), tier=d["primary"],
+    out.update(model=d.get("route_model"), effort=d.get("route_effort") or d.get("effort"), agent=d.get("target_agent"), tier=d["primary"],
                task=d["task"], difficulty=d["level"], extra_agents=d.get("extra_agents", 0), destructive=bool(hit),
                skill=d.get("skill"), verify=d.get("verify") or None, lang=d["lang"], backend=d.get("backend"), text=text)
     if error:  # only the exception type: its message could carry request details

@@ -48,7 +48,7 @@ def one_json(out):
 @pytest.mark.parametrize("provider,prompt,model,agent,tier", [
     ("claude", "Write unit tests for the parser", "sonnet", "test-worker-", "test"),
     ("claude", "Refactor the entire codebase to hexagonal architecture", "opus", "opus-worker-", "deep"),
-    ("claude", "What is the capital of France?", None, None, "main"),    # answered in-session
+    ("claude", "What is the capital of France?", "sonnet", None, "main"),    # in-session: machine default
     ("codex", "What is TCP?", "gpt-6-luna", None, "fast"),               # the text says: no subagent
 ])
 def test_json_shape_and_types(monkeypatch, capsys, provider, prompt, model, agent, tier):

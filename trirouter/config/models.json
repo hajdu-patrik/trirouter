@@ -8,24 +8,23 @@
   },
   "claude": {
     "allowed_families": [
+      "haiku",
       "sonnet",
       "opus",
       "fable"
     ],
-    "excluded_families": [
-      "haiku"
-    ],
-    "policy": "Always the family's generic Claude Code alias (sonnet/opus/fable), never a pinned/dated model ID; the alias always points at the family's latest version. Haiku can never be selected, not even via an override tag.",
+    "excluded_families": [],
+    "policy": "Always the family's generic Claude Code alias (haiku/sonnet/opus/fable), never a pinned/dated model ID; the alias always points at the family's latest version. Every family is routable; none is banned (excluded_families is empty and only exists so a family can be removed from routing without touching code). Cost order, cheapest first: haiku, sonnet, opus, fable.",
     "current_reference": {
-      "sonnet": "claude-sonnet-5",
+      "haiku": "claude-haiku-5-5",
+      "sonnet": "claude-sonnet-5-5",
       "opus": "claude-opus-5-5",
-      "fable": "claude-fable-5-1",
-      "haiku_excluded": "claude-haiku-4-5-20251001"
+      "fable": "claude-fable-5-1"
     },
-    "verified": "2026-09-24, Claude Code 2.1.281: `claude --help` (--effort low|medium|high|xhigh|max; --model aliases fable/opus/sonnet) and live `claude -p --model <alias> --effort <level>` runs.",
+    "verified": "2026-10-11, Claude Code 2.1.289: `claude --help` (--effort low|medium|high|xhigh|max; --model aliases fable/opus/sonnet, haiku accepted too) and live `claude -p --model haiku --effort low|max` runs; prices and capability order from the claude-api model table cached 2026-10-06.",
     "models": [
       {
-        "id": "fable",
+        "id": "haiku",
         "selectable": true,
         "role": "fast",
         "levels": [
@@ -35,7 +34,7 @@
           "xhigh",
           "max"
         ],
-        "description": "Claude Fable - fastest and cheapest Claude family; simple, well-scoped tasks, formatting, short answers"
+        "description": "Claude Haiku - smallest, cheapest and fastest Claude family; trivial, well-scoped tasks, formatting, lookups, short answers, mechanical edits"
       },
       {
         "id": "sonnet",
@@ -61,7 +60,20 @@
           "xhigh",
           "max"
         ],
-        "description": "Claude Opus - strongest Claude family; hard reasoning, proofs, architecture, large refactors"
+        "description": "Claude Opus - strong Claude family; hard reasoning, proofs, architecture, large refactors"
+      },
+      {
+        "id": "fable",
+        "selectable": true,
+        "role": "deep",
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "description": "Claude Fable - most capable and most expensive Claude family; only the hardest reasoning and long-horizon work that Opus cannot carry"
       }
     ]
   },

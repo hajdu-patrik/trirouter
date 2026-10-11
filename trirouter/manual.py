@@ -121,7 +121,7 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
      description=(
          "Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; "
          "Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family "
-         "aliases such as opus or sonnet -- never Haiku, a dated model ID or a mode alias). A model seen for the first "
+         "aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first "
          "time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it "
          "answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt "
          "confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes "
@@ -251,7 +251,8 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      description="Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). "
                  "With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; "
                  "with --json one object: model, effort, agent, tier, task, difficulty, extra_agents, destructive, "
-                 "skill, verify, lang, backend, text, note. #norouter / #privat prompts are not routed. "
+                 "skill, verify, lang, backend, text, note. For Claude, model is always concrete: a tier that answers "
+                 "in-session reports sonnet. #norouter / #privat prompts are not routed. "
                  "`route` must be the first argument; everything after `--` is prompt text.",
      flags=(Flag("--provider", value="NAME", default="claude",
                  choices=("claude", "codex", "antigravity", "claude-chat"), choices_hint="claude, codex, antigravity or claude-chat",

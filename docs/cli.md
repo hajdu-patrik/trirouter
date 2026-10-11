@@ -139,7 +139,7 @@ trirouter models --discover [-n]
 trirouter models --auto=on|off
 ```
 
-Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as opus or sonnet -- never Haiku, a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
+Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
 
 Without --discover the command also sends the one-word prompt to every known Codex model, the full account check. --discover runs only the cheap daily check, which also runs by itself in the background at most once every 24 hours, started by a Claude Code session start or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next Claude Code session is told once what changed, and `trirouter doctor` shows the last check. --auto=off switches the background check off.
 
@@ -393,7 +393,7 @@ The routing decision for one prompt or sub-task.
 trirouter route [--provider=NAME] [--json] [--] TEXT...
 ```
 
-Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; with --json one object: model, effort, agent, tier, task, difficulty, extra_agents, destructive, skill, verify, lang, backend, text, note. #norouter / #privat prompts are not routed. `route` must be the first argument; everything after `--` is prompt text.
+Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; with --json one object: model, effort, agent, tier, task, difficulty, extra_agents, destructive, skill, verify, lang, backend, text, note. For Claude, model is always concrete: a tier that answers in-session reports sonnet. #norouter / #privat prompts are not routed. `route` must be the first argument; everything after `--` is prompt text.
 
 Arguments: TEXT... the prompt (free-form; quote it or use --).
 

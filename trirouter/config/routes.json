@@ -12,7 +12,7 @@
       "test":     ["test", "test", "deep"],
       "research": ["main", "main", "main"]
     },
-    "cloud_replace": {"cli:antigravity": "main", "cli:codex": "main", "fast": "main", "sonnet": "main", "test": "main", "deep": "main"}
+    "cloud_replace": {"cli:antigravity": "main", "cli:codex": "main", "fast": "main", "fable": "main", "sonnet": "main", "test": "main", "deep": "main"}
   },
   "codex": {
     "default": "main",

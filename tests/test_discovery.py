@@ -16,7 +16,7 @@ SPAWN = P.spawn_detached  # the real one: conftest replaces it with a no-op for 
 
 CATALOG = {
     "policy": {"excluded_efforts": ["ultra"]},
-    "claude": {"allowed_families": ["sonnet", "opus", "fable"], "excluded_families": ["haiku"], "models": [
+    "claude": {"allowed_families": ["haiku", "sonnet", "opus", "fable"], "excluded_families": [], "models": [
         {"id": "sonnet", "selectable": True, "role": "balanced", "levels": ["low", "high"], "description": "Sonnet"},
         {"id": "opus", "selectable": True, "role": "deep", "levels": ["low", "high"], "description": "Opus"}]},
     "codex": {"models": [
@@ -252,29 +252,35 @@ def test_dry_run_writes_nothing(fake):
 
 # ---- Claude policy --------------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("alias, ok", [("opus", True), ("fable", True), ("mythos", True), ("haiku", False),
-                                       ("Haiku", False), ("claude-haiku-4-5-20251001", False),
+@pytest.mark.parametrize("alias, ok", [("opus", True), ("fable", True), ("mythos", True), ("haiku", True),
+                                       ("Haiku", True), ("claude-haiku-4-5-20251001", False),
                                        ("claude-opus-4-1-20250805", False), ("claude-sonnet-5", False),
                                        ("sonnet[1m]", False), ("opusplan", False), ("default", False), ("", False)])
 def test_claude_alias_policy(fake, alias, ok):
     assert core.claude_alias_allowed(alias) is ok
 
 
-def test_claude_help_aliases_new_family_added_haiku_and_dated_ids_rejected(fake):
+def test_an_excluded_family_from_the_catalog_is_still_refused():
+    cfg = {"claude": {"excluded_families": ["haiku"]}}
+    assert core.claude_alias_allowed("haiku", cfg) is False and core.claude_alias_allowed("opus", cfg) is True
+
+
+def test_claude_help_aliases_new_families_added_dated_ids_and_mode_aliases_rejected(fake):
     fake.claude_help = (0, CLAUDE_HELP.format(aliases="'fable', 'opus', 'sonnet', 'haiku', 'opusplan' or "
                                                       "'claude-opus-4-1-20250805'"))
     out = D.run("discover", apply=True, say=None)
     r = result(out, "claude")
-    assert r["added"] == ["fable"] and [n for n, _ in r["rejected"]] == ["haiku", "opusplan", "claude-opus-4-1-20250805"]
-    assert dict(r["rejected"])["haiku"] == "excluded family"
-    assert set(local()["claude"]) == {"fable"} and local()["claude"]["fable"]["levels"] == ["low", "medium", "high", "xhigh", "max"]
-    assert "fable" in core.models_for("claude") and "haiku" not in core.models_for("claude")
+    assert r["added"] == ["fable", "haiku"] and [n for n, _ in r["rejected"]] == ["opusplan", "claude-opus-4-1-20250805"]
+    assert dict(r["rejected"])["opusplan"] == "not a generic family alias"
+    assert set(local()["claude"]) == {"fable", "haiku"}
+    assert local()["claude"]["haiku"]["levels"] == ["low", "medium", "high", "xhigh", "max"]
+    assert {"fable", "haiku"} <= set(core.models_for("claude"))
 
 
-def test_a_hand_written_haiku_or_dated_entry_is_never_selectable(fake):
+def test_a_hand_written_dated_entry_is_never_selectable_but_haiku_is(fake):
     D.save_local({"claude": {"haiku": {"selectable": True, "levels": ["low"]},
                              "claude-opus-4-1-20250805": {"selectable": True, "levels": ["low"]}}})
-    assert set(core.models_for("claude")) == {"sonnet", "opus"}
+    assert set(core.models_for("claude")) == {"sonnet", "opus", "haiku"}
 
 
 def test_claude_alias_missing_from_help_is_removed_only_when_a_prompt_confirms(fake):

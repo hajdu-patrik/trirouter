@@ -15,7 +15,7 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
 - `SAFETY:` in the context: list the exact actions and carry them out only after an explicit "yes".
 - `QUEUE:` / `CONCURRENCY:` in the context: earlier work is still running – finish or protect it,
   never stop, restart or overwrite it.
-- Overrides: Claude `#fable #sonnet #opus #codex #antigravity`; Codex / Antigravity
+- Overrides: Claude `#haiku #sonnet #opus #fable #codex #antigravity`; Codex / Antigravity
   `#fast #main #deep`; `#norouter` / `#privat` skip routing (nothing is sent to TypeSafe).
 
 ## Conventions
@@ -30,8 +30,8 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
   `jev_router/` is a thin compatibility package for shims written before the rename (remove it after the
   next release); `trirouter/legacy.py` holds the old names and the state-folder migration.
 - Hooks must never block or crash the host tool: catch everything, always exit 0.
-- Model policy (`trirouter/config/models.json`): Claude only via generic aliases (fable / sonnet / opus),
-  never Haiku, never a dated model ID; `ultra` effort is banned for every provider.
+- Model policy (`trirouter/config/models.json`): Claude only via generic family aliases (haiku / sonnet /
+  opus / fable), every family routable, never a dated model ID; `ultra` effort is banned for every provider.
 - Worker agents are generated from `trirouter/templates/agents/*.md` + `config/targets.json` +
   `config/models.json` (`trirouter skills --apply`, or `python install.py skills --apply`) – edit the sources, never the generated files.
 - Installers are idempotent and dry-run by default; changed user config files get a `.bak` copy.

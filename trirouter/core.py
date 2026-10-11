@@ -355,11 +355,12 @@ _GENERIC_ALIAS = re.compile(r"[a-z]+")
 
 
 def claude_alias_allowed(alias, cfg=None):
-    """The Claude policy: only a generic family alias (one plain word such as `opus`), never Haiku, never a
-    pinned or dated model ID (`claude-opus-4-1-20250805`), never a mode alias (`opusplan`, `default`)."""
+    """The Claude policy: only a generic family alias (one plain word such as `opus` or `haiku`), never a pinned
+    or dated model ID (`claude-opus-4-1-20250805`), never a mode alias (`opusplan`, `default`). Families listed
+    in the catalog's optional `excluded_families` are refused (none by default)."""
     claude = (cfg if cfg is not None else load_json("models.json", {})).get("claude", {})
     a = str(alias or "").strip().lower()
-    if any(x in a for x in claude.get("excluded_families", ["haiku"])):
+    if any(x in a for x in claude.get("excluded_families", [])):
         return False
     return bool(_GENERIC_ALIAS.fullmatch(a)) and a not in CLAUDE_MODE_ALIASES
 
@@ -700,6 +701,22 @@ def _tier_effort(d, spec, mdef):
     return effort
 
 
+def machine_route(targets, models, provider, model, effort):
+    """(model, effort) for machine readers (the header fields, `route --json`, the MCP Decision). A tier that names
+    a model keeps it; a tier that answers in-session names none, so targets.json `machine_default_model` stands in
+    (Claude: sonnet) with the effort clamped to its levels. The instruction text is never changed by this."""
+    if model:
+        return model, effort
+    default = targets.get("machine_default_model")
+    if not default:
+        return None, effort
+    default = available_model(provider, default, models)
+    mdef = (models if models is not None else models_for(provider)).get(default)
+    if mdef is not None and effort and mdef["levels"]:
+        effort = clamp_effort(effort, mdef["levels"])
+    return default, effort
+
+
 def render(d, destructive_hit, targets, provider="claude", lang_code="hu", models=None, session_model=None):
     text, effort, model, agent = resolve_tier(d, targets, models, session_model, provider)
     d["effort"] = effort
@@ -707,8 +724,11 @@ def render(d, destructive_hit, targets, provider="claude", lang_code="hu", model
         d["target_model"] = model
     if agent:
         d["target_agent"] = agent
+    route_model, route_effort = machine_route(targets, models, provider, model, effort)
+    d["route_model"], d["route_effort"] = route_model, route_effort
+    machine = "".join(f" {k}={v}" for k, v in (("model", route_model), ("effort", route_effort)) if v)
     parts = [f"[router] backend={d.get('backend', 'override')} task={d['task']} difficulty={d['level']} "
-             f"conf={d['task_conf']} lang={lang_code}.", text]
+             f"conf={d['task_conf']} lang={lang_code}{machine}.", text]
     if effort and effort not in text:
         parts.append(f"Reasoning effort: {effort}.")
     n = d.get("extra_agents", 0)

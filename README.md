@@ -110,8 +110,13 @@ prompt ─► hook / MCP tool ─► trirouter/core.route()
                                ├─ decide()                  routes.json: task × difficulty → tier
                                └─ render()                  targets.json: tier → worker, model, effort
        + queue_state            earlier work still running? → "finish it first"
-─► "[router] … Delegate to `opus-worker-xhigh` (opus, effort xhigh). Parallelism: none. Respond in English."
+─► "[router] … lang=en model=opus effort=xhigh. Delegate to `opus-worker-xhigh` (opus, effort xhigh). Parallelism: none. Respond in English."
 ```
+
+The header ends with machine-readable `model=<family>` and `effort=<level>` fields (omitted when unknown), so a
+program can read the decision without parsing the sentence. A tier that answers in-session names no model; its
+`model=` is the Claude default `sonnet` (`machine_default_model` in `targets.json`) with the effort clamped to
+Sonnet's levels. The instruction text itself is not changed by that.
 
 | Surface | Mechanism |
 | --- | --- |
@@ -137,17 +142,23 @@ the test tier – so a new model needs one line in `models.json`, not a new temp
 
 | Provider | Models (catalog: `trirouter/config/models.json`) | Effort levels |
 | --- | --- | --- |
-| Claude | fable, sonnet, opus – generic aliases only, never Haiku | low · medium · high · xhigh · max |
+| Claude | haiku, sonnet, opus, fable – generic family aliases only, cheapest first | low · medium · high · xhigh · max |
 | Codex | gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, gpt-reserve by default; more after `trirouter models` | low … max (per model) |
 | Antigravity | Gemini 3.8 / 3.7 / 3.6 Flash, Gemini 3.1 Pro, Claude Sonnet/Opus 4.6, GPT-OSS 120B | part of the model name |
 
 The `ultra` effort level is never offered, stripped from any answer and has no worker.
 
+No Claude family is banned. The catalog lists them cheapest first (haiku, sonnet, opus, fable) with a
+cost-aware description, so JEV's own model pick weighs capability against cost across all four. Without a
+model pick the routing table decides: trivial everyday requests (the `fast` tier, difficulty 0) run on
+`haiku`, the cheapest family; everything else keeps its tier (`main`, `sonnet`, `test`, `deep` = opus).
+`#haiku` forces the `fast` tier and `#fable` the `fable` tier (same efforts as before: low to high).
+
 **New and retired models are picked up by themselves.** Once a day (at most every 24 hours, started in the
 background by a Claude Code session start or a Codex / Antigravity prompt; the hook itself returns at
 once) trirouter compares what each tool offers with what it knows: `codex debug models`, `agy models`, and the
 model aliases `claude --help` names. A model seen for the first time is tried with a one-word prompt and
-becomes selectable when it answers – Claude only as a generic family alias, never Haiku or a dated ID; a
+becomes selectable when it answers – Claude only as a generic family alias, never a dated ID or a mode alias; a
 model no longer offered leaves the selection. Results go to `~/.trirouter/models.local.json` (never into the
 repository), the worker agents are regenerated, the next Claude Code session gets a one-line note, and
 `trirouter doctor` shows the last check. A check that cannot run (tool missing, logged out, offline) changes
@@ -269,7 +280,7 @@ and its LLM meta-analysis did not change those verdicts.
 
 ### Overrides
 
-Claude `#fable #sonnet #opus #codex #antigravity` · Codex / Antigravity `#fast #main #deep` ·
+Claude `#haiku #sonnet #opus #fable #codex #antigravity` · Codex / Antigravity `#fast #main #deep` ·
 `#norouter` / `#privat`: no routing, nothing is sent to TypeSafe (queue protection still applies).
 
 ### Routing decision on demand
@@ -285,7 +296,8 @@ python ~/.trirouter/bin/route.py --json "<text>"     # the same through the shim
 ```
 
 Without `--json` it prints the `[router] …` instruction. With `--json` it prints one object:
-`model` (e.g. `sonnet`; `null` when the tier answers in-session), `effort`, `agent` (the worker to
+`model` (always a concrete family for Claude: the tier's own, or `sonnet` when the tier answers
+in-session; `null` only for `claude-chat` and `#norouter`), `effort`, `agent` (the worker to
 delegate to, or `null`), `tier`, `task`, `difficulty`, `extra_agents`, `destructive`, `skill`,
 `verify`, `lang`, `backend`, `text` and `note`. A `#norouter` / `#privat` prompt is not routed
 (`model: null`, nothing is sent to TypeSafe). Exit codes: `0` success, `2` usage error (e.g. an

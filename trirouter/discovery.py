@@ -12,7 +12,7 @@ Sources:
                  before it becomes selectable; a hidden one (visibility "hide") is recorded, not selected.
     Antigravity  `agy models`: one slug per model and effort; the list is what the account may use.
     Claude Code  the aliases `claude --help` names for --model. Only generic family aliases count
-                 (core.claude_alias_allowed: never Haiku, a dated ID or a mode alias). The help names its
+                 (core.claude_alias_allowed: never a dated ID or a mode alias). The help names its
                  aliases as examples, so an alias is tried with a one-word prompt before it is added, and
                  before one that is no longer named is removed.
 
@@ -314,7 +314,7 @@ def list_claude(exe, catalog):
     names, levels = parse_claude_help(out)
     if not names:
         raise Unchecked("`claude --help` names no model alias")
-    excluded = catalog.get("claude", {}).get("excluded_families", ["haiku"])
+    excluded = catalog.get("claude", {}).get("excluded_families", [])
     found, rejected = {}, []
     for n in names:
         if core.claude_alias_allowed(n, catalog):

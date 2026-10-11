@@ -189,6 +189,69 @@ def test_overrides_whole_tag_only():
     assert d["backend"] != "override"
 
 
+@pytest.mark.parametrize("tag,tier,agent", [("#haiku", "fast", "haiku-worker-"), ("#fable", "fable", "fable-worker-"),
+                                            ("#sonnet", "sonnet", "sonnet-worker-"), ("#opus", "deep", "opus-worker-")])
+def test_every_claude_family_has_an_override_and_a_worker(tag, tier, agent):
+    d, text, _, _ = core.route(f"{tag} explain this", "claude")
+    assert d["primary"] == tier and d["target_agent"].startswith(agent)
+    assert d["target_model"] == agent.split("-")[0] and f"`{d['target_agent']}`" in text
+
+
+def test_trivial_general_work_goes_to_haiku():
+    d, text, _, _ = core.route("Organize my downloads folder by file type", "claude")
+    assert (d["primary"], d["level"]) == ("fast", 0)
+    assert d["target_model"] == "haiku" and d["target_agent"].startswith("haiku-worker-")
+
+
+def test_jev_can_pick_any_family_including_haiku_and_fable():
+    models = core.models_for("claude")
+    assert list(models) == ["haiku", "sonnet", "opus", "fable"]
+    criteria = core.build_questions({}, None, models)["model"]["criteria"]
+    assert "cheapest" in criteria["haiku"] and "most expensive" in criteria["fable"]
+    for family in ("haiku", "fable"):
+        answers = {"model": {"choice": family, "confidence": 0.9}}
+        assert core._enforce_policy(answers, None, models)["model"]["choice"] == family
+
+
+WORKFLOW_STEP_PROMPTS = ["Implement the pagination parameter in the quotes endpoint",
+                         "Review the diff of these files for naming problems",
+                         "Run python scripts/validate.py and report the result",
+                         "Fix the failing validation in the frontend package",
+                         "What is the capital of France?"]
+
+
+@pytest.mark.parametrize("prompt", WORKFLOW_STEP_PROMPTS)
+def test_in_session_main_tier_resolves_to_sonnet_for_machine_readers(prompt):
+    from trirouter import cli
+    r = cli.route_decision(prompt, "claude")
+    assert (r["tier"], r["agent"]) == ("main", None) and r["difficulty"] <= 1
+    assert r["model"] == "sonnet" and r["effort"] in core.models_for("claude")["sonnet"]["levels"]
+    assert f" model=sonnet effort={r['effort']}." in r["text"]  # additive header fields
+    assert "Answer directly in this session; do not spawn a subagent." in r["text"]  # the instruction is unchanged
+    d, text, _, _ = core.route(prompt, "claude")
+    assert text.startswith("[router] backend=local") and f"effort={d['route_effort']}." in text
+
+
+def test_header_machine_fields_follow_the_tier_model():
+    d, text, _, _ = core.route("#opus explain this", "claude")
+    assert f"lang={d['lang']} model=opus effort={d['effort']}." in text
+    d, text, _, _ = core.route("Organize my downloads folder by file type", "claude")
+    assert " model=haiku effort=" in text.split(". ", 1)[0] + "."
+    d, text, _, _ = core.route("What is the capital of France?", "claude-chat")
+    assert " model=" not in text.split(".", 1)[0]  # advice-only provider: no default model, fields omitted
+
+
+def test_machine_default_model_is_clamped_and_follows_availability(monkeypatch):
+    targets = {"machine_default_model": "sonnet"}
+    models = {"sonnet": {"levels": ["low", "medium"], "role": "balanced"}}
+    assert core.machine_route(targets, models, "claude", None, "max") == ("sonnet", "medium")
+    assert core.machine_route(targets, models, "claude", None, None) == ("sonnet", None)
+    assert core.machine_route(targets, models, "claude", "opus", "max") == ("opus", "max")
+    assert core.machine_route({}, models, "claude", None, "low") == (None, "low")
+    gone = {"opus": {"levels": ["low", "high"], "role": "deep"}}
+    assert core.machine_route(targets, gone, "claude", None, "high") == ("opus", "high")
+
+
 def test_cloud_mode_replaces_agents_and_cli(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
     d, text, _, _ = core.route("#codex review this", "claude")
@@ -316,7 +379,20 @@ def test_mcp_protocol():
     text = r["result"]["content"][0]["text"]
     assert "[router]" in text
     assert "subagent" not in text  # claude-chat: advice only, no subagents
+    decision = json.loads(text.split("Decision: ", 1)[1].splitlines()[0])
+    assert {"model", "agent", "effort", "primary"} <= set(decision)
     assert mcp_server.handle({"jsonrpc": "2.0", "id": 4, "method": "nope"})["error"]["code"] == -32601
+
+
+def test_mcp_decision_carries_a_concrete_model_for_claude():
+    def decision(prompt):
+        r = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "route_prompt", "arguments": {"prompt": prompt, "provider": "claude"}}})
+        return json.loads(r["result"]["content"][0]["text"].split("Decision: ", 1)[1].splitlines()[0])
+    main = decision("Review the diff of these files for naming problems")
+    assert (main["primary"], main["model"], main["agent"]) == ("main", "sonnet", None) and main["effort"]
+    forced = decision("#opus explain this")
+    assert (forced["model"], forced["agent"].startswith("opus-worker-")) == ("opus", True)
 
 
 def test_local_skill_pick_needs_name_evidence():

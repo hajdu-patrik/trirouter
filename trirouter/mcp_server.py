@@ -44,8 +44,9 @@ def tool_route_prompt(args):
     if not prompt:
         return "Empty prompt - nothing to route.", True
     d, text, _, error = core.route(prompt, provider)
-    out = [text, "", "Decision: " + json.dumps({k: d.get(k) for k in
-           ("task", "level", "primary", "effort", "skill", "lang", "backend", "skill_candidates")}, ensure_ascii=False)]
+    decision = {k: d.get(k) for k in ("task", "level", "primary", "effort", "skill", "lang", "backend", "skill_candidates")}
+    decision.update(model=d.get("route_model"), effort=d.get("route_effort") or d.get("effort"), agent=d.get("target_agent"))
+    out = [text, "", "Decision: " + json.dumps(decision, ensure_ascii=False)]
     if error:
         out.append(f"(JEV unavailable, local router used: {error})")
     if d.get("skill"):

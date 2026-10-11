@@ -7,6 +7,23 @@ dates are ISO 8601.
 
 ## [Unreleased]
 
+### Changed
+- Claude is no longer limited to three families: Haiku is routable like the others. The catalog now lists
+  `haiku`, `sonnet`, `opus`, `fable` (cheapest first, generic aliases only, verified live with effort low and
+  max); `excluded_families` is empty and stays only as an optional switch to remove a family. Discovery and the
+  alias policy accept `haiku` (dated IDs and mode aliases are still rejected), and `haiku-worker-<effort>`
+  agents are generated like the other families'. Calibration: the `fast` tier (trivial everyday requests,
+  difficulty 0) now runs on `haiku` instead of `fable`, JEV's model pick sees all four families with cost-aware
+  descriptions, and the other tiers are unchanged. `#haiku` forces the `fast` tier; `#fable` now has its own
+  `fable` tier with the old efforts (low to high). Fable's catalog entry is corrected: it is the most capable and
+  most expensive family (role `deep`, so its workers use the deep template), not the cheapest.
+- Machine-readable routing. The `[router]` header line now ends with `model=<family> effort=<level>` (additive,
+  after `lang=`; omitted when unknown). A tier that answers in-session names no model, so for Claude the
+  machine output reports `sonnet` (`machine_default_model` in `targets.json`, effort clamped to its levels):
+  the header fields, `route --json` (`model` is now always concrete for Claude) and the MCP `route_prompt`
+  `Decision:` line (which also carries `effort` and `agent`). The instruction text that tells the main session
+  what to do is unchanged.
+
 ### Added
 - Clean interruption of every command (the hooks and the MCP server are unchanged). Ctrl+C at any point stops
   the command at once, prints `Interrupted: nothing was left half-written.` to stderr and exits with 130, with no
