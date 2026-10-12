@@ -195,8 +195,8 @@ def test_completion_is_no_command_any_more(capsys, monkeypatch):
     assert exc.value.code == 2 and "completion was removed" in err and "trirouter setup" in err and "trirouter uninstall" in err
 
 
-def test_scripts_offer_exactly_the_nine_commands(monkeypatch):
-    assert C.commands() == ["setup", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
+def test_scripts_offer_exactly_the_ten_commands(monkeypatch):
+    assert C.commands() == ["setup", "keys", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
     assert "--version -V --help -h" in C.bash_script()
 
 
@@ -246,7 +246,7 @@ t trirouter --v
     assert lines[1] == "models"
     assert lines[2] == "--discover --auto= --dry-run --help"
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
-    assert lines[6] == "setup models skills quarantine remote doctor route uninstall help"
+    assert lines[6] == "setup keys models skills quarantine remote doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
 
 

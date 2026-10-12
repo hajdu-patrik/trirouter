@@ -13,7 +13,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-from . import catalog, lang, legacy
+from . import catalog, lang, legacy, secret
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
 # ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it (hooks and the MCP server only read)
@@ -32,7 +32,7 @@ SKILL_CANDIDATES = int(os.environ.get("ROUTER_SKILL_CANDIDATES", "5"))
 SKILL_DESC_CHARS = 120  # per skill description sent to the classifier: request size is latency
 CACHE_MAX = 128  # decision cache entries (classifier answers by prompt hash)
 CACHE_TTL_S = 24 * 3600
-LOCAL_CONFIDENT = 0.8  # local task confidence at which the network call is skipped
+LOCAL_CONFIDENT = 0.9  # local task confidence at which the network call is skipped (replayed on real traffic: 0.8 agreed with JEV on 3 of 4, 0.9 on 2 of 2)
 LOCAL_FAST_MAX_CHARS = 400  # longer prompts are not decided on keywords alone
 BACKEND = os.environ.get("ROUTER_BACKEND", "auto").lower()
 
@@ -46,14 +46,18 @@ TASKS = {
     "research": "Needs current information from the web",
 }
 DIFFICULTY = [
-    "Trivial: a one-line answer or a single step, no file or code involved. "
-    "E.g. 'What is the capital of France?', 'Reply with ok', 'Translate this word'",
-    "Moderate: any real work product - writing or changing code in a named file or function, a multi-step task, "
-    "a document, a short analysis, a test file, or a question that needs reasoning. "
-    "E.g. 'Fix the bug in utils.py', 'Write a function that parses a CSV', 'Draft a one-page project plan'. "
-    "When unsure between trivial and moderate, choose moderate",
-    "Hard: needs deep multi-step reasoning or large changes across many files or a whole system. "
-    "E.g. 'Refactor the whole backend to hexagonal architecture', 'Prove this theorem'",
+    "Trivial: a plain fact or definition, one fully specified action (send this email, pay a bill, delete a named "
+    "folder), or a very short text (a note, a list, a one-paragraph translation) that needs no planning. "
+    "E.g. 'Who painted the Mona Lisa?', 'Remove the cache folder', 'Write a short get-well note', 'Order a pizza'",
+    "Moderate: needs reasoning, planning or a real work product - explaining how or why, any code, script or "
+    "edited file, a multi-step task (find, run or check something, then act), a multi-part document, plan or "
+    "spreadsheet, a proof or multi-step calculation. "
+    "E.g. 'Fix the bug in utils.py', 'Explain how DNS resolution works', 'Draft a one-page project plan', "
+    "'Run the linter and fix what it reports', 'Find the roots of this cubic polynomial'",
+    "Hard: a very large input (50+ pages) or scope (a whole module, backend or system), architecture design, "
+    "open-ended performance work, a thesis chapter, or a research-level problem. "
+    "E.g. 'Rewrite the whole frontend from Vue to React', 'Review the entire codebase for security issues', "
+    "'Design the data model and API of a ride-sharing platform'",
 ]
 EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
@@ -384,12 +388,13 @@ def user_config():
 def jev_endpoint():
     """(channel, url, key, model), or None. A TypeSafe token wins over an OpenRouter key. The generic
     OPENROUTER_API_KEY is deliberately not read: other tools set it, and routing would then spend
-    that account's credit without the user ever opting in."""
+    that account's credit without the user ever opting in.
+    A stored key may be protected (secret.py); one that cannot be decrypted here counts as no key."""
     cfg = user_config()
-    key = os.environ.get("TYPESAFE_API_KEY") or cfg.get("typesafe_api_key")
+    key = os.environ.get("TYPESAFE_API_KEY") or secret.reveal(cfg.get("typesafe_api_key"))
     if key:
         return "typesafe", API_URL, key, JEV_MODEL
-    key = os.environ.get("JEV_OPENROUTER_API_KEY") or cfg.get("openrouter_api_key")
+    key = os.environ.get("JEV_OPENROUTER_API_KEY") or secret.reveal(cfg.get("openrouter_api_key"))
     if key:
         return "openrouter", OPENROUTER_URL, key, OPENROUTER_JEV_MODEL
     return None
@@ -805,7 +810,8 @@ def decide(answers, routes, skills_by_name=None, prompt=""):
     cc = routes.get("cost_cap")
     if cc:
         apply_cost_cap(result, cc)
-        if prompt and is_short_chat(prompt, int(cc.get("short_chat_chars", 40))):
+        if prompt and result["task"] in cc.get("short_chat_tasks", ("general", "qa")) \
+                and is_short_chat(prompt, int(cc.get("short_chat_chars", 40))):
             apply_family_cap(result, cc, cc.get("short_chat_max_family", "haiku"), "short plain request")
     return result
 
@@ -1088,12 +1094,24 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     return d, render(d, hit, targets, provider, lang_code, models, session_model), hit, error
 
 
+def _same_tier_at_low_levels(task, routes):
+    """True when the route table sends this task to the same tier at difficulty 0 and 1: only then the local
+    classifier's trivial-vs-moderate guess (weak on real prompts) cannot change where the prompt goes."""
+    row = (routes.get("table") or {}).get(task)
+    if not row:
+        return True
+    tier = lambda level: row[min(level, len(row) - 1)].partition("+verify:")[0]  # noqa: E731
+    return tier(0) == tier(1)
+
+
 def _fast_path_reason(own, pasted, candidates, routes, backend):
     """Why the network call can be skipped, or None. A trivially short plain line, or a prompt the local classifier
     is sure about (a clear task, nothing hard, no skill in play), is decided locally: JEV adds seconds, not insight."""
     if pasted or backend or BACKEND != "auto" or not use_jev(None):  # an explicit backend is never second-guessed
         return None
     a = local_answers(own)
+    if not _same_tier_at_low_levels(a["task"]["choice"], routes):
+        return None  # the local trivial/moderate guess is a coin flip and the tier depends on it: that is JEV's
     cc = routes.get("cost_cap") or {}
     if cc and is_short_chat(own, int(cc.get("short_chat_chars", 40))) and a["task"]["confidence"] >= MIN_CONF:
         return "short"  # an unsure local guess would land on the 'uncertain' default: JEV does better there

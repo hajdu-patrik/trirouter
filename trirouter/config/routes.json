@@ -14,7 +14,7 @@
     },
     "cloud_replace": {"cli:antigravity": "main", "cli:codex": "main", "fast": "main", "fable": "main", "sonnet": "main", "test": "main", "deep": "main"},
     "cost_cap": {
-      "_comment": "Cost-aware cap on the model family a Claude subagent may run on. max_family: difficulty level -> the highest family; by_task overrides it per task. A tier or a model JEV picked above the cap is lowered to it (an explicit #opus/#fable override is never capped). short_chat_chars / short_chat_max_family: a plain prompt shorter than this (no code, path or file name) never runs above that family; inline stays inline.",
+      "_comment": "Cost-aware cap on the model family a Claude subagent may run on. max_family: difficulty level -> the highest family; by_task overrides it per task. A tier or a model JEV picked above the cap is lowered to it (an explicit #opus/#fable override is never capped). short_chat_chars / short_chat_max_family: a plain prompt shorter than this (no code, path or file name) never runs above that family (only for short_chat_tasks: a short integral is still math); inline stays inline.",
       "families": ["haiku", "sonnet", "opus", "fable"],
       "tier_family": {"fast": "haiku", "sonnet": "sonnet", "test": "sonnet", "deep": "opus", "fable": "fable"},
       "family_tier": {"haiku": "fast", "sonnet": "sonnet", "opus": "deep", "fable": "fable"},
@@ -26,7 +26,8 @@
         "study": {"1": "sonnet"}
       },
       "short_chat_chars": 40,
-      "short_chat_max_family": "haiku"
+      "short_chat_max_family": "haiku",
+      "short_chat_tasks": ["general", "qa"]
     }
   },
   "codex": {

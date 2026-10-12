@@ -69,6 +69,7 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 | Command | Purpose |
 | --- | --- |
 | `trirouter setup [--dry-run]` | the interactive setup (what `python install.py` runs) |
+| `trirouter keys [--apply]` | protect the saved API key (Windows DPAPI; owner-only file elsewhere), keep no plaintext backup; preview without `--apply` |
 | `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
 | `trirouter remote --name "My PC" [--workdir <folder>]` | remote access from other devices ([guide](docs/remote-access.md)) |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
@@ -123,7 +124,7 @@ Cost control: a tier that answers in-session (`main`) never delegates, whatever 
 short plain prompts (under 40 characters, no code, path or file name) on Haiku at most; `#opus` / `#fable` and the other
 overrides are never capped. A go-ahead ("mehet", "yes do all", "commit it") or a question about the session or the
 model needs the parent's context: it re-uses the previous decision, or stays inline when there is none. Very short
-prompts and prompts the local classifier is sure about skip the network call; JEV's answers are cached by prompt
+prompts and prompts the local classifier is sure about skip the network call (never for `general` and `math`, whose tier depends on the trivial-vs-moderate guess); JEV's answers are cached by prompt
 hash in `~/.trirouter/state/`. When there is no parallelism, the `[router]` text has no `Parallelism:` line.
 
 | Surface | Mechanism |
@@ -334,6 +335,7 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 | Setting | Where |
 | --- | --- |
 | JEV access | `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`, or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
+| Key storage | The saved TypeSafe token / OpenRouter key is **not** kept as plain text: on Windows it is encrypted with DPAPI (`{"dpapi": "..."}` in `config.json`; it opens only for your account on this machine, a copied `config.json` falls back to the built-in local model and `trirouter doctor` says so). macOS and Linux have no keystore in the standard library, so the key stays a string and `config.json` and its backups are owner-only (mode 0600). An older plaintext key is migrated by `trirouter keys --apply` (preview without `--apply`; `setup` re-saves it protected too); the backup copy `config.json.bak` is written without the key, and `doctor` warns about any backup that still holds one. Environment variables win over the saved key. |
 | Per-user state | `~/.trirouter/` – `config.json`, `models.local.json` (per-account availability and discovered models), `logs/` (incl. `model_discovery.log`), `state/`, `quarantine/` (skills you quarantined), `completion/` (tab-completion scripts), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
 | Daily model check | `config.json` → `model_discovery.auto` (default on); set with `trirouter models --auto=on\|off` |
 | Skill scan | `config.json` → `skillscan`: `allow` (skills never asked about despite `DO_NOT_INSTALL`), `llm` (add the LLM analysis), `quarantine_days` (default 3, 0 = never purge); set with `--allow-skill` / `--scan-llm` / `--quarantine-days` |

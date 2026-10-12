@@ -86,7 +86,8 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "is installed, linked into every tool, and expired quarantine entries are purged; worker agents are "
          "generated; (5) optional remote access and speech-to-text.\n\n"
          "Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. "
-         "`python install.py` with no arguments does the same.\n\n"
+         "`python install.py` with no arguments does the same. A saved JEV key is stored protected, and a plaintext "
+         "key left by an older version is protected on the next save (see `{prog} keys`).\n\n"
          "An install from before the rename (state folder ~/.jev-router) is migrated first: the folder moves to "
          "~/.trirouter, and the hooks, MCP entries (renamed to `trirouter`), PATH entry and remote-access services "
          "that point into it are rewritten. A dry run only reports this. `skills --apply`, `remote`, `models` and "
@@ -95,8 +96,9 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
             Flag("--providers", value="LIST", default="every installed, logged-in tool",
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
             Flag("--jev-token", value="TOKEN", default="none", remembered="yes (typesafe_api_key or openrouter_api_key)",
-                 doc="A TypeSafe token, or an OpenRouter key (sk-or-...). The environment variables TYPESAFE_API_KEY "
-                     "and JEV_OPENROUTER_API_KEY work too."),
+                 doc="A TypeSafe token, or an OpenRouter key (sk-or-...). Saved protected: encrypted with Windows "
+                     "DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables "
+                     "TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key."),
             Flag("--openrouter-key", value="KEY", default="none", remembered="yes (openrouter_api_key)",
                  doc="An OpenRouter key; same as --jev-token=sk-or-..."),
             Flag("--remote", value="NAME", optional=True, default="ask", remembered="yes (remote_name)",
@@ -114,7 +116,28 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
                ("{prog} setup --jev-token=sk-or-...", "add an OpenRouter key and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
      exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found.",
-     see_also=("models", "skills", "remote", "doctor", "uninstall"))
+     see_also=("keys", "models", "skills", "remote", "doctor", "uninstall"))
+
+_add(key="keys", summary="Protect the API keys saved in config.json",
+     synopsis=("{prog} keys [-a] [-n]",),
+     description=(
+         "Older versions kept the TypeSafe token or OpenRouter key as plain text in ~/.trirouter/config.json. "
+         "This command re-writes it protected: on Windows encrypted with the Data Protection API (DPAPI), so "
+         "the value opens only for your user account on this machine (a copy of config.json on another machine "
+         "or account holds an unusable blob and the router falls back to the built-in local model); on macOS and "
+         "Linux the standard library has no keystore, so the key stays a string and the file is limited to its "
+         "owner (mode 0600). Plain-text values stay readable until they are migrated; the environment variables "
+         "always win.\n\n"
+         "No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, "
+         "and the key is also removed from older backups next to it (config.json.*). Without --apply the command "
+         "only previews; `{prog} doctor` reports the state. A key saved with `setup --jev-token` is stored "
+         "protected right away, `setup` also removes plaintext keys from old backups."),
+     flags=(APPLY, DRY),
+     changes="Preview by default; --apply writes",
+     examples=(("{prog} keys", "show what would be protected"),
+               ("{prog} keys --apply", "protect the key and scrub the backups")),
+     exit_status="0 on success. 2 on a usage error. 1 when a key could not be protected.",
+     see_also=("setup", "doctor"))
 
 _add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
      synopsis=("{prog} models [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off"),
@@ -287,7 +310,7 @@ _add(key="help", summary="Show the manual of a command",
                ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
      see_also=("doctor",))
 
-ORDER = ("setup", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))

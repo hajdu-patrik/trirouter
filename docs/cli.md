@@ -10,6 +10,7 @@
 * [Conventions](#conventions)
 * [Common tasks](#common-tasks)
 * [setup](#setup) -- Detect the AI tools, connect hooks and MCP, link and scan skills
+* [keys](#keys) -- Protect the API keys saved in config.json
 * [models](#models) -- Find new models, drop retired ones, test which ones your accounts can use
 * [skills](#skills) -- Scan and re-link skills, regenerate worker agents, rebuild the catalog
 * [quarantine](#quarantine) -- List, restore or purge skills the scan moved to quarantine
@@ -92,7 +93,7 @@ trirouter setup [-y] [-n] [--providers=LIST] [--jev-token=TOKEN] [--remote[=NAME
 
 Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; (2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); (3) hooks and the MCP server for every logged-in tool, the `trirouter` command itself and its tab completion in your shell profile (PowerShell, bash, zsh or fish; skip it with --no-completion); (4) the shared skill folder ~/.skills: existing skills are moved there, scanned with SkillSpector when it is installed, linked into every tool, and expired quarantine entries are purged; worker agents are generated; (5) optional remote access and speech-to-text.
 
-Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. `python install.py` with no arguments does the same.
+Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. `python install.py` with no arguments does the same. A saved JEV key is stored protected, and a plaintext key left by an older version is protected on the next save (see `trirouter keys`).
 
 An install from before the rename (state folder ~/.jev-router) is migrated first: the folder moves to ~/.trirouter, and the hooks, MCP entries (renamed to `trirouter`), PATH entry and remote-access services that point into it are rewritten. A dry run only reports this. `skills --apply`, `remote`, `models` and `uninstall` do the same before they write.
 
@@ -101,7 +102,7 @@ An install from before the rename (state folder ~/.jev-router) is migrated first
 | `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--providers` | `LIST` | every installed, logged-in tool | no | Comma-separated tools to connect: claude, codex, antigravity. |
-| `--jev-token` | `TOKEN` | none | yes (typesafe_api_key or openrouter_api_key) | A TypeSafe token, or an OpenRouter key (sk-or-...). The environment variables TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too. |
+| `--jev-token` | `TOKEN` | none | yes (typesafe_api_key or openrouter_api_key) | A TypeSafe token, or an OpenRouter key (sk-or-...). Saved protected: encrypted with Windows DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key. |
 | `--openrouter-key` | `KEY` | none | yes (openrouter_api_key) | An OpenRouter key; same as --jev-token=sk-or-... |
 | `--remote` | `NAME` (optional) | ask | yes (remote_name) | Also set up remote access, under NAME (default: the saved name or the hostname). |
 | `--workdir` | `DIR` | the checkout | yes (remote_workdir) | Folder remote Claude sessions start in. Only used together with remote access. |
@@ -127,7 +128,38 @@ trirouter setup --yes --remote="My PC"    # also set up remote access
 
 **Exit status:** 0 on success. 2 on a usage error. 1 when no logged-in tool was found.
 
-**See also:** [models](#models), [skills](#skills), [remote](#remote), [doctor](#doctor), [uninstall](#uninstall)
+**See also:** [keys](#keys), [models](#models), [skills](#skills), [remote](#remote), [doctor](#doctor), [uninstall](#uninstall)
+
+## keys
+
+Protect the API keys saved in config.json.
+
+```
+trirouter keys [-a] [-n]
+```
+
+Older versions kept the TypeSafe token or OpenRouter key as plain text in ~/.trirouter/config.json. This command re-writes it protected: on Windows encrypted with the Data Protection API (DPAPI), so the value opens only for your user account on this machine (a copy of config.json on another machine or account holds an unusable blob and the router falls back to the built-in local model); on macOS and Linux the standard library has no keystore, so the key stays a string and the file is limited to its owner (mode 0600). Plain-text values stay readable until they are migrated; the environment variables always win.
+
+No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, and the key is also removed from older backups next to it (config.json.*). Without --apply the command only previews; `trirouter doctor` reports the state. A key saved with `setup --jev-token` is stored protected right away, `setup` also removes plaintext keys from old backups.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-a`, `--apply` | - | off | no | Write the changes. Without it the command only previews them. |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Preview by default; --apply writes.
+
+Examples:
+
+```bash
+trirouter keys    # show what would be protected
+trirouter keys --apply    # protect the key and scrub the backups
+```
+
+**Exit status:** 0 on success. 2 on a usage error. 1 when a key could not be protected.
+
+**See also:** [setup](#setup), [doctor](#doctor)
 
 ## models
 

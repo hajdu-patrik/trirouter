@@ -323,6 +323,7 @@ $global:__trirouterCompleter = {{
     $cmd = if ($pos.Count -ge 1) {{ $pos[0] }} else {{ '' }}
     $sub = if ($pos.Count -ge 2) {{ $pos[1] }} else {{ '' }}
     $key = $cmd
+    # .get_Keys(): `$commands.Keys` would return the value of the command named "keys" instead of the key list
     if ($subcommands.Contains($cmd) -and $subcommands[$cmd] -contains $sub) {{ $key = "$cmd $sub" }}
     $emit = {{
         param($text, $kind, $tip)
@@ -340,10 +341,10 @@ $global:__trirouterCompleter = {{
     }}
     if (-not $cmd) {{
         if ($word -like '-*') {{
-            foreach ($t in $top.Keys) {{ if ($t -like "$word*") {{ & $emit $t 'ParameterName' $top[$t] }} }}
+            foreach ($t in $top.get_Keys()) {{ if ($t -like "$word*") {{ & $emit $t 'ParameterName' $top[$t] }} }}
             return
         }}
-        foreach ($c in $commands.Keys) {{ if ($c -like "$word*") {{ & $emit $c 'ParameterValue' $commands[$c] }} }}
+        foreach ($c in $commands.get_Keys()) {{ if ($c -like "$word*") {{ & $emit $c 'ParameterValue' $commands[$c] }} }}
         return
     }}
     if ($word -like '-*') {{
@@ -354,7 +355,7 @@ $global:__trirouterCompleter = {{
     }}
     if ($cmd -eq 'help') {{
         if ($pos.Count -eq 1) {{
-            foreach ($c in $commands.Keys) {{ if ($c -like "$word*") {{ & $emit $c 'ParameterValue' $commands[$c] }} }}
+            foreach ($c in $commands.get_Keys()) {{ if ($c -like "$word*") {{ & $emit $c 'ParameterValue' $commands[$c] }} }}
         }} elseif ($pos.Count -eq 2 -and $subcommands.Contains($sub)) {{
             foreach ($s in $subcommands[$sub]) {{ if ($s -like "$word*") {{ & $emit $s 'ParameterValue' $s }} }}
         }}

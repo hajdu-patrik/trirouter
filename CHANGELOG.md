@@ -8,6 +8,7 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- `trirouter keys` (preview; `--apply` writes) and protected key storage: the TypeSafe token / OpenRouter key in `~/.trirouter/config.json` is encrypted with Windows DPAPI (`{"dpapi": ...}`, current user and machine only) instead of plain text; macOS and Linux keep the string but enforce mode 0600 on `config.json` and its backups. Plaintext values stay readable; a blob that cannot be decrypted (copied to another account) counts as no key, never crashes a hook, and `doctor` reports it. The migration writes `config.json.bak` without the key and removes plaintext keys from older backups; `doctor` warns about backups that still contain one. New module `trirouter/secret.py`.
 - The MCP server hot-reloads: before each message it scans the mtimes of `trirouter/*.py` and
   `trirouter/config/*.json` and, after a change, re-imports the tool module with its dependencies, so code and
   config edits apply on the next call without restarting the host app. A failed reload (e.g. a syntax error
@@ -33,14 +34,20 @@ dates are ISO 8601.
   history, stays inline instead of spawning a fresh subagent. Questions about the session or the running model
   ("which model are you?", "mit csinaltunk eddig?") are always answered inline.
 - Lower latency: the JEV timeout is 1.8 s (was 4 s); very short plain prompts and prompts the local classifier is
-  sure about (both only when the local guess is confident) skip the network call (`fast_path` in the log); JEV's answers are cached by request hash in
+  sure about (both only when the local guess is confident, and only for tasks whose tier is the same at difficulty 0
+  and 1 - never `general` or `math`, where the local trivial-vs-moderate guess decides the tier; the confidence
+  threshold is 0.9, chosen by replaying the logged real prompts offline) skip the network call (`fast_path` in the log); JEV's answers are cached by request hash in
   `~/.trirouter/state/answer_cache.json` (128 entries, 24 h, atomic write); `urllib` is imported only when JEV
   is called. The request is smaller: skill descriptions are cut to 120 characters and `ROUTER_SKILL_CANDIDATES`
   defaults to 5 (was 8).
 - Less boilerplate in the injected context: the `Parallelism: none` line is gone (no line means none; CLAUDE.md
   and the README say so), and an in-session tier no longer adds a `Reasoning effort:` line.
-- Classifier quality: the difficulty criteria carry examples and say "when unsure, moderate" (level-1 prompts were
-  rated 0 about 25% of the time), and a code or test prompt that names a file, path, function or a multi-step
+- Classifier quality: the difficulty criteria carry generic examples (level-1 prompts were rated 0 about 25% of the
+  time). The first "when unsure, moderate" wording pushed trivial everyday requests ("write a shopping list", "delete
+  the cache folder") to level 1 and so to `main`; the final criteria define trivial as a plain fact, one fully
+  specified action or a very short text, moderate as reasoning, any code or edited file or a multi-step task, hard as a
+  very large input or scope. Eval (hu / en / real): tier accuracy 81 / 86 / 91 % -> 91 / 91 / 93 %, difficulty exact
+  76 / 79 / 87 % -> 88 / 86 / 91 %. A code or test prompt that names a file, path, function or a multi-step
   verb is at least level 1. Drafting an email or letter is no longer flagged as destructive, but "write it and
   send it", sending and deleting still are (`is_drafting`; "and send it" joined the destructive patterns).
 - Claude is no longer limited to three families: Haiku is routable like the others. The catalog now lists

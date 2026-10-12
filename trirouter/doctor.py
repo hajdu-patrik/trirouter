@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 
-from . import integrations, legacy, platforms as P, remote, skillscan
+from . import integrations, legacy, platforms as P, remote, secret, skillscan
 
 HOME = P.HOME
 STATE = legacy.state_dir(HOME)
@@ -155,18 +155,44 @@ def report_command():
 def report_config():
     print("\n== Configuration (~/.trirouter/config.json)")
     cfg = jload(STATE / "config.json") or {}
-    if os.environ.get("TYPESAFE_API_KEY") or cfg.get("typesafe_api_key"):
+    if os.environ.get("TYPESAFE_API_KEY") or secret.reveal(cfg.get("typesafe_api_key")):
         backend = "JEV (TypeSafe token)"
-    elif os.environ.get("JEV_OPENROUTER_API_KEY") or cfg.get("openrouter_api_key"):
+    elif os.environ.get("JEV_OPENROUTER_API_KEY") or secret.reveal(cfg.get("openrouter_api_key")):
         backend = "JEV through OpenRouter"
     else:
         backend = f"built-in local model ({P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')})"
     line(True, "Decision backend", backend)
+    report_keys(cfg)
     line(True, "Remote access name", cfg.get("remote_name") or f"not set up ({P.command_hint('remote')})")
     line(True, "Per-account model overrides", "yes" if (STATE / "models.local.json").exists()
          else f"no ({P.command_hint('models')})")
     report_discovery(cfg)
     return cfg
+
+
+def report_keys(cfg):
+    """How the saved API keys are stored; never prints a key."""
+    try:
+        for field in secret.KEY_FIELDS:
+            state = secret.status(cfg.get(field))
+            if state == secret.NONE:
+                continue
+            label = f"Stored key ({field.split('_')[0]})"
+            if state == secret.PROTECTED:
+                line(True, label, "protected (Windows DPAPI, this account only)")
+            elif state == secret.UNREADABLE:
+                line(False, label, "cannot be decrypted on this account - set it again with "
+                     f"{P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')}")
+            elif secret.protection_available():
+                line(False, label, f"plaintext in config.json - protect it with {P.command_hint('keys --apply')}")
+            else:
+                private = secret.mode_is_private(STATE / "config.json")
+                line(private, label, "plaintext, config.json is owner-only (mode 0600)" if private else
+                     f"plaintext and config.json is readable by others - run {P.command_hint('keys --apply')}")
+        for bak in secret.backups_with_plaintext(STATE / "config.json"):
+            line(False, f"Plaintext key in {bak.name}", f"remove it with {P.command_hint('keys --apply')}")
+    except Exception as exc:  # noqa: BLE001 - a read-only report never fails
+        line(False, "Stored keys", f"unreadable ({type(exc).__name__})")
 
 
 def report_discovery(cfg):

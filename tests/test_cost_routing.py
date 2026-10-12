@@ -189,6 +189,29 @@ def test_confident_local_classifier_skips_the_network(monkeypatch):
     assert calls == [] and d["fast_path"] == "local-confident" and d["task"] == "test"
 
 
+def test_tasks_whose_tier_depends_on_trivial_vs_moderate_always_ask_jev(monkeypatch):
+    # general: fast vs main, math: main vs deep. The local level guess is a coin flip there.
+    auto_jev(monkeypatch)
+    calls = fake_jev(monkeypatch)
+    for prompt in ("Write a short note", "Compute the derivative of x squared"):
+        d, _, _, _ = core.route(prompt, "claude")
+        assert "fast_path" not in d, prompt
+    assert len(calls) == 2
+
+
+def test_same_tier_at_low_levels_follows_the_route_table():
+    routes = {"table": {"qa": ["main", "main", "deep"], "general": ["fast", "main", "deep"],
+                        "math": ["main", "deep+verify:codex", "deep"], "test": ["test", "test", "deep"]}}
+    assert core._same_tier_at_low_levels("qa", routes) and core._same_tier_at_low_levels("test", routes)
+    assert not core._same_tier_at_low_levels("general", routes) and not core._same_tier_at_low_levels("math", routes)
+    assert core._same_tier_at_low_levels("unknown", routes)
+
+
+def test_difficulty_criteria_stay_short_and_self_contained():
+    # They are sent on every JEV request: keep them small, and keep the examples generic.
+    assert sum(len(c) for c in core.DIFFICULTY) < 1500 and len(core.DIFFICULTY) == 3
+
+
 def test_uncertain_or_hard_prompts_still_ask_jev(monkeypatch):
     auto_jev(monkeypatch)
     calls = fake_jev(monkeypatch)
@@ -315,3 +338,9 @@ def test_jev_destructive_verdict_still_counts_for_non_drafting(monkeypatch):
     fake_jev(monkeypatch, destructive=0.8)
     _, text, hit, _ = core.route("Clean up everything on the staging cluster for me", "claude", backend="jev")
     assert hit and "SAFETY" in text
+
+
+def test_short_math_is_not_capped_by_the_short_chat_rule(monkeypatch):
+    fake_jev(monkeypatch, task="math", level=2, model="opus")
+    d, _, _, _ = core.route("Solve the integral of x*e^x dx", "claude", backend="jev")
+    assert d["primary"] != "fast" and d.get("target_model") != "haiku", d

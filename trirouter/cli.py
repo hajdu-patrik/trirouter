@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt, legacy,
-               manual, platforms as P, remote, skillscan)
+               manual, platforms as P, remote, secret, skillscan)
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -56,7 +56,7 @@ def configure(inv):
 # Commands that write per-user state (config.json, models.local.json, quarantine, remote-access scripts) or
 # rewrite the tools' configs: they migrate a pre-rename ~/.jev-router first, so nothing is ever written to a
 # half-migrated pair of folders.
-STATE_WRITERS = ("setup", "skills", "models", "remote", "uninstall", "quarantine restore", "quarantine purge")
+STATE_WRITERS = ("setup", "keys", "skills", "models", "remote", "uninstall", "quarantine restore", "quarantine purge")
 
 
 def say(msg=""):
@@ -91,8 +91,9 @@ def load_config():
 def save_config(cfg):
     if DRY:
         return
-    # atomic and owner-only from the start: it holds the JEV token
-    P.atomic_write(CONFIG, json.dumps(cfg, indent=2), mode=0o600)
+    # atomic and owner-only from the start; the JEV token is stored protected (secret.py), never as plain text
+    # where the system can encrypt it
+    P.atomic_write(CONFIG, json.dumps(secret.protect_config(cfg), indent=2), mode=0o600)
 
 
 def rebase_state(state):
@@ -183,9 +184,9 @@ def store_jev_key(cfg, key):
 
 
 def jev_backend_label(cfg):
-    if cfg.get("typesafe_api_key") or os.environ.get("TYPESAFE_API_KEY"):
+    if secret.reveal(cfg.get("typesafe_api_key")) or os.environ.get("TYPESAFE_API_KEY"):
         return "JEV (TypeSafe token)"
-    if cfg.get("openrouter_api_key") or os.environ.get("JEV_OPENROUTER_API_KEY"):
+    if secret.reveal(cfg.get("openrouter_api_key")) or os.environ.get("JEV_OPENROUTER_API_KEY"):
         return "JEV through OpenRouter"
     return "built-in local model (add JEV later with `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`)"
 
@@ -197,8 +198,11 @@ def configure_jev(cfg):
         store_jev_key(cfg, token)
     elif os.environ.get("TYPESAFE_API_KEY") or os.environ.get("JEV_OPENROUTER_API_KEY"):
         say("  Using the JEV key from the environment.")
-    elif cfg.get("typesafe_api_key") or cfg.get("openrouter_api_key"):
+    elif secret.reveal(cfg.get("typesafe_api_key")) or secret.reveal(cfg.get("openrouter_api_key")):
         say("  A JEV key is already configured.")
+    elif secret.UNREADABLE in (secret.status(cfg.get(k)) for k in secret.KEY_FIELDS):
+        say("  The stored JEV key cannot be decrypted on this account (copied from another machine or user?): "
+            "give it again with --jev-token.")
     elif not YES and interactive():
         token = interrupt.ask_secret("  TypeSafe token or OpenRouter key (input hidden; Enter = built-in local model): ").strip()
         if token:
@@ -522,10 +526,27 @@ def run_setup():
     cfg = load_config()
     configure_jev(cfg)
     save_config(cfg)
+    if not DRY:  # setup also migrates: plaintext keys in older backups of config.json are removed
+        for p, _fields in secret.scrub_backups(CONFIG, apply=True):
+            say(f"  Removed the plaintext key from {p.name}.")
     connect(providers, cfg)
     extras(providers, load_config() if not DRY else cfg)
     next_steps(providers)
     return 0
+
+
+def run_keys():
+    """`keys`: protects the plaintext API keys in config.json (preview by default) and keeps no plaintext copy."""
+    apply = "--apply" in FLAGS and not DRY
+    say("trirouter keys" + ("" if apply else " (preview - nothing is changed; --apply writes)"))
+    cfg = load_config()
+    for field in secret.KEY_FIELDS:
+        state = secret.status(cfg.get(field))
+        if state != secret.NONE:
+            say(f"  {field}: {state}")
+    results = secret.migrate(CONFIG, apply)
+    report([("keys", ok, msg) for ok, msg in results], indent="  ")
+    return 0 if all(ok for ok, _ in results) else 1
 
 
 def run_remote():
@@ -659,7 +680,7 @@ def _main(argv):
     configure(inv)
     if (code := prepare_state(inv.key)) is not None:
         return code
-    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models,
+    commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
                 "remote": run_remote, "uninstall": run_uninstall}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)
