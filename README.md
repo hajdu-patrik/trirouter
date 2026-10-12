@@ -101,22 +101,30 @@ For Claude desktop *Chat/Cowork*, restart the app and add to *Settings → Profi
 
 ```
 prompt ─► hook / MCP tool ─► trirouter/core.route()
-                               ├─ is_continuation()         "mehet" / "yes, do it" → keep the last decision
+                               ├─ is_continuation()         "mehet" / "yes, do it" / "commit it" → keep the last decision (inline when there is none)
                                ├─ split_pasted()            pasted blocks never decide language or task
                                ├─ lang.detect()             answer language
                                ├─ is_destructive()          regex safety net (+ JEV verdict)
-                               ├─ catalog.prefilter()       shared skill catalog → ≤ 8 candidates
-                               ├─ classify()                JEV (TypeSafe / OpenRouter) or built-in classifier
-                               ├─ decide()                  routes.json: task × difficulty → tier
+                               ├─ catalog.prefilter()       shared skill catalog → ≤ 5 candidates
+                               ├─ classify()                JEV (TypeSafe / OpenRouter, 1.8 s timeout, cached) or built-in classifier
+                               ├─ decide()                  routes.json: task × difficulty → tier, then the cost cap (model family by level)
                                └─ render()                  targets.json: tier → worker, model, effort
        + queue_state            earlier work still running? → "finish it first"
-─► "[router] … lang=en model=opus effort=xhigh. Delegate to `opus-worker-xhigh` (opus, effort xhigh). Parallelism: none. Respond in English."
+─► "[router] … lang=en model=opus effort=xhigh. Delegate to `opus-worker-xhigh` (opus, effort xhigh). Respond in English."
 ```
 
 The header ends with machine-readable `model=<family>` and `effort=<level>` fields (omitted when unknown), so a
 program can read the decision without parsing the sentence. A tier that answers in-session names no model; its
 `model=` is the Claude default `sonnet` (`machine_default_model` in `targets.json`) with the effort clamped to
 Sonnet's levels. The instruction text itself is not changed by that.
+
+Cost control: a tier that answers in-session (`main`) never delegates, whatever model JEV would pick. For Claude,
+`routes.json` → `cost_cap` limits the model family by difficulty (level 0 never reaches Opus or Fable) and keeps
+short plain prompts (under 40 characters, no code, path or file name) on Haiku at most; `#opus` / `#fable` and the other
+overrides are never capped. A go-ahead ("mehet", "yes do all", "commit it") or a question about the session or the
+model needs the parent's context: it re-uses the previous decision, or stays inline when there is none. Very short
+prompts and prompts the local classifier is sure about skip the network call; JEV's answers are cached by prompt
+hash in `~/.trirouter/state/`. When there is no parallelism, the `[router]` text has no `Parallelism:` line.
 
 | Surface | Mechanism |
 | --- | --- |
@@ -338,9 +346,9 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 | `ROUTER_MIN_CONFIDENCE` | `0.6` | below it the task falls back to the default tier |
 | `ROUTER_MAX_EXTRA_AGENTS` | `4` | hard cap for parallel agents |
 | `ROUTER_QUEUE_TTL_MIN` | `120` | minutes after which an unfinished queue entry is ignored |
-| `ROUTER_SKILL_CANDIDATES` | `8` | skills offered to JEV per request |
+| `ROUTER_SKILL_CANDIDATES` | `5` | skills offered to JEV per request |
 | `ROUTER_LOG_PROMPTS` | unset | `1` = log full prompts (default: first 200 characters, secrets redacted) |
-| `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | – | JEV endpoint, pinned model version, timeout in seconds |
+| `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | –, –, `1.8` | JEV endpoint, pinned model version, timeout in seconds (on timeout the local classifier decides) |
 | `JEV_OPENROUTER_URL`, `JEV_OPENROUTER_MODEL` | OpenRouter System One, `jev-1.13` | the same through OpenRouter |
 
 ---

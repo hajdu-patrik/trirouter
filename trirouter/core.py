@@ -9,8 +9,8 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
-import urllib.request
 from pathlib import Path
 
 from . import catalog, lang, legacy
@@ -23,12 +23,17 @@ API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemo
 JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 OPENROUTER_URL = os.environ.get("JEV_OPENROUTER_URL", "https://openrouter.ai/api/v1/systemone")
 OPENROUTER_JEV_MODEL = os.environ.get("JEV_OPENROUTER_MODEL", "jev-1.13")  # OpenRouter takes the bare id
-TIMEOUT_S = float(os.environ.get("JEV_TIMEOUT", "4"))
+TIMEOUT_S = float(os.environ.get("JEV_TIMEOUT", "1.8"))  # the hook runs before every prompt: fail fast to the local classifier
 MIN_CONF = float(os.environ.get("ROUTER_MIN_CONFIDENCE", "0.6"))
 DESTRUCTIVE_T = float(os.environ.get("ROUTER_DESTRUCTIVE_THRESHOLD", "0.3"))
 LONG_CTX_T = float(os.environ.get("ROUTER_LONG_CONTEXT_THRESHOLD", "0.7"))
 MAX_STATE_CHARS = 6000  # well under JEV's 32k-token limit: long states degrade its answers
-SKILL_CANDIDATES = int(os.environ.get("ROUTER_SKILL_CANDIDATES", "8"))
+SKILL_CANDIDATES = int(os.environ.get("ROUTER_SKILL_CANDIDATES", "5"))
+SKILL_DESC_CHARS = 120  # per skill description sent to the classifier: request size is latency
+CACHE_MAX = 128  # decision cache entries (classifier answers by prompt hash)
+CACHE_TTL_S = 24 * 3600
+LOCAL_CONFIDENT = 0.8  # local task confidence at which the network call is skipped
+LOCAL_FAST_MAX_CHARS = 400  # longer prompts are not decided on keywords alone
 BACKEND = os.environ.get("ROUTER_BACKEND", "auto").lower()
 
 TASKS = {
@@ -41,9 +46,14 @@ TASKS = {
     "research": "Needs current information from the web",
 }
 DIFFICULTY = [
-    "Trivial: an expert answers in seconds",
-    "Moderate: needs a few minutes of focused work",
-    "Hard: needs deep multi-step reasoning or large changes",
+    "Trivial: a one-line answer or a single step, no file or code involved. "
+    "E.g. 'What is the capital of France?', 'Reply with ok', 'Translate this word'",
+    "Moderate: any real work product - writing or changing code in a named file or function, a multi-step task, "
+    "a document, a short analysis, a test file, or a question that needs reasoning. "
+    "E.g. 'Fix the bug in utils.py', 'Write a function that parses a CSV', 'Draft a one-page project plan'. "
+    "When unsure between trivial and moderate, choose moderate",
+    "Hard: needs deep multi-step reasoning or large changes across many files or a whole system. "
+    "E.g. 'Refactor the whole backend to hexagonal architecture', 'Prove this theorem'",
 ]
 EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
@@ -70,35 +80,72 @@ def language_of(prompt):
 # A bare go-ahead or status check continues the previous request: it keeps that request's model
 # and effort instead of being classified on its own (where it would look trivial or uncertain).
 GO_AHEAD = {
-    "mehet", "mehetsz", "mehetunk", "igen", "ja", "jah", "aha", "ok", "oke", "okes", "okay", "okey", "rendben",
-    "persze", "jo", "johet", "nyomjad", "nyomd", "nyomj", "csinald", "folytasd", "folytassuk", "folytatas",
-    "kovetkezo", "kovi", "hajra", "tovabb", "lehet", "tessek", "pontosan", "szuper", "koszi", "koszonom",
-    "yes", "yeah", "yep", "yup", "sure", "go", "continue", "proceed", "lgtm", "next", "retry", "please",
-    "thanks", "great", "perfect", "done", "try",
+    "mehet", "mehetsz", "mehetunk", "mehetnek", "mehetne", "mehetnenek", "menjen", "menjenek", "indulhat", "indulj",
+    "igen", "ja", "jah", "aha", "ok", "oke", "okes", "okay", "okey", "rendben", "persze", "jo", "johet", "nyomjad", "nyomd",
+    "nyomj", "csinald", "csinaljuk", "folytasd", "folytassuk", "folytatas", "kovetkezo", "kovi", "hajra", "tovabb", "lehet",
+    "tessek", "pontosan", "szuper", "koszi", "koszonom", "jovahagyom", "elfogadom", "kezdhetjuk", "kezdd",
+    "yes", "yeah", "yep", "yup", "sure", "go", "continue", "proceed", "lgtm", "next", "retry", "please", "thanks", "great",
+    "perfect", "done", "try", "approved", "approve", "confirmed", "confirm", "accept", "accepted", "agreed", "y", "ya",
+    "yea", "fine", "good", "alright", "right",
 }
 GO_AHEAD_FILLER = {
     "am", "akkor", "is", "meg", "csak", "most", "kerlek", "fel", "tovabb", "ezt", "azt", "mind", "mindet", "mindent",
     "igy", "ugy", "nyugodtan", "nyomjad", "mehet", "igen", "ok", "please", "do", "it", "ahead", "on", "again",
-    "then", "all", "that", "this", "now", "go", "keep", "going", "yes", "sure", "ujra",
+    "then", "all", "that", "this", "now", "go", "keep", "going", "yes", "sure", "ujra", "mindegyiket", "osszeset",
+    "mehetnek", "everything", "too", "also", "them",
+}
+# A verb that acts on the previous work ("commit it", "push", "fix that"): a continuation only with a pronoun object.
+ACTION_VERBS = {
+    "commit", "commitold", "commitolj", "commitoljuk", "push", "pushold", "pusholj", "pusholjuk", "merge", "mergeld",
+    "mergeljuk", "deploy", "deployold", "ship", "apply", "alkalmazd", "run", "futtasd", "implement", "implementald",
+    "implementalj", "do", "fix", "javitsd", "start", "inditsd", "finish", "fejezd",
+}
+ACTION_OBJECTS = {
+    "it", "this", "that", "them", "those", "these", "all", "everything", "now", "please", "too", "also", "again",
+    "changes", "the", "ezt", "azt", "ezeket", "azokat", "mindet", "mindent", "mind", "osszeset", "most", "kerlek", "is",
+    "el", "fel", "ki", "be", "valtozasokat", "valtoztatasokat", "ugyanezt", "ujra", "right", "away", "meg",
+}
+# A pronoun-only follow-up ("and this?", "ezt is", "ugyanezt a masikra"): only words from this closed set, one a pronoun.
+FOLLOWUP_PRONOUNS = {"this", "that", "it", "those", "these", "them", "same", "other", "another", "ez", "ezt", "azt",
+                     "ezzel", "azzal", "ugyanezt", "ugyanaz", "ugyanigy", "masik", "masikat", "masikra", "ezek", "azok"}
+FOLLOWUP_WORDS = FOLLOWUP_PRONOUNS | {
+    "and", "also", "too", "what", "about", "how", "for", "with", "the", "one", "ones", "is", "do", "does", "to", "as",
+    "well", "then", "so", "but", "es", "a", "az", "akkor", "de", "viszont", "pedig", "mi", "hogy", "hogyan",
+    "van", "lesz", "ugye", "egyebkent", "igy", "nekem", "ra", "re", "val", "vel",
 }
 STATUS_RE = re.compile(r"^(hogy allunk|hol tartunk|mi a helyzet|kesz vagy|kesz van|elkeszult|megvan|"
                        r"how is it going|how's it going|how are we doing|any progress|are you done|status)\b")
+# Questions about the session or the running model: only the parent session can answer them, a fresh
+# subagent would not know what is being asked about.
+META_RE = re.compile(
+    r"\b(which|what)\s+(llm|model|version)\b[^.?!]{0,40}\b(are you|you(\s+are)?\s+(using|running)|is this|am i\s+(using|talking)|do you use)"
+    r"|\b(who|what)\s+are\s+you\b"
+    r"|\b(melyik|milyen)\s+(nyelvi\s+)?modell?\w*[^.?!]{0,40}\b(vagy|vagytok|dolgozol|futsz|hasznalsz|hasznalod|beszelek|fut)"
+    r"|\bki\s+vagy\b"
+    r"|\bhow\s+much\s+(context|token)\w*|\b(context|kontextus)\w*\s+(left|remain\w*|usage|window)|\bmennyi\s+(kontextus|token)\w*"
+    r"|\bwhat\s+(did|have)\s+(we|you|i)\s+(just\s+)?(do|done|change\w*|talk\w*|discuss\w*)\b"
+    r"|\bmit\s+(csinaltunk|csinaltal|csinaltam|vegeztunk|valtoztattal|valtoztattunk|beszeltunk)\b"
+    r"|\bsummari[sz]e\s+(our|this|the)\s+(chat|conversation|session|discussion)\b"
+    r"|\bfoglald\s+ossze\s+(a\s+)?(beszelgetest|sessiont|eddigieket|eddig)\b")
+META_MAX_WORDS = 14
 CONTINUATION_MAX_WORDS = 5
 # A go-ahead in one language is answered in it ("Mehet" after an English paste); "ok" keeps the previous language.
 CONTINUATION_LANG_WORDS = {
-    "hu": {"mehet", "mehetsz", "mehetunk", "igen", "rendben", "persze", "jo", "johet", "nyomjad", "nyomd", "nyomj",
-           "csinald", "folytasd", "folytassuk", "folytatas", "kovetkezo", "kovi", "hajra", "tovabb", "lehet", "tessek",
-           "pontosan", "szuper", "koszi", "koszonom", "kerlek", "akkor", "meg", "csak", "most", "mind", "mindet",
-           "mindent", "nyugodtan", "ujra", "hogy", "allunk", "hol", "tartunk", "helyzet", "kesz", "elkeszult", "megvan"},
+    "hu": {"mehet", "mehetsz", "mehetunk", "mehetnek", "mehetne", "igen", "rendben", "persze", "jo", "johet", "nyomjad",
+           "nyomd", "nyomj", "csinald", "csinaljuk", "folytasd", "folytassuk", "folytatas", "kovetkezo", "kovi", "hajra",
+           "tovabb", "lehet", "tessek", "pontosan", "szuper", "koszi", "koszonom", "kerlek", "akkor", "meg", "csak", "most",
+           "mind", "mindet", "mindent", "nyugodtan", "ujra", "hogy", "allunk", "hol", "tartunk", "helyzet", "kesz",
+           "elkeszult", "megvan", "ezt", "azt", "ugyanezt", "jovahagyom", "elfogadom"},
     "en": {"yes", "yeah", "yep", "yup", "sure", "go", "continue", "proceed", "next", "retry", "please", "thanks",
            "great", "perfect", "done", "try", "do", "ahead", "again", "then", "keep", "going", "how", "progress",
-           "status", "are", "you", "doing"},
+           "status", "are", "you", "doing", "commit", "push", "it", "approved", "everything"},
 }
 
 
 def is_continuation(prompt):
-    """A bare go-ahead ("mehet", "yes, do it", "igen torold!") or a status check ("hogy allunk?"):
-    at most one word beyond the go-ahead and filler words, so "ok, most irj teszteket" is new work."""
+    """A bare go-ahead ("mehet", "Mehetnek igen mind", "yes, do it", "igen torold!"), an action on the previous work
+    ("commit it") or a pronoun-only follow-up ("and this?"), or a status check ("hogy allunk?"): at most one word
+    beyond the go-ahead and filler words, so "ok, most irj teszteket" is new work."""
     own, pasted = split_pasted(prompt)
     if pasted:
         return False
@@ -107,9 +154,20 @@ def is_continuation(prompt):
         return False
     if STATUS_RE.match(" ".join(words)):
         return True
-    if words[0] not in GO_AHEAD:
+    if words[0] in GO_AHEAD:
+        return len([w for w in words[1:] if w not in GO_AHEAD_FILLER and w not in GO_AHEAD]) <= 1
+    if words[0] in ACTION_VERBS:
+        return all(w in ACTION_OBJECTS or w in GO_AHEAD for w in words[1:])
+    return all(w in FOLLOWUP_WORDS for w in words) and any(w in FOLLOWUP_PRONOUNS for w in words)
+
+
+def is_meta_question(prompt):
+    """A question about the session or the running model ("which model are you?", "mit csinaltunk eddig?")."""
+    own, pasted = split_pasted(prompt)
+    if pasted or FENCE_RE.search(own) or len(own) > 120:
         return False
-    return len([w for w in words[1:] if w not in GO_AHEAD_FILLER and w not in GO_AHEAD]) <= 1
+    text = _norm(own)
+    return len(text.split()) <= META_MAX_WORDS and bool(META_RE.search(text))
 
 
 def continuation_lang(prompt, previous_lang):
@@ -154,6 +212,7 @@ DESTRUCTIVE_RE = re.compile(
     r"|\bforma(t|z)\w*\s+(meg\s+)?(a\s+|az\s+|the\s+)?(\w:\s*)?(lemez|disk|meghajto|drive|partition|particio)"
     r"|\bkuld(d|jed|jon)?\s+el\b|\belkuld\w*|\bkuld\w*\s+([\w-]+\s+){0,3}(uzenet|e-?mail|level|sms)"
     r"|send\s+(an?\s+|the\s+|this\s+|that\s+)?(e-?mail|message|mail|dm|sms|invite|text)"
+    r"|\b(and|then|and\s+then)\s+send\s+(it|them|this|that|out|off)\b|\bsend\s+(it|them)\s+(out|off|now)\b"
     r"|\bsend\w*\s[^.?!\n]{0,50}\b(to|by|via)\s+(my\s|him\b|her\b|them\b|the\s+(team|client|customer|boss|group|channel)|\S+@\S+|e-?mail|slack|teams|whatsapp|messenger)"
     r"|\bpublikal\w*|\bkozze\b|\bkozzete\w*|\bpublish\w*|\bposztol\w*|\btweetel\w*|\btweet\s+(it|this)"
     r"|\bpost\w*\s[^.?!\n]{0,30}\b(on|to)\s+(twitter|x\b|linkedin|facebook|instagram|reddit|slack|discord|the\s+blog|my\s+blog)"
@@ -165,6 +224,20 @@ DESTRUCTIVE_RE = re.compile(
 
 def is_destructive(prompt):
     return bool(DESTRUCTIVE_RE.search(_norm(prompt)))
+
+
+# Writing a draft for the user (an email, a letter) is harmless; sending it is not. The destructive regex still
+# sees "and send it", so this only silences the classifier's score for a pure drafting request.
+DRAFTING_RE = re.compile(
+    r"^\W*(please\s+|kerlek\s+)?(write|draft|compose|prepare|rewrite|proofread|polish|irj|irjal|ird\s+meg|fogalmazz?"
+    r"(\s+meg)?|keszits|javitsd\s+ki)\b[^.?!\n]{0,80}\b(e-?mails?|letters?|cover\s+letter|messages?|notes?|replies|reply|"
+    r"emailt|e-?mailt|levelet|level|uzenetet|uzenet|valaszt|valasz|jegyzetet)\b")
+SENDING_RE = re.compile(r"\b(send|post|publish|submit|deliver|dispatch|forward|kuld\w*|elkuld\w*|kozzet\w*|publikal\w*|tedd\s+ki)\b")
+
+
+def is_drafting(prompt):
+    t = _norm(split_pasted(prompt)[0])
+    return bool(DRAFTING_RE.search(t)) and not SENDING_RE.search(t) and not is_destructive(prompt)
 
 
 # Local keyword classifier (Hungarian + English, accent-stripped). Its answers have JEV's shape.
@@ -451,6 +524,11 @@ def clamp_effort(effort, allowed):
                                        -(EFFORT_ORDER.index(a) if a in EFFORT_ORDER else 2)))
 
 
+def _short_desc(desc):
+    desc = " ".join(str(desc or "").split())
+    return desc if len(desc) <= SKILL_DESC_CHARS else desc[:SKILL_DESC_CHARS - 3].rstrip() + "..."
+
+
 def build_questions(skills, effort=None, models=None):
     """skills: only the pre-filtered candidates, never the whole catalog."""
     q = {
@@ -471,6 +549,7 @@ def build_questions(skills, effort=None, models=None):
                    "criteria": {k: v for k, v in AGENT_CRITERIA.items() if int(k) <= MAX_EXTRA_AGENTS}},
     }
     if skills:
+        skills = {name: _short_desc(desc) for name, desc in skills.items()}
         criteria = dict(skills)
         criteria["none"] = "No listed skill is clearly needed for this request"
         q["skill"] = {"type": "choice", "instructions": "Which skill best fits this request?", "criteria": criteria}
@@ -496,6 +575,7 @@ def ask_jev(prompt, questions):
     if not endpoint:
         raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: trirouter setup --jev-token=...)")
     _, url, key, model = endpoint
+    import urllib.request  # lazy: the network stack is only paid for when JEV is actually called
     body = json.dumps({"state": prompt[:MAX_STATE_CHARS], "model": model, "questions": questions}).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST",
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
@@ -521,11 +601,63 @@ def classify(prompt, skills=None, backend=None, effort=None, models=None, pasted
 
 
 def _jev_answers(prompt, candidates, effort, models):
-    result = ask_jev(prompt, build_questions({s["name"]: s["description"][:300] for _, s in candidates}, effort, models))
+    questions = build_questions({s["name"]: s["description"] for _, s in candidates}, effort, models)
+    key = _cache_key(prompt, questions)
+    cached = _cache_get(key)
+    if cached is not None:
+        cached["_cached"] = True
+        return cached
+    result = ask_jev(prompt, questions)
     answers = result["answers"]
     answers["_backend"] = "jev"
     answers["_jev_model"] = result.get("model")
+    _cache_put(key, answers)
     return answers
+
+
+# Decision cache: the classifier's answers by hash of the exact request (state text + questions), so a repeated
+# prompt costs no network call. Bounded, expiring, atomically written, and never a reason for a hook to fail.
+def _cache_path():
+    return Path(STATE_DIR) / "state" / "answer_cache.json"
+
+
+def _cache_key(prompt, questions):
+    import hashlib
+    blob = json.dumps([prompt[:MAX_STATE_CHARS], questions], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def _cache_load():
+    try:
+        data = json.loads(_cache_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _cache_get(key):
+    try:
+        entry = _cache_load().get(key)
+        fresh = isinstance(entry, dict) and time.time() - float(entry.get("ts", 0)) < CACHE_TTL_S
+        if fresh and isinstance(entry.get("answers"), dict):
+            return json.loads(json.dumps(entry["answers"]))
+    except Exception:  # noqa: BLE001 - a cache problem is a cache miss
+        pass
+    return None
+
+
+def _cache_put(key, answers):
+    try:
+        from . import platforms
+        now = time.time()
+        data = {k: v for k, v in _cache_load().items() if isinstance(v, dict) and now - float(v.get("ts", 0)) < CACHE_TTL_S}
+        data[key] = {"ts": now, "answers": answers}
+        if len(data) > CACHE_MAX:  # drop the oldest
+            for k in sorted(data, key=lambda k: data[k].get("ts", 0))[:len(data) - CACHE_MAX]:
+                del data[k]
+        platforms.atomic_write(_cache_path(), json.dumps(data, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _mock_answers(prompt, candidates, effort):
@@ -574,12 +706,65 @@ def apply_cloud(primary, verify, routes):
     return primary, verify
 
 
-def decide(answers, routes, skills_by_name=None):
-    """'primary' is a tier name; render() turns it into a concrete agent/model/text."""
+# Real code work: a named file, a path, a function or a multi-step verb. The classifier rates these 0 about a
+# quarter of the time; level 0 would cap the model too low and send the work to the cheapest tier.
+CODE_WORK_RE = re.compile(
+    r"\b[\w.-]+\.(py|js|jsx|ts|tsx|json|md|java|go|rs|cs|cpp|c|h|rb|php|html|css|sql|ya?ml|toml|sh|ps1)\b"
+    r"|[\w.-]+[/\\][\w.-]+|\b\w+\(\)|\b(function|method|class|fuggveny|metodus|osztaly)\b"
+    r"|\b(implement\w*|refactor\w*|refaktor\w*|migrat\w*|rename|atnevez\w*|then|majd|utana|step\s+by\s+step)\b")
+# A short, plain question or chat line: no code, path or file name. Never worth more than the cheapest subagent.
+CODE_SIGNS_RE = re.compile(r"`|[\w.-]+\.[a-z]{1,5}\b|[/\\]|\b\w+\(\)|[{};=<>]")
+
+
+def is_short_chat(prompt, max_chars):
+    own = " ".join(split_pasted(prompt)[0].split())
+    norm = _norm(own)
+    return (bool(own) and len(own) < max_chars and not CODE_SIGNS_RE.search(own)
+            and not re.search(LOCAL_TASK_RE["code"], norm) and not re.search(LOCAL_TASK_RE["test"], norm))
+
+
+def _family_rank(cc, family):
+    try:
+        return cc["families"].index(family)
+    except (KeyError, ValueError):
+        return None
+
+
+def family_cap(cc, task, level):
+    """The highest model family the cost-cap table allows for this task and difficulty, or None."""
+    by_task = (cc.get("by_task") or {}).get(task) or {}
+    return by_task.get(str(level)) or (cc.get("max_family") or {}).get(str(level))
+
+
+def apply_cost_cap(result, cc):
+    """Level 0 never reaches opus/fable and so on (routes.json `cost_cap`): lowers the tier and the model JEV picked
+    to the cap. A tier that names no Claude family (main, cli:*) is left alone."""
+    apply_family_cap(result, cc, family_cap(cc, result["task"], result["level"]), f"difficulty {result['level']}")
+
+
+def apply_family_cap(result, cc, cap, why):
+    cap_rank = _family_rank(cc, cap)
+    if cap_rank is None:
+        return
+    tier_family = (cc.get("tier_family") or {}).get(result["primary"])
+    rank = _family_rank(cc, tier_family)
+    if rank is not None and rank > cap_rank:
+        result["primary"] = (cc.get("family_tier") or {}).get(cap, result["primary"])
+        result["notes"].append(f"capped to {cap} ({why})")
+    model_rank = _family_rank(cc, result.get("model"))
+    if model_rank is not None and model_rank > cap_rank:
+        result["model"] = cap
+
+
+def decide(answers, routes, skills_by_name=None, prompt=""):
+    """'primary' is a tier name; render() turns it into a concrete agent/model/text. `prompt` (the user's own
+    words) feeds the code-work bump and the short-chat rule."""
     task = answers["task"]
     diff = answers["difficulty"]
     level = max(0, min(int(round(float(diff.get("score", 1)))), len(DIFFICULTY) - 1))
     if float(diff.get("confidence", 0)) < MIN_CONF:
+        level = max(level, 1)
+    if prompt and task.get("choice") in ("code", "test") and CODE_WORK_RE.search(prompt):
         level = max(level, 1)
 
     notes = []
@@ -617,7 +802,20 @@ def decide(answers, routes, skills_by_name=None):
     if m and float(m.get("confidence", 0)) >= MIN_CONF:
         result["model"] = m["choice"]
     result["extra_agents"] = extra_agents(answers.get("agents"), level)
+    cc = routes.get("cost_cap")
+    if cc:
+        apply_cost_cap(result, cc)
+        if prompt and is_short_chat(prompt, int(cc.get("short_chat_chars", 40))):
+            apply_family_cap(result, cc, cc.get("short_chat_max_family", "haiku"), "short plain request")
     return result
+
+
+def force_inline(d, note):
+    """The decision turned into 'answer in this session' (no subagent, no extra agents, no cross-check)."""
+    d.update(primary="main", verify="", extra_agents=0)
+    d.pop("model", None)
+    d["notes"] = [n for n in d.get("notes", []) if n != "routing uncertain"] + [note]
+    return d
 
 
 def extra_agents(ans, level):
@@ -729,14 +927,12 @@ def render(d, destructive_hit, targets, provider="claude", lang_code="hu", model
     machine = "".join(f" {k}={v}" for k, v in (("model", route_model), ("effort", route_effort)) if v)
     parts = [f"[router] backend={d.get('backend', 'override')} task={d['task']} difficulty={d['level']} "
              f"conf={d['task_conf']} lang={lang_code}{machine}.", text]
-    if effort and effort not in text:
+    if effort and effort not in text and (d.get("target_model") or d.get("target_agent")):
         parts.append(f"Reasoning effort: {effort}.")
     n = d.get("extra_agents", 0)
     if n:
         parts.append(f"Parallelism: up to {n} extra agent(s) may run in parallel (same model and effort as above), "
                      f"only for genuinely independent parts; split the work, then merge and verify the results.")
-    elif d.get("task") != "override":
-        parts.append("Parallelism: none - no extra parallel agents.")
     if d.get("verify") in targets.get("verify", {}):
         parts.append(targets["verify"][d["verify"]])
     if d.get("skill"):
@@ -854,27 +1050,61 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
              "destructive_p": None, "notes": ["manual override"], "backend": "override", "lang": lang_code}
         return d, render(d, regex_hit, targets, provider, lang_code, models, session_model), regex_hit, None
 
-    if previous and is_continuation(prompt):
+    continuation = is_continuation(prompt)
+    if previous and continuation:  # re-use it as is: a go-ahead never downgrades the work it approves
         d = continued_decision(previous, continuation_lang(prompt, previous.get("lang") or lang_code))
         return d, render(d, regex_hit, targets, provider, d["lang"], models, session_model), regex_hit, None
 
     candidates = catalog.prefilter(own, catalog.load_catalog(), SKILL_CANDIDATES)
     by_name = {s["name"]: s for _, s in candidates}
+    # Needs the parent's context (a go-ahead with no history to continue, a question about the session or the
+    # model): a fresh subagent would know nothing, so it is answered inline.
+    inline_reason = ("a follow-up needs this session's context: answer inline" if continuation
+                     else "a question about this session: answer inline" if is_meta_question(prompt) else None)
+    fast = "needs-context" if inline_reason else _fast_path_reason(own, pasted, candidates, routes, backend)
+    if fast in ("short", "needs-context"):
+        candidates, by_name = [], {}  # a one-liner or a follow-up needs no skill: keep the injected text minimal
     error = None
     try:
-        answers = classify(own, candidates, backend=backend, effort=effort, models=models,
+        answers = classify(own, candidates, backend="local" if fast else backend, effort=effort, models=models,
                            pasted=pasted[:JEV_PASTED_CHARS])
     except Exception as exc:  # any JEV failure falls back to the local classifier
         error = f"{type(exc).__name__}: {exc}"[:200]
         answers = classify(own, candidates, backend="local", effort=effort, models=models)
-    d = decide(answers, routes, by_name)
+    d = decide(answers, routes, by_name, prompt=own)
+    if inline_reason:
+        force_inline(d, inline_reason)
     d["backend"] = answers.get("_backend", "local")
+    if fast and not inline_reason:
+        d["fast_path"] = fast
+    if answers.get("_cached"):
+        d["cached"] = True
     d["lang"] = lang_code
     d["skill_candidates"] = [s["name"] for _, s in candidates[:5]]
     if answers.get("_jev_model"):
         d["jev_model"] = answers["_jev_model"]
-    hit = regex_hit or (d["destructive_p"] is not None and d["destructive_p"] >= DESTRUCTIVE_T)
+    jev_hit = d["destructive_p"] is not None and d["destructive_p"] >= DESTRUCTIVE_T and not is_drafting(own)
+    hit = regex_hit or jev_hit
     return d, render(d, hit, targets, provider, lang_code, models, session_model), hit, error
+
+
+def _fast_path_reason(own, pasted, candidates, routes, backend):
+    """Why the network call can be skipped, or None. A trivially short plain line, or a prompt the local classifier
+    is sure about (a clear task, nothing hard, no skill in play), is decided locally: JEV adds seconds, not insight."""
+    if pasted or backend or BACKEND != "auto" or not use_jev(None):  # an explicit backend is never second-guessed
+        return None
+    a = local_answers(own)
+    cc = routes.get("cost_cap") or {}
+    if cc and is_short_chat(own, int(cc.get("short_chat_chars", 40))) and a["task"]["confidence"] >= MIN_CONF:
+        return "short"  # an unsure local guess would land on the 'uncertain' default: JEV does better there
+    if candidates and candidates[0][0] >= 3.0:
+        return None  # a skill may be needed: that choice is JEV's
+    if len(own) > LOCAL_FAST_MAX_CHARS:
+        return None
+    if a["task"]["confidence"] >= LOCAL_CONFIDENT and a["task"]["choice"] != "research" \
+            and a["difficulty"]["score"] <= 1 and a["needs_web"]["noul"] < LONG_CTX_T and a["long_context"]["noul"] < LONG_CTX_T:
+        return "local-confident"
+    return None
 
 
 def override_for(prompt, targets):

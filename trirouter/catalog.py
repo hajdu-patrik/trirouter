@@ -168,11 +168,64 @@ def write_catalog(items=None):
     return items
 
 
+class _Catalog(list):
+    """The skill list plus the identity of the file it came from (the key of the on-disk index cache)."""
+    index_key = None
+
+
+INDEX_VERSION = 1  # bump when the token/IDF index format or the tokenizer changes
+_INDEX_MEMO = {}   # (key) -> (docs, df) for this process
+
+
+def _index_path():
+    return P.STATE / "catalog-index.json"
+
+
 def load_catalog():
     try:
-        return json.loads(CATALOG.read_text(encoding="utf-8")).get("skills", [])
-    except (OSError, ValueError):
+        st = CATALOG.stat()
+        skills = json.loads(CATALOG.read_text(encoding="utf-8")).get("skills", [])
+    except (OSError, ValueError, AttributeError):
         return []
+    out = _Catalog(skills)
+    out.index_key = [INDEX_VERSION, str(CATALOG), st.st_mtime_ns, st.st_size, len(skills)]
+    return out
+
+
+def _build_index(catalog):
+    # the plugin/vendor prefix says nothing about the task
+    docs = [(s, tokens(s["name"].split(":")[-1].replace("-", " ")), tokens(s["description"])) for s in catalog]
+    return docs, _doc_freq(docs)
+
+
+def _cached_index(catalog):
+    """(docs, df) for the catalog; reuses a token index cached on disk (keyed by the catalog file's
+    mtime + size + format version) and silently recomputes on any problem: hooks must never crash."""
+    key = getattr(catalog, "index_key", None)
+    if not key:
+        return _build_index(catalog)
+    tkey = tuple(map(str, key))
+    if tkey in _INDEX_MEMO:
+        return _INDEX_MEMO[tkey]
+    try:
+        raw = json.loads(_index_path().read_text(encoding="utf-8"))
+        if raw["key"] == key and len(raw["docs"]) == len(catalog):
+            docs = [(s, frozenset(nt), frozenset(dt)) for s, (nt, dt) in zip(catalog, raw["docs"])]
+            result = (docs, {str(k): int(v) for k, v in raw["df"].items()})
+            _INDEX_MEMO.clear()
+            _INDEX_MEMO[tkey] = result
+            return result
+    except Exception:  # missing, corrupt, stale: recompute
+        pass
+    docs, df = _build_index(catalog)
+    try:
+        P.atomic_write(_index_path(), json.dumps(
+            {"key": key, "docs": [[sorted(nt), sorted(dt)] for _, nt, dt in docs], "df": df}, separators=(",", ":")))
+    except Exception:
+        pass
+    _INDEX_MEMO.clear()
+    _INDEX_MEMO[tkey] = (docs, df)
+    return docs, df
 
 
 def _expand(prompt_tokens):
@@ -225,9 +278,7 @@ def prefilter(prompt, catalog, n=8, min_score=1.5):
     """[(score, skill_dict)] best-first, at most n, each scoring >= min_score."""
     if not catalog:
         return []
-    # the plugin/vendor prefix says nothing about the task
-    docs = [(s, tokens(s["name"].split(":")[-1].replace("-", " ")), tokens(s["description"])) for s in catalog]
-    df = _doc_freq(docs)
+    docs, df = _cached_index(catalog)
     q = _expand(tokens(prompt))
     raw = _norm(prompt)
     scored = []

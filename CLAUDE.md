@@ -9,7 +9,7 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
 - Respond in the language of the user's prompt; the `[router]` context's "Respond in ..." line says which.
 - Every prompt carries a `[router]` context from the global hook. Follow it: delegate to the named
   worker (e.g. `opus-worker-xhigh`), use the named skill, respect the `Parallelism:` line (the
-  maximum number of EXTRA parallel agents; "none" means do not fan out).
+  maximum number of EXTRA parallel agents; no such line means none: do not fan out).
 - The router is a suggestion. If it is clearly wrong (e.g. long pasted text skews it), decide
   otherwise and say why in one line.
 - `SAFETY:` in the context: list the exact actions and carry them out only after an explicit "yes".

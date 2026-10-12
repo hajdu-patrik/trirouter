@@ -14,8 +14,35 @@ dates are ISO 8601.
   mid-edit) keeps the previous code and appends a warning to the tool result. The tools moved to
   `trirouter/mcp_tools.py`; `mcp_server.py` keeps only the stdio loop, `hotreload.py` the reloader. A server
   started before this change needs one more restart to gain it.
+- `eval/eval_router.py` measures the final routing outcome per set (inline vs delegated, agent and model
+  family distribution) and gates on level-0 prompts that should be answered inline but get delegated (<= 5%).
+- The skill catalog's token/IDF index is cached in `~/.trirouter/catalog-index.json` (keyed by catalog
+  mtime + size + format version, atomic write, silent recompute on any error): per-prompt skill pre-filtering
+  dropped from ~12 ms to ~2.5 ms.
 
 ### Changed
+- Cost-aware routing (Claude). The in-session `main` tier no longer delegates: `main` left `model_pick_tiers`, so
+  JEV's model pick cannot turn "answer inline" into a subagent (119 of 154 logged `main` decisions had been
+  delegated, 71 of them level-0 prompts to `fable-worker-low`). `routes.json` has a new `cost_cap` table (max
+  model family per difficulty level, per-task overrides): level 0 never reaches Opus or Fable, plain level-1
+  questions stay on Sonnet, and a short plain prompt (under 40 characters, no code, path or file name) never
+  runs above Haiku. `#opus`, `#fable` and the other explicit overrides are never capped.
+- Go-aheads and session questions need the parent's context. Continuation detection now also covers
+  "Mehetnek igen mind", "yes do all", action verbs on the previous work ("commit it", "push") and pronoun-only
+  follow-ups ("and this?", "ezt is"); a continuation re-uses the previous decision (never downgrades) or, with no
+  history, stays inline instead of spawning a fresh subagent. Questions about the session or the running model
+  ("which model are you?", "mit csinaltunk eddig?") are always answered inline.
+- Lower latency: the JEV timeout is 1.8 s (was 4 s); very short plain prompts and prompts the local classifier is
+  sure about (both only when the local guess is confident) skip the network call (`fast_path` in the log); JEV's answers are cached by request hash in
+  `~/.trirouter/state/answer_cache.json` (128 entries, 24 h, atomic write); `urllib` is imported only when JEV
+  is called. The request is smaller: skill descriptions are cut to 120 characters and `ROUTER_SKILL_CANDIDATES`
+  defaults to 5 (was 8).
+- Less boilerplate in the injected context: the `Parallelism: none` line is gone (no line means none; CLAUDE.md
+  and the README say so), and an in-session tier no longer adds a `Reasoning effort:` line.
+- Classifier quality: the difficulty criteria carry examples and say "when unsure, moderate" (level-1 prompts were
+  rated 0 about 25% of the time), and a code or test prompt that names a file, path, function or a multi-step
+  verb is at least level 1. Drafting an email or letter is no longer flagged as destructive, but "write it and
+  send it", sending and deleting still are (`is_drafting`; "and send it" joined the destructive patterns).
 - Claude is no longer limited to three families: Haiku is routable like the others. The catalog now lists
   `haiku`, `sonnet`, `opus`, `fable` (cheapest first, generic aliases only, verified live with effort low and
   max); `excluded_families` is empty and stays only as an optional switch to remove a family. Discovery and the

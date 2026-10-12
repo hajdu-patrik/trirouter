@@ -1,0 +1,34 @@
+"""The eval's delegation metric, on synthetic decisions (no routing, no network)."""
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("eval_router", Path(__file__).resolve().parents[1] / "eval" / "eval_router.py")
+ev = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ev)
+
+
+def test_delegation_of():
+    assert ev.delegation_of({"primary": "main", "backend": "local"}) == ("inline", "", "")
+    assert ev.delegation_of({"primary": "fast", "target_agent": "haiku-worker-low", "target_model": "haiku"}) \
+        == ("delegated", "haiku-worker-low", "haiku")
+    assert ev.delegation_of({"primary": "cli:codex", "target_model": "gpt-5.6-terra"}) == ("delegated", "", "gpt")
+    assert ev.delegation_of({"primary": "deep"})[0] == "unknown"
+    assert ev.delegation_of(None)[0] == "unknown"
+
+
+def row(outcome, diff=0, tier_true="main", family="fable"):
+    return {"outcome": outcome, "diff_true": diff, "tier_true": tier_true, "family": family if outcome == "delegated" else "",
+            "agent": "x-worker-low" if outcome == "delegated" else "", "prompt": "p"}
+
+
+def test_report_delegation_counts_level0_failures(capsys):
+    out = [row("inline"), row("delegated"), row("delegated", diff=0, tier_true="fast"), row("inline", diff=2)]
+    share = ev.report_delegation(out)
+    assert share == 1 / 4
+    text = capsys.readouterr().out
+    assert "Delegation rate:      50%" in text and "fable 2" in text
+
+
+def test_report_delegation_degrades(capsys):
+    assert ev.report_delegation([row("unknown")]) is None
+    assert "n/a" in capsys.readouterr().out

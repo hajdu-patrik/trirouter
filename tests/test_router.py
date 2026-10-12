@@ -141,12 +141,12 @@ def test_ultra_is_never_offered_or_accepted(monkeypatch):
 
 
 def test_jev_model_pick_every_provider(monkeypatch):
-    def fake(model, effort):
-        return {"answers": {"task": {"choice": "general", "confidence": 0.9}, "difficulty": {"score": 1, "confidence": 0.9},
+    def fake(model, effort, level=1):
+        return {"answers": {"task": {"choice": "general", "confidence": 0.9}, "difficulty": {"score": level, "confidence": 0.9},
                             "long_context": {"noul": 0.1}, "needs_web": {"noul": 0.1}, "destructive": {"noul": 0.05},
                             "effort": {"choice": effort, "confidence": 0.9}, "model": {"choice": model, "confidence": 0.9}}}
-    monkeypatch.setattr(core, "ask_jev", lambda p, q: fake("sonnet", "low"))
-    _, text, _, _ = core.route("Write a haiku", "claude", backend="jev")
+    monkeypatch.setattr(core, "ask_jev", lambda p, q: fake("sonnet", "low", 2))  # a delegating tier (deep) takes JEV's pick
+    _, text, _, _ = core.route("Write a long cycle of haiku about the seasons, with commentary", "claude", backend="jev")
     assert "`sonnet-worker-low`" in text
     monkeypatch.setattr(core, "ask_jev", lambda p, q: fake("gpt-6-sol", "high"))  # rejected for ChatGPT accounts
     d, text, _, _ = core.route("Write a haiku", "codex", backend="jev")
@@ -276,7 +276,8 @@ def test_jev_answers_are_used(monkeypatch):
                         "long_context": {"noul": 0.1}, "needs_web": {"noul": 0.1}, "destructive": {"noul": 0.05},
                         "effort": {"choice": "ultra", "confidence": 0.8}}, "model": "jev-1.13.0"}
     monkeypatch.setattr(core, "ask_jev", lambda p, q: json.loads(json.dumps(fake)))
-    d, text, _, _ = core.route("anything", "claude", backend="jev")
+    d, text, _, _ = core.route("Refactor the payment service so every external call is retried with backoff",
+                               "claude", backend="jev")
     assert d["backend"] == "jev"
     assert d["effort"] == "max"  # ultra stripped for Claude, clamped into deep tier
 
@@ -421,7 +422,8 @@ def test_local_skill_pick_needs_name_evidence():
 def test_extra_agents_mock(text, expected):
     d, text_out, _, _ = core.route(text, "claude")
     assert d["extra_agents"] == expected, text
-    assert ("Parallelism: none" in text_out) == (expected == 0)
+    assert "Parallelism: none" not in text_out  # no line means none
+    assert ("Parallelism:" in text_out) == (expected > 0)
 
 
 def test_extra_agents_strict_clamps():
