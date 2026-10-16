@@ -6,6 +6,8 @@ the installer. A changed file's original is kept once as `<file>.bak`; a config 
 valid JSON is reported and left untouched.
 
     claude       UserPromptSubmit, Stop, StopFailure, SessionEnd, SubagentStart    ~/.claude/settings.json
+                 (with config.json hooks.transport "http" these are http hooks to the daemon, see daemon.py;
+                 SessionStart always stays a command hook: it starts the daemon)
     codex        UserPromptSubmit + Stop    ~/.codex/hooks.json (trust once via /hooks)
     antigravity  PreInvocation + Stop       ~/.gemini/config/hooks.json
 
@@ -106,10 +108,73 @@ def hook_cmd(provider, event):
     return f"{P.python_cmd()} {P.shell_arg(SHIM_HOOK)} {provider} {event}"
 
 
+# An http hook is ours when it posts to the local daemon's /hook/<provider>/ path (any port: daemon.port may change).
+ROUTER_URL_RE = re.compile(r"^http://(?:127\.0\.0\.1|localhost)(?::\d+)?/hook/(?:claude|codex|antigravity)/", re.I)
+
+
+def is_router_url(url):
+    return isinstance(url, str) and bool(ROUTER_URL_RE.match(url.strip()))
+
+
+def is_router_hook(hook):
+    """One hook entry of ours: a command running our shim or module, or an http hook to the daemon."""
+    if not isinstance(hook, dict):
+        return False
+    return is_router_cmd(hook.get("command")) or (hook.get("type") == "http" and is_router_url(hook.get("url")))
+
+
+# The http transport (config.json hooks.transport == "http"): which providers and events may use it. Every other
+# event of an http provider in HOOK_EVENTS goes over http; SessionStart stays a command hook because it starts
+# the daemon. Codex and Antigravity have no http hooks.
+HTTP_PROVIDERS = ("claude",)
+COMMAND_ONLY_EVENTS = frozenset({"SessionStart"})
+HTTP_HOOK_TIMEOUT_S = 10
+
+
+def hook_transport():
+    """config.json hooks.transport: "http" or "command" (the default, also when the config is unreadable)."""
+    try:
+        from . import daemon
+        return daemon.transport()
+    except Exception:  # noqa: BLE001 - the installer falls back to command hooks
+        return "command"
+
+
+def uses_http(provider, event, transport):
+    return transport == "http" and provider in HTTP_PROVIDERS and event not in COMMAND_ONLY_EVENTS
+
+
+def hook_entry(provider, event, transport="command", token=None):
+    """The hook entry for one event: an http hook to the daemon, or a command running the hook shim."""
+    if uses_http(provider, event, transport):
+        from . import daemon
+        return {"type": "http", "url": f"http://{daemon.HOST}:{daemon.configured_port()}/hook/{provider}/{event}",
+                "headers": {daemon.TOKEN_HEADER: token or "<created on --apply>"}, "timeout": HTTP_HOOK_TIMEOUT_S}
+    return {"type": "command", "command": hook_cmd(provider, event), "timeout": 10}
+
+
+def http_hook_tokens(cfg):
+    """The tokens our http hooks in a parsed settings.json send (for doctor: do they match the daemon's?)."""
+    from . import daemon
+    return {h.get("headers", {}).get(daemon.TOKEN_HEADER) for groups in (cfg.get("hooks") or {}).values()
+            if isinstance(groups, list) for g in groups if isinstance(g, dict) for h in g.get("hooks", [])
+            if is_router_hook(h) and h.get("type") == "http" and isinstance(h.get("headers"), dict)} - {None}
+
+
+def has_router_hooks(path):
+    """The config file holds at least one router hook (command or http)."""
+    try:
+        cfg = load(path)
+    except BadConfig:
+        return False
+    return any(is_router_hook(h) for groups in (cfg.get("hooks") or {}).values() if isinstance(groups, list)
+               for g in groups if isinstance(g, dict) for h in g.get("hooks", []))
+
+
 def _strip_router(groups):
     kept = []
     for g in groups or []:
-        hs = [h for h in g.get("hooks", []) if not is_router_cmd(h.get("command"))]
+        hs = [h for h in g.get("hooks", []) if not is_router_hook(h)]
         if hs:
             kept.append({**g, "hooks": hs})
     return kept
@@ -126,17 +191,23 @@ HOOK_EVENTS = {
 ROUTER_EVENTS = tuple(dict.fromkeys(e for events in HOOK_EVENTS.values() for e in events))
 
 
-def claude_codex_hooks(path, provider, w, uninstall=False):
+def claude_codex_hooks(path, provider, w, uninstall=False, transport=None):
+    """transport: "http" or "command"; None reads config.json hooks.transport (only Claude has http hooks)."""
     cfg = load(path)
     hooks = cfg.setdefault("hooks", {})
     wanted = () if uninstall else HOOK_EVENTS[provider]
+    transport = transport or hook_transport()
+    token = None
+    if any(uses_http(provider, e, transport) for e in wanted):
+        from . import daemon
+        token = daemon.token(create=w.apply)  # a dry run never creates the token file
     for event in ROUTER_EVENTS:
         if event not in hooks and event not in wanted:
             continue
         groups = _strip_router(hooks.get(event))
         matcher = provider == "codex" and event == "UserPromptSubmit"
         if event in wanted:
-            entry = {"hooks": [{"type": "command", "command": hook_cmd(provider, event), "timeout": 10}]}
+            entry = {"hooks": [hook_entry(provider, event, transport, token)]}
             groups.append({"matcher": "*", **entry} if matcher else entry)
         if groups:
             hooks[event] = groups
@@ -213,10 +284,12 @@ def claude_desktop_mcp(w, uninstall=False):
 
 
 def _router_commands(node):
-    """Every hook "command" string anywhere in a parsed config that is one of ours (current or pre-rename)."""
+    """Every hook "command" string (or daemon hook "url") anywhere in a parsed config that is one of ours
+    (current or pre-rename)."""
     if isinstance(node, dict):
         for key, value in node.items():
-            if key == "command" and isinstance(value, str) and is_router_cmd(value):
+            if (key == "command" and isinstance(value, str) and is_router_cmd(value)) or (
+                    key == "url" and is_router_url(value)):
                 yield value
             else:
                 yield from _router_commands(value)

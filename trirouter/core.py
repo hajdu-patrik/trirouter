@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import unicodedata
 from pathlib import Path
@@ -582,10 +583,65 @@ def ask_jev(prompt, questions):
     _, url, key, model = endpoint
     import urllib.request  # lazy: the network stack is only paid for when JEV is actually called
     body = json.dumps({"state": prompt[:MAX_STATE_CHARS], "model": model, "questions": questions}).encode("utf-8")
-    req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if KEEPALIVE and not urllib.request.getproxies().get(url.split(":", 1)[0]):  # http.client knows no proxies
+        return json.loads(_post_keepalive(url, body, headers).decode("utf-8"))
+    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+# Keep-alive for the long-running hook daemon (daemon.py sets KEEPALIVE): a short-lived command hook pays a new TLS
+# handshake per call anyway. Idle connections are pooled per (scheme, host, port); a request takes one out under
+# the lock, so parallel prompts never share a connection.
+KEEPALIVE = False
+_IDLE = {}
+_IDLE_LOCK = threading.Lock()
+_IDLE_MAX = 4
+
+
+def _post_keepalive(url, body, headers):
+    """POSTs on a pooled connection and returns the response body. A reused connection the server has closed in
+    the meantime is replaced once and the request retried; a timeout is not retried (TIMEOUT_S stays the budget)."""
+    import http.client
+    import urllib.parse
+    u = urllib.parse.urlsplit(url)
+    pool_key = (u.scheme, u.hostname, u.port)
+    path = (u.path or "/") + (f"?{u.query}" if u.query else "")
+    for attempt in (0, 1):
+        with _IDLE_LOCK:
+            idle = _IDLE.get(pool_key) or []
+            conn = idle.pop() if idle else None
+        reused = conn is not None
+        if conn is None:
+            cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+            conn = cls(u.hostname, u.port, timeout=TIMEOUT_S)
+        try:
+            conn.request("POST", path, body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+        except TimeoutError:
+            conn.close()
+            raise
+        except (OSError, http.client.HTTPException):
+            conn.close()
+            if reused and not attempt:
+                continue  # stale keep-alive connection: reconnect once
+            raise
+        if resp.will_close:
+            conn.close()
+        else:
+            with _IDLE_LOCK:
+                idle = _IDLE.setdefault(pool_key, [])
+                if len(idle) < _IDLE_MAX:
+                    idle.append(conn)
+                    conn = None
+            if conn is not None:
+                conn.close()
+        if not 200 <= resp.status < 300:
+            raise RuntimeError(f"JEV answered HTTP {resp.status}")
+        return data
+    raise RuntimeError("unreachable")
 
 
 def use_jev(backend=None):

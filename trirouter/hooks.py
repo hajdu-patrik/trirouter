@@ -8,6 +8,9 @@ context is injected only once per user turn.
     python -m trirouter.hooks claude|codex UserPromptSubmit|Stop [--cloud-only]
     python -m trirouter.hooks claude StopFailure|SessionEnd|SubagentStart|SessionStart
     python -m trirouter.hooks antigravity  PreInvocation|Stop
+
+The handlers return their output (the JSON the host reads from stdout, or ""); main() prints it. The
+daemon (daemon.py) calls handle() directly, from several threads, for Claude's http hooks.
 """
 import hashlib
 import json
@@ -114,12 +117,20 @@ def extract_prompt(raw, provider):
     return (prompt.strip() if isinstance(prompt, str) else None), payload, None
 
 
-def emit(text, hook_event_name, provider):
-    # ASCII-escaped JSON is safe for any console code page
+def render(text, hook_event_name, provider):
+    """The hook output that injects `text` as context; ASCII-escaped JSON is safe for any console code page."""
     if provider == "antigravity":
-        print(json.dumps({"injectSteps": [{"ephemeralMessage": text}]}))
-    else:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": hook_event_name, "additionalContext": text}}))
+        return json.dumps({"injectSteps": [{"ephemeralMessage": text}]})
+    return json.dumps({"hookSpecificOutput": {"hookEventName": hook_event_name, "additionalContext": text}})
+
+
+def emit(text, hook_event_name, provider):
+    print(render(text, hook_event_name, provider))
+
+
+def _print(out):
+    if out:
+        print(out)
 
 
 def _json_object(raw):
@@ -145,24 +156,32 @@ def _transcript_mtime(payload):
         return None
 
 
-def on_stop(provider, hook_event_name, raw):
+def stop_output(provider, hook_event_name, raw):
     """Stop, StopFailure (the turn ended on an API error) and SessionEnd all release the queue."""
     payload = _json_object(raw)
     if payload.get("fullyIdle") is not False:  # Antigravity: background work may still run
         queue_state.on_stop(core.STATE_DIR, provider, _session_id(payload))
     if hook_event_name == "SessionEnd":
         queue_state.forget(core.STATE_DIR, provider, _session_id(payload))
-    if provider == "antigravity":
-        print("{}")  # Antigravity expects a JSON object; no "decision" allows the stop
+    return "{}" if provider == "antigravity" else ""  # Antigravity expects a JSON object; no "decision" allows the stop
 
 
-def on_subagent_start(provider, raw):
+def on_stop(provider, hook_event_name, raw):
+    _print(stop_output(provider, hook_event_name, raw))
+
+
+def subagent_start_output(provider, raw):
     """Logs which worker the model actually delegated to; `doctor` compares it with the advice."""
     payload = _json_object(raw)
     if not payload.get("agent_type"):
-        return
+        return ""
     log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "provider": provider, "session": _short_hash(_session_id(payload)),
          "prompt_id": payload.get("prompt_id"), "agent_type": payload["agent_type"]}, SUBAGENT_LOG)
+    return ""
+
+
+def on_subagent_start(provider, raw):
+    _print(subagent_start_output(provider, raw))
 
 
 def start_model_discovery():
@@ -183,17 +202,40 @@ def model_note():
         return ""
 
 
-def on_session_start(provider, raw):
-    """Starts the daily model check when due, tells the session once what it changed, and purges expired
-    quarantine entries at most every 6 hours. Cheap, silent unless the model list changed (a SessionStart hook's
-    stdout becomes model context) and fully wrapped: it can never block or crash the hook."""
+def start_daemon():
+    """Claude with the http hook transport: the hook daemon must be up before the first prompt. Never raises."""
+    try:
+        if (core.user_config().get("hooks") or {}).get("transport") == "http":
+            from . import daemon  # lazy: the command transport never needs it
+            daemon.ensure_running()
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+
+
+def session_start_output(provider, raw):
+    """Starts the hook daemon (http transport) and the daily model check when due, tells the session once what
+    the check changed, and purges expired quarantine entries at most every 6 hours. Cheap, silent unless the
+    model list changed (a SessionStart hook's stdout becomes model context) and fully wrapped: it can never
+    block or crash the hook."""
+    if provider == "claude":
+        start_daemon()
     start_model_discovery()
+    out = ""
     note = model_note()
     if note:
         try:
-            emit(note, "SessionStart", provider)
+            out = render(note, "SessionStart", provider)
         except Exception:  # noqa: BLE001
             pass
+    _purge_quarantine()
+    return out
+
+
+def on_session_start(provider, raw):
+    _print(session_start_output(provider, raw))
+
+
+def _purge_quarantine():
     try:
         stamp = core.STATE_DIR / "state" / "quarantine_purge.txt"
         try:
@@ -210,7 +252,7 @@ def on_session_start(provider, raw):
         pass
 
 
-def on_prompt(provider, hook_event_name, raw):
+def prompt_output(provider, hook_event_name, raw):
     if provider != "claude":  # Codex and Antigravity have no SessionStart hook: the prompt hook starts the daily check
         start_model_discovery()
     prompt, payload, turn_key = extract_prompt(raw, provider)
@@ -218,12 +260,12 @@ def on_prompt(provider, hook_event_name, raw):
         if payload is None:
             log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "provider": provider, "error": "stdin: not a JSON object",
                  "stdin_head": redact(raw[:80].decode("utf-8", "replace"))})
-        return
+        return ""
     low = prompt.lstrip().lower()
     if len(prompt) < 3 or low.startswith(("/",) + SYSTEM_PREFIXES):
-        return
+        return ""
     if provider == "antigravity" and turn_key and not _first_time(turn_key):
-        return  # same user turn, later model call
+        return ""  # same user turn, later model call
 
     cwd = (payload.get("cwd") or (payload.get("workspacePaths") or [""])[0]) if payload else ""
     private = any(t in low for t in SKIP_TAGS)
@@ -231,9 +273,14 @@ def on_prompt(provider, hook_event_name, raw):
         core.STATE_DIR, provider, _session_id(payload), cwd, "" if private else redact(" ".join(prompt.split())[:60]),
         last_activity=_transcript_mtime(payload)))
     if not private:
-        emit(route_and_log(prompt, provider, payload, cwd, queue_text), hook_event_name, provider)
-    elif queue_text:  # #norouter / #privat: never sent to TypeSafe, only queue-protected
-        emit(queue_text, hook_event_name, provider)
+        return render(route_and_log(prompt, provider, payload, cwd, queue_text), hook_event_name, provider)
+    if queue_text:  # #norouter / #privat: never sent to TypeSafe, only queue-protected
+        return render(queue_text, hook_event_name, provider)
+    return ""
+
+
+def on_prompt(provider, hook_event_name, raw):
+    _print(prompt_output(provider, hook_event_name, raw))
 
 
 def route_and_log(prompt, provider, payload, cwd, queue_text):
@@ -269,6 +316,17 @@ def route_and_log(prompt, provider, payload, cwd, queue_text):
     return text + (" " + queue_text if queue_text else "")
 
 
+def handle(provider, hook_event_name, raw):
+    """The hook's output for one event (raw: the host's JSON input as bytes): a JSON string, or "" for none."""
+    if hook_event_name in STOP_EVENTS:
+        return stop_output(provider, hook_event_name, raw)
+    if hook_event_name == "SubagentStart":
+        return subagent_start_output(provider, raw)
+    if hook_event_name == "SessionStart":
+        return session_start_output(provider, raw)
+    return prompt_output(provider, hook_event_name, raw)
+
+
 def main(argv=None):
     """Always 0: the router never blocks a prompt."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -278,15 +336,7 @@ def main(argv=None):
         print("Usage: python -m trirouter.hooks <claude|codex|antigravity> <hook_event_name> [--cloud-only]", file=sys.stderr)
     elif not cloud_only or core.is_cloud():  # locally the global hook already runs
         provider, hook_event_name = args
-        raw = sys.stdin.buffer.read()
-        if hook_event_name in STOP_EVENTS:
-            on_stop(provider, hook_event_name, raw)
-        elif hook_event_name == "SubagentStart":
-            on_subagent_start(provider, raw)
-        elif hook_event_name == "SessionStart":
-            on_session_start(provider, raw)
-        else:
-            on_prompt(provider, hook_event_name, raw)
+        _print(handle(provider, hook_event_name, sys.stdin.buffer.read()))
     return 0
 
 

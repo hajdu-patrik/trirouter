@@ -32,6 +32,10 @@ class HotReloader:
             del sys.modules[name]
         return stale
 
+    def stale(self):
+        """True when the next current() call would (re)load: nothing loaded yet, or a file changed."""
+        return self.module is None or self._signature() != self._seen
+
     def current(self):
         """The target module, reloaded first if a source or config file changed since the last load."""
         sig = self._signature()
