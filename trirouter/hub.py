@@ -52,6 +52,11 @@ GEN_MARKS = (GEN_MARK, legacy.GEN_MARK)
 
 APPLY = False
 SCAN = {"llm": False, "allow": ()}  # skillscan settings, set by the installer from config.json + flags
+# Catalog-only skills: hub skills whose folder name matches one of these fnmatch patterns stay in ~/.skills and in the
+# catalog but are not linked into Claude's or Codex's skill folders (their descriptions would load into every session).
+# Set by the installer from config.json skills.catalog_only. Antigravity reads the whole hub through skills.json, so
+# it keeps seeing them: there is no per-skill switch for it.
+LINK = {"catalog_only": ()}
 CHOOSE = lambda items: None  # noqa: E731 - the installer's quarantine question: names to quarantine, None: nobody to ask
 
 
@@ -187,12 +192,29 @@ def _scan_hub_skills():
                           accept_flagged=SCAN.get("accept_flagged", False), days=SCAN.get("quarantine_days"))
 
 
+def parse_catalog_only(value):
+    """`--catalog-only=a-*,b` -> ["a-*", "b"] (lowercase, de-duplicated); an empty string clears the list."""
+    return catalog.parse_patterns(value)
+
+
+def _catalog_only_skills(patterns):
+    """Hub skills (never the bundled ones) whose folder name matches a pattern."""
+    return [s for s in hub_skills() if catalog.is_catalog_only(s, patterns, REPO_SKILLS)]
+
+
+def catalog_only_matches(patterns):
+    """Names of the current hub skills a pattern list would make catalog-only (a preview for the CLI)."""
+    return sorted(s.name for s in _catalog_only_skills(catalog.parse_patterns(patterns)))
+
+
 def _link_hub_skills(blocked=frozenset()):
     names = set()
+    skipped = {s.name for s in _catalog_only_skills(catalog.parse_patterns(LINK.get("catalog_only")))}
     # a dry run has not linked the repo skills into the hub yet: plan their tool links too
     pending = [] if APPLY else [HUB / d.name for d in repo_skills()]
     for s in hub_skills() + pending:
-        if s.name in names or s.name in blocked:
+        # a skipped skill is not in `names`, so _drop_stale_links removes the links we own for it
+        if s.name in names or s.name in blocked or s.name in skipped:
             continue
         names.add(s.name)
         if "claude" in PROVIDERS:
@@ -394,8 +416,14 @@ def _with_agents_block(cfg, new_block):
     return new_cfg.rstrip("\n") + "\n\n" + foreign + "\n" if foreign else new_cfg
 
 
+def _catalog_only_setting():
+    """The patterns the installer passed in; without any, the saved config.json setting (the catalog is also
+    rebuilt by paths that never configure LINK). None makes the catalog builder read config.json itself."""
+    return list(LINK.get("catalog_only") or ()) or None
+
+
 def cmd_catalog():
-    items = catalog.write_catalog()
+    items = catalog.write_catalog(catalog_only=_catalog_only_setting())
     by = {}
     for s in items:
         for p in s["native_in"]:
@@ -424,11 +452,15 @@ def cmd_doctor():
         else:
             print(f"[WARN] missing: {base}")
     names = {}
-    for s in catalog.build_catalog():
+    for s in catalog.build_catalog(_catalog_only_setting()):
         names.setdefault(s["name"].split(":")[-1], []).append(s["name"])
     for full in names.values():
         if len(full) > 1:
             print(f"[INFO] same skill name from several sources: {', '.join(full)}")
+    only = catalog_only_matches(_catalog_only_setting() or catalog.catalog_only_patterns())
+    if only:
+        print(f"[INFO] {len(only)} of {len(hub_skills())} hub skill(s) are catalog-only: not linked into Claude/Codex, "
+              f"served by the router and the MCP get_skill tool (Antigravity still lists them)")
     print(f"doctor: {problems} problem(s)")
     return problems
 

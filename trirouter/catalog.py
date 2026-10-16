@@ -6,6 +6,7 @@ Asking JEV about ~170 skills at once is too much, so prefilter() narrows them fi
 IDF-weighted keyword overlap. Descriptions are English while prompts are often Hungarian, hence
 the small HU->EN glossary.
 """
+import fnmatch
 import json
 import math
 import os
@@ -14,12 +15,13 @@ import time
 import unicodedata
 from pathlib import Path
 
-from . import platforms as P
+from . import legacy, platforms as P
 
 HOME = Path.home()
 HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
 CATALOG = HUB / "catalog.json"
 PROVIDERS = ["claude", "codex", "antigravity"]
+BUNDLED = Path(__file__).resolve().parent / "skills"  # skills shipped with trirouter: never catalog-only
 
 SOURCES = [
     # (root, recursive, native_in, name prefix). The prefixes match Claude's own skill names, so
@@ -145,8 +147,42 @@ def _qualified_name(name, skill_dir, root, prefix):
     return f"{prefix}:{name}" if prefix else name
 
 
-def build_catalog():
-    """First source wins a name clash: the hub beats app-managed copies."""
+def parse_patterns(value):
+    """Comma-separated fnmatch patterns (or a list of them) -> lowercase, de-duplicated, in order. "" -> []."""
+    parts = value.split(",") if isinstance(value, str) else [x for x in (value or ()) if isinstance(x, str)]
+    return list(dict.fromkeys(p.strip().lower() for p in parts if p.strip()))
+
+
+def catalog_only_patterns():
+    """config.json -> skills.catalog_only (the folder with config.json: ~/.trirouter, or ~/.jev-router until
+    migrated). Hub linking and the catalog both read it, so they agree. Never raises: hooks call the catalog."""
+    try:
+        cfg = json.loads((legacy.state_dir(P.HOME) / "config.json").read_text(encoding="utf-8"))
+        return parse_patterns(cfg["skills"]["catalog_only"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+
+def is_bundled(skill_dir, bundled=None):
+    """A skill that ships with trirouter (also from a moved clone or the pre-rename package folder)."""
+    parent = Path(os.path.realpath(skill_dir)).parent
+    if parent == Path(os.path.realpath(bundled or BUNDLED)):
+        return True
+    tail = tuple(os.path.normcase(x) for x in parent.parts[-2:])
+    return tail in {(os.path.normcase(pkg), "skills") for pkg in ("trirouter", legacy.PACKAGE)}
+
+
+def is_catalog_only(skill_dir, patterns, bundled=None):
+    """Folder name matches a pattern (case-insensitive fnmatch) and the skill is not a bundled one."""
+    name = Path(skill_dir).name.lower()
+    return any(fnmatch.fnmatchcase(name, p) for p in patterns) and not is_bundled(skill_dir, bundled)
+
+
+def build_catalog(catalog_only=None):
+    """First source wins a name clash: the hub beats app-managed copies. Hub skills matching `catalog_only`
+    (default: config.json) are native to Antigravity only: it reads the whole hub through skills.json, while
+    Claude and Codex get no link and are pointed at the SKILL.md instead."""
+    patterns = catalog_only_patterns() if catalog_only is None else parse_patterns(catalog_only)
     seen, items = set(), []
     for root, recursive, native_in, prefix in SOURCES:
         for d in _skill_dirs(root, recursive):
@@ -155,13 +191,16 @@ def build_catalog():
             if name in seen:
                 continue
             seen.add(name)
+            native = list(native_in)
+            if root == HUB and is_catalog_only(d, patterns):
+                native = [p for p in native if p == "antigravity"]
             items.append({"name": name, "description": (desc or "")[:600],
-                          "path": str(d).replace("\\", "/"), "native_in": list(native_in)})
+                          "path": str(d).replace("\\", "/"), "native_in": native})
     return items
 
 
-def write_catalog(items=None):
-    items = build_catalog() if items is None else items
+def write_catalog(items=None, catalog_only=None):
+    items = build_catalog(catalog_only) if items is None else items
     HUB.mkdir(parents=True, exist_ok=True)
     P.atomic_write(CATALOG, json.dumps({"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "skills": items},
                                        indent=1, ensure_ascii=False))
