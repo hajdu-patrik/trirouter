@@ -8,6 +8,10 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- `doctor` warns when Claude Code is older than 2.1.301: older versions resolve the `haiku` alias (sessions,
+  `haiku-worker-*` agents and the Agent tool's `model: haiku`) to Haiku 4.5, because their model catalog does not
+  know Haiku 5.5; `claude update` fixes it (verified: after the update both the alias and a subagent run on
+  `claude-haiku-5-5`).
 - **Hook daemon** (`trirouter daemon status|enable|disable|start|stop`, new module `trirouter/daemon.py`). With
   `daemon enable` (config.json `hooks.transport = "http"`) Claude Code's hooks become `"type": "http"` hooks to a
   local server on 127.0.0.1 (port `daemon.port`, default 47621, random token in the request header) that keeps the

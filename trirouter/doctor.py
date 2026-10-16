@@ -63,11 +63,25 @@ def interpreters(claude_settings, codex_toml):
     return found
 
 
+# Older Claude Code versions resolve the `haiku` alias (sessions, workers, the Agent tool) to Haiku 4.5: their model
+# catalog does not know Haiku 5.5 yet.
+CLAUDE_MIN_VERSION = (2, 1, 301)
+
+
+def _version_tuple(text):
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
 def report_tools():
     print("== Tools (Antigravity is asked for its model list to check its login: this can take a minute)")
     for info in P.detect().values():
         li = {True: "logged in", False: "NOT logged in", None: ""}[info["logged_in"]]
         line(info["installed"], info["label"], f"{info['version'] or 'not installed'}  {li}".strip())
+        version = _version_tuple(info["version"]) if info["provider"] == "claude" and info["installed"] else None
+        if version and version < CLAUDE_MIN_VERSION:
+            line(False, "Claude Code version", f"below {'.'.join(map(str, CLAUDE_MIN_VERSION))}: `haiku` still means "
+                                               "Haiku 4.5 -- run `claude update`")
 
 
 def report_hooks():
