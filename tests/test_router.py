@@ -197,9 +197,11 @@ def test_every_claude_family_has_an_override_and_a_worker(tag, tier, agent):
     assert d["target_model"] == agent.split("-")[0] and f"`{d['target_agent']}`" in text
 
 
-def test_trivial_general_work_goes_to_haiku():
+def test_trivial_general_work_stays_inline_and_haiku_is_an_override():
     d, text, _, _ = core.route("Organize my downloads folder by file type", "claude")
-    assert (d["primary"], d["level"]) == ("fast", 0)
+    assert (d["primary"], d["level"]) == ("main", 0)
+    assert "target_model" not in d and "target_agent" not in d and "do not spawn a subagent" in text
+    d, text, _, _ = core.route("#haiku Organize my downloads folder by file type", "claude")
     assert d["target_model"] == "haiku" and d["target_agent"].startswith("haiku-worker-")
 
 
@@ -235,7 +237,7 @@ def test_in_session_main_tier_resolves_to_sonnet_for_machine_readers(prompt):
 def test_header_machine_fields_follow_the_tier_model():
     d, text, _, _ = core.route("#opus explain this", "claude")
     assert f"lang={d['lang']} model=opus effort={d['effort']}." in text
-    d, text, _, _ = core.route("Organize my downloads folder by file type", "claude")
+    d, text, _, _ = core.route("#haiku organize my downloads folder by file type", "claude")
     assert " model=haiku effort=" in text.split(". ", 1)[0] + "."
     d, text, _, _ = core.route("What is the capital of France?", "claude-chat")
     assert " model=" not in text.split(".", 1)[0]  # advice-only provider: no default model, fields omitted

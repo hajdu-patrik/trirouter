@@ -1,11 +1,11 @@
 {
-  "_comment": "Per provider: task + difficulty (0/1/2) -> tier. targets.json translates the tier into an agent/model/effort/text. '+verify:<tool>' adds an independent cross-check via cli-bridge (Claude only). cloud_replace applies in a cloud sandbox (ROUTER_MODE=cloud or CLAUDE_CODE_REMOTE=true), where neither Codex/Antigravity logins nor the user-level generated agents exist.",
+  "_comment": "Per provider: task + difficulty (0/1/2) -> tier. targets.json translates the tier into an agent/model/effort/text. Claude answers trivial work inline (a subagent for it costs an extra main-model turn, a fresh context and reading the result back: more than it saves); `#haiku` still delegates to the fast tier. '+verify:<tool>' adds an independent cross-check via cli-bridge (Claude only). cloud_replace applies in a cloud sandbox (ROUTER_MODE=cloud or CLAUDE_CODE_REMOTE=true), where neither Codex/Antigravity logins nor the user-level generated agents exist.",
   "claude": {
     "default": "main",
     "long_context_target": "cli:antigravity",
     "table": {
       "qa":       ["main", "main", "deep"],
-      "general":  ["fast", "main", "deep"],
+      "general":  ["main", "main", "deep"],
       "math":     ["main", "deep", "deep+verify:antigravity"],
       "study":    ["main", "main", "deep"],
       "code":     ["main", "main", "deep+verify:codex"],

@@ -206,6 +206,64 @@ def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
         raise
 
 
+APPEND_LOCK_WAIT_S = 2.0
+
+
+def _lock_file(f, deadline):
+    """An exclusive OS lock on byte 0 of the open file (Windows msvcrt.locking, POSIX fcntl.flock); True when held.
+    Polls without blocking until `deadline`: a hook must never hang on a lock."""
+    while True:
+        try:
+            if IS_WINDOWS:
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)  # a byte past the end of the file can be locked too
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.005)
+
+
+def _unlock_file(f):
+    try:
+        if IS_WINDOWS:
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def append_line(path, text):
+    """Appends `text` plus a newline to `path` in one write under an exclusive OS file lock, so two processes logging
+    at once never interleave a line (on Windows an append is a seek plus a write, not one atomic step). Creates the
+    folder; True when written, never raises. A lock still held after APPEND_LOCK_WAIT_S is ignored: the line is
+    written anyway rather than lost."""
+    try:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = (text.rstrip("\n") + "\n").encode("utf-8")
+        with open(path, "ab") as f:
+            locked = _lock_file(f, time.monotonic() + APPEND_LOCK_WAIT_S)
+            try:
+                f.seek(0, os.SEEK_END)
+                f.write(data)
+                f.flush()
+            finally:
+                if locked:
+                    _unlock_file(f)
+        return True
+    except Exception:  # noqa: BLE001 - logging must never break the caller (a hook)
+        return False
+
+
 def _copy_mode(path, tmp):
     """A file that is rewritten keeps its permissions; a new one gets the usual 0o666 & ~umask."""
     try:

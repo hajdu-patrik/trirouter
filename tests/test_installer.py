@@ -128,7 +128,10 @@ def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     s = json.loads(paths["claude_settings"].read_text())
     assert s["model"] == "sonnet"
     assert len(s["hooks"]["Stop"]) == 2                                # foreign hook kept, ours added
-    assert set(s["hooks"]) == {"UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart"}
+    assert set(s["hooks"]) == {"UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart",
+                               "PostModelSwitch", "PreToolUse"}
+    assert [g.get("matcher") for g in s["hooks"]["PreToolUse"]] == ["Agent|Task"]   # the Agent tool only
+    assert "matcher" not in s["hooks"]["PostModelSwitch"][0]
     assert set(json.loads(paths["codex_hooks"].read_text())["hooks"]) == {"UserPromptSubmit", "Stop"}
     agy = json.loads(paths["agy_hooks"].read_text())
     assert set(agy["router"]) == {"PreInvocation", "Stop"}
