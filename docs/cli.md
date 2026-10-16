@@ -18,6 +18,7 @@
   * [quarantine restore](#quarantine-restore)
   * [quarantine purge](#quarantine-purge)
 * [remote](#remote) -- Set up or remove phone / other-device access
+* [learn](#learn) -- Train the local routing model on JEV's past decisions
 * [doctor](#doctor) -- Read-only health report
 * [route](#route) -- The routing decision for one prompt or sub-task
 * [uninstall](#uninstall) -- Remove hooks, MCP entries, remote access and the trirouter command
@@ -393,6 +394,34 @@ trirouter remote --remove    # undo
 **Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
 
 **See also:** [setup](#setup), [doctor](#doctor)
+
+## learn
+
+Train the local routing model on JEV's past decisions.
+
+```
+trirouter learn [-n]
+```
+
+Trains a small local classifier (Naive Bayes, standard library only) on the decisions JEV made for your own prompts (~/.trirouter/logs/routing.jsonl) plus the repository's labelled evaluation prompts, measures it by cross-validation against JEV's routing, and saves it to ~/.trirouter/state/distilled.json. The hooks use it only when it is enabled: when a confidence threshold exists at which it routes like JEV often enough (tier agreement and coverage targets); a confident prediction then skips the JEV call (about 0.6 s and its fee). With too little or too noisy data it is saved disabled and changes nothing. It is retrained by itself in the daily background check once enough new decisions were logged. ROUTER_DISTILLED=0 switches it off.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Writes ~/.trirouter/state/distilled.json; preview with --dry-run.
+
+Examples:
+
+```bash
+trirouter learn    # train, measure and save
+trirouter learn --dry-run    # only measure
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [route](#route), [doctor](#doctor)
 
 ## doctor
 

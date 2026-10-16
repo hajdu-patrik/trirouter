@@ -265,6 +265,20 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
                ("{prog} remote --remove", "undo")),
      see_also=("setup", "doctor"))
 
+_add(key="learn", summary="Train the local routing model on JEV's past decisions",
+     synopsis=("{prog} learn [-n]",),
+     description=(
+         "Trains a small local classifier (Naive Bayes, standard library only) on the decisions JEV made for your own "
+         "prompts (~/.trirouter/logs/routing.jsonl) plus the repository's labelled evaluation prompts, measures it by "
+         "cross-validation against JEV's routing, and saves it to ~/.trirouter/state/distilled.json. The hooks use it "
+         "only when it is enabled: when a confidence threshold exists at which it routes like JEV often enough "
+         "(tier agreement and coverage targets); a confident prediction then skips the JEV call (about 0.6 s and its "
+         "fee). With too little or too noisy data it is saved disabled and changes nothing. It is retrained by itself "
+         "in the daily background check once enough new decisions were logged. ROUTER_DISTILLED=0 switches it off."),
+     flags=(DRY,), changes="Writes ~/.trirouter/state/distilled.json; preview with --dry-run",
+     examples=(("{prog} learn", "train, measure and save"), ("{prog} learn --dry-run", "only measure")),
+     see_also=("route", "doctor"))
+
 _add(key="doctor", summary="Read-only health report",
      synopsis=("{prog} doctor",),
      description="Checks the tools (installed, version, logged in; Antigravity is asked for its model list to tell, "
@@ -317,7 +331,7 @@ _add(key="help", summary="Show the manual of a command",
                ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
      see_also=("doctor",))
 
-ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "learn", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))

@@ -407,6 +407,17 @@ def run_models():
     return 0
 
 
+def run_learn():
+    """`learn`: trains the distilled routing model (distill.py) and prints its cross-validation report."""
+    from . import distill
+    rep = distill.train(apply=not DRY)
+    for line in distill.report_lines(rep):
+        say(line)
+    if DRY:
+        say("Dry run: nothing saved.")
+    return 0
+
+
 def setup_completion():
     """Setup step: tab completion for the current shell (and PowerShell on Windows), unless --no-completion.
     Scripts installed earlier are refreshed either way, so they always match the commands."""
@@ -697,7 +708,7 @@ def _main(argv):
     if (code := prepare_state(inv.key)) is not None:
         return code
     commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
-                "remote": run_remote, "uninstall": run_uninstall}
+                "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)
     return commands[inv.key]() or 0
