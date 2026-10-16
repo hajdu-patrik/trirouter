@@ -23,14 +23,18 @@ def jload(p):
         return None
 
 
+def _hooks(cfg, event):
+    return [h for g in (cfg or {}).get("hooks", {}).get(event, []) for h in g.get("hooks", [])]
+
+
 def _commands(cfg, event):
-    return [h.get("command", "") for g in (cfg or {}).get("hooks", {}).get(event, []) for h in g.get("hooks", [])]
+    return [h.get("command", "") for h in _hooks(cfg, event)]
 
 
 def has_hook(cfg, event):
-    """A router hook for the event, under the current or the pre-rename shim path (the latter is reported
-    separately by report_legacy)."""
-    return any(integrations.is_router_cmd(c) for c in _commands(cfg, event))
+    """A router hook for the event: a command under the current or the pre-rename shim path (the latter is
+    reported separately by report_legacy), or an http hook to the daemon."""
+    return any(integrations.is_router_hook(h) for h in _hooks(cfg, event))
 
 
 def mcp_entry(cfg):
@@ -42,7 +46,9 @@ def mcp_entry(cfg):
 def interpreters(claude_settings, codex_toml):
     """A Python update that removes the registered interpreter silently stops every hook."""
     found = []
-    hook = next((c for c in _commands(claude_settings, "UserPromptSubmit") if integrations.is_router_cmd(c)), "")
+    # UserPromptSubmit first; with the http transport only SessionStart still runs a command
+    hook = next((c for e in ("UserPromptSubmit",) + CLAUDE_EVENTS for c in _commands(claude_settings, e)
+                 if integrations.is_router_cmd(c)), "")
     if hook:
         m = re.match(r'\s*"([^"]+)"|\s*\'([^\']+)\'|\s*(\S+)', hook)
         found.append(("Claude hook", next(g for g in m.groups() if g)))
@@ -74,7 +80,27 @@ def report_hooks():
          f"missing {', '.join(missing)} - re-run: {P.command_hint('setup --yes')}" if missing else "")
     line(has_hook(cx, "UserPromptSubmit") and has_hook(cx, "Stop"), "Codex UserPromptSubmit + Stop", "(trust once: codex -> /hooks)")
     line("PreInvocation" in agy and "Stop" in agy, "Antigravity PreInvocation + Stop")
+    report_transport()
     return cs
+
+
+def report_transport():
+    """One line: command hooks, or http hooks and whether the daemon answers."""
+    try:
+        from . import daemon
+        s = daemon.status() if daemon.transport() == "http" else {"transport": "command"}
+    except Exception as exc:  # noqa: BLE001 - a read-only report never fails
+        line(False, "Claude hook transport", f"unreadable ({type(exc).__name__})")
+        return
+    if s["transport"] != "http":
+        line(True, "Claude hook transport", f"command (one Python process per hook; faster: {P.command_hint('daemon enable')})")
+    elif s["token"] == "mismatch":
+        line(False, "Claude hook transport", f"http, but settings.json carries another token - run: {P.command_hint('daemon enable')}")
+    elif s["running"]:
+        line(True, "Claude hook transport", f"http, daemon pid {s['pid']} on 127.0.0.1:{s['port']} ({s['latency_ms']} ms)")
+    else:
+        line(False, "Claude hook transport", f"http, but no daemon on 127.0.0.1:{s['port']} (the next Claude session "
+             f"starts it, or run: {P.command_hint('daemon start')})")
 
 
 def report_mcp():
