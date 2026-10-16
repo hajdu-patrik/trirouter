@@ -56,7 +56,7 @@ def test_changes_lines_are_plain_statements():
 
 
 def test_all_commands_of_the_spec_exist():
-    assert list(manual.ORDER) == ["setup", "keys", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
+    assert list(manual.ORDER) == ["setup", "keys", "models", "skills", "quarantine", "remote", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert {"quarantine list", "quarantine restore", "quarantine purge"} <= set(manual.COMMANDS)
 
 
@@ -83,10 +83,10 @@ def test_version_flag(capsys, flag):
     assert run(capsys, flag) == (0, f"trirouter {__version__}\n", "")
 
 
-def test_overview_lists_exactly_the_nine_commands_and_the_version_flag(capsys):
+def test_overview_lists_exactly_the_commands_and_the_version_flag(capsys):
     _, out, _ = run(capsys)
     rows = [line.split()[0] for line in out.split("Commands:\n")[1].split("\n\n")[0].splitlines()]
-    assert rows == ["setup", "keys", "models", "skills", "quarantine", "remote", "doctor", "route", "uninstall", "help"]
+    assert rows == ["setup", "keys", "models", "skills", "quarantine", "remote", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert "-V, --version" in out and "-h, --help" in out
 
 

@@ -407,6 +407,32 @@ def run_models():
     return 0
 
 
+def run_daemon(key):
+    from . import daemon
+    sub = key.split()[1] if " " in key else "status"
+    if sub in ("enable", "disable"):
+        getattr(daemon, sub)(apply=not DRY, say=say)
+        return 0
+    if sub == "start":
+        ok = daemon.start()
+        say(f"hook daemon: {'running' if ok else 'did not start'} (127.0.0.1:{daemon.configured_port()})"
+            + ("" if ok else f" - see {daemon.log_file()}"))
+        return 0 if ok else 1
+    if sub == "stop":
+        ok = daemon.stop()
+        say("hook daemon: stopped" if ok else "hook daemon: still running")
+        return 0 if ok else 1
+    st = daemon.status()
+    say(f"transport: {st['transport']}")
+    if st["running"]:
+        say(f"daemon:    running, pid {st['pid']}, 127.0.0.1:{st['port']}, answered in {st['latency_ms']} ms, "
+            f"since {st['started']}")
+    else:
+        say(f"daemon:    not running (127.0.0.1:{st['port']})")
+    say(f"token:     {st['token']}")
+    return 0
+
+
 def run_learn():
     """`learn`: trains the distilled routing model (distill.py) and prints its cross-validation report."""
     from . import distill
@@ -711,4 +737,6 @@ def _main(argv):
                 "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)
+    if inv.key.startswith("daemon"):
+        return run_daemon(inv.key)
     return commands[inv.key]() or 0

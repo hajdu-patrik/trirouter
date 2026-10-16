@@ -265,6 +265,63 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
                ("{prog} remote --remove", "undo")),
      see_also=("setup", "doctor"))
 
+_add(key="daemon", summary="The local hook daemon: Claude Code hooks without a Python start per prompt",
+     synopsis=("{prog} daemon [status]", "{prog} daemon enable|disable [-n]", "{prog} daemon start|stop"),
+     description=(
+         "By default every Claude Code hook starts a Python process (about 0.3-0.5 s on Windows before any routing "
+         "happens). With the daemon enabled, Claude Code sends its hooks as HTTP requests to a small trirouter server "
+         "on 127.0.0.1 (port: config.json daemon.port, default 47621) that keeps the router loaded and its connection "
+         "to JEV open; a hook then takes a few tens of milliseconds. Requests need a random token that only "
+         "~/.trirouter/state/daemon.json and Claude's settings.json hold. The SessionStart hook stays a command hook "
+         "and starts the daemon when it is not running; source and config changes are reloaded by the running "
+         "daemon. If the daemon is down, Claude Code goes on without the router context until the next session "
+         "start. Codex and Antigravity keep their command hooks.\n\n"
+         "Subcommands: status (default), enable, disable, start, stop."),
+     flags=(), changes="Changes nothing by itself; see the subcommands",
+     examples=(("{prog} daemon", "is it enabled and running?"), ("{prog} daemon enable", "switch Claude's hooks to it"),
+               ("{prog} daemon disable", "back to command hooks")),
+     see_also=("daemon enable", "doctor"))
+
+_add(key="daemon status", summary="Show whether the hook daemon is enabled and answering",
+     synopsis=("{prog} daemon [status]",),
+     description="Prints the hook transport (command or http), whether the daemon answers on its port, its process id, "
+                 "start time and answer time, and whether Claude's settings.json carries the daemon's token.",
+     flags=(), changes="Changes nothing", examples=(("{prog} daemon status", "the report"),),
+     see_also=("daemon enable", "daemon start"))
+
+_add(key="daemon enable", summary="Send Claude Code's hooks to the daemon over HTTP",
+     synopsis=("{prog} daemon enable [-n]",),
+     description="Sets hooks.transport = http in config.json, starts the daemon and rewrites trirouter's Claude Code "
+                 "hooks in ~/.claude/settings.json as http hooks (SessionStart stays a command hook; a .bak of the "
+                 "original is kept). Takes effect in new and running sessions after Claude Code re-reads its settings.",
+     flags=(DRY,), changes="Changes files; preview with --dry-run",
+     examples=(("{prog} daemon enable", "switch"), ("{prog} daemon enable -n", "preview")),
+     see_also=("daemon disable", "daemon status"))
+
+_add(key="daemon disable", summary="Back to command hooks; stop the daemon",
+     synopsis=("{prog} daemon disable [-n]",),
+     description="Sets hooks.transport = command, rewrites trirouter's Claude Code hooks as command hooks and stops "
+                 "the daemon.",
+     flags=(DRY,), changes="Changes files; preview with --dry-run",
+     examples=(("{prog} daemon disable", "switch back"),),
+     see_also=("daemon enable",))
+
+_add(key="daemon start", summary="Start the hook daemon now",
+     synopsis=("{prog} daemon start",),
+     description="Starts the daemon in the background unless it already runs (the SessionStart hook does this by "
+                 "itself when the transport is http).",
+     flags=(), changes="Starts a background process", examples=(("{prog} daemon start", "start it"),),
+     exit_status="0 when it answers. 1 when it did not start (see ~/.trirouter/logs/daemon.log).",
+     see_also=("daemon stop", "daemon status"))
+
+_add(key="daemon stop", summary="Stop the hook daemon",
+     synopsis=("{prog} daemon stop",),
+     description="Stops the running daemon. With the http transport still enabled the next Claude Code session start "
+                 "starts it again; use `daemon disable` to switch it off for good.",
+     flags=(), changes="Stops a background process", examples=(("{prog} daemon stop", "stop it"),),
+     exit_status="0 when no daemon runs afterwards. 1 otherwise.",
+     see_also=("daemon start", "daemon disable"))
+
 _add(key="learn", summary="Train the local routing model on JEV's past decisions",
      synopsis=("{prog} learn [-n]",),
      description=(
@@ -331,7 +388,7 @@ _add(key="help", summary="Show the manual of a command",
                ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
      see_also=("doctor",))
 
-ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "learn", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "daemon", "learn", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))
@@ -343,8 +400,8 @@ REMOVED_COMMANDS = {
     "version": "version was removed: use `{prog} --version`",
 }
 REMOVED_FLAGS = {("models", "--probe"): "--probe was removed: plain `{prog} models` already does the full check"}
-SUBCOMMANDS = {"quarantine": ("list", "restore", "purge")}
-DEFAULT_SUBCOMMAND = {"quarantine": "list"}
+SUBCOMMANDS = {"quarantine": ("list", "restore", "purge"), "daemon": ("status", "enable", "disable", "start", "stop")}
+DEFAULT_SUBCOMMAND = {"quarantine": "list", "daemon": "status"}
 
 GETTING_STARTED = """\
 1. Install Python 3.10+ and at least one of Claude Code, Codex or Antigravity, and log in to it.

@@ -18,6 +18,12 @@
   * [quarantine restore](#quarantine-restore)
   * [quarantine purge](#quarantine-purge)
 * [remote](#remote) -- Set up or remove phone / other-device access
+* [daemon](#daemon) -- The local hook daemon: Claude Code hooks without a Python start per prompt
+  * [daemon status](#daemon-status)
+  * [daemon enable](#daemon-enable)
+  * [daemon disable](#daemon-disable)
+  * [daemon start](#daemon-start)
+  * [daemon stop](#daemon-stop)
 * [learn](#learn) -- Train the local routing model on JEV's past decisions
 * [doctor](#doctor) -- Read-only health report
 * [route](#route) -- The routing decision for one prompt or sub-task
@@ -394,6 +400,171 @@ trirouter remote --remove    # undo
 **Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
 
 **See also:** [setup](#setup), [doctor](#doctor)
+
+## daemon
+
+The local hook daemon: Claude Code hooks without a Python start per prompt.
+
+```
+trirouter daemon [status]
+trirouter daemon enable|disable [-n]
+trirouter daemon start|stop
+```
+
+By default every Claude Code hook starts a Python process (about 0.3-0.5 s on Windows before any routing happens). With the daemon enabled, Claude Code sends its hooks as HTTP requests to a small trirouter server on 127.0.0.1 (port: config.json daemon.port, default 47621) that keeps the router loaded and its connection to JEV open; a hook then takes a few tens of milliseconds. Requests need a random token that only ~/.trirouter/state/daemon.json and Claude's settings.json hold. The SessionStart hook stays a command hook and starts the daemon when it is not running; source and config changes are reloaded by the running daemon. If the daemon is down, Claude Code goes on without the router context until the next session start. Codex and Antigravity keep their command hooks.
+
+Subcommands: status (default), enable, disable, start, stop.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Changes nothing by itself; see the subcommands.
+
+Examples:
+
+```bash
+trirouter daemon    # is it enabled and running?
+trirouter daemon enable    # switch Claude's hooks to it
+trirouter daemon disable    # back to command hooks
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [daemon enable](#daemon-enable), [doctor](#doctor)
+
+### daemon status
+
+Show whether the hook daemon is enabled and answering.
+
+```
+trirouter daemon [status]
+```
+
+Prints the hook transport (command or http), whether the daemon answers on its port, its process id, start time and answer time, and whether Claude's settings.json carries the daemon's token.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Changes nothing.
+
+Examples:
+
+```bash
+trirouter daemon status    # the report
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [daemon enable](#daemon-enable), [daemon start](#daemon-start)
+
+### daemon enable
+
+Send Claude Code's hooks to the daemon over HTTP.
+
+```
+trirouter daemon enable [-n]
+```
+
+Sets hooks.transport = http in config.json, starts the daemon and rewrites trirouter's Claude Code hooks in ~/.claude/settings.json as http hooks (SessionStart stays a command hook; a .bak of the original is kept). Takes effect in new and running sessions after Claude Code re-reads its settings.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Changes files; preview with --dry-run.
+
+Examples:
+
+```bash
+trirouter daemon enable    # switch
+trirouter daemon enable -n    # preview
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [daemon disable](#daemon-disable), [daemon status](#daemon-status)
+
+### daemon disable
+
+Back to command hooks; stop the daemon.
+
+```
+trirouter daemon disable [-n]
+```
+
+Sets hooks.transport = command, rewrites trirouter's Claude Code hooks as command hooks and stops the daemon.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Changes files; preview with --dry-run.
+
+Examples:
+
+```bash
+trirouter daemon disable    # switch back
+```
+
+**Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
+
+**See also:** [daemon enable](#daemon-enable)
+
+### daemon start
+
+Start the hook daemon now.
+
+```
+trirouter daemon start
+```
+
+Starts the daemon in the background unless it already runs (the SessionStart hook does this by itself when the transport is http).
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Starts a background process.
+
+Examples:
+
+```bash
+trirouter daemon start    # start it
+```
+
+**Exit status:** 0 when it answers. 1 when it did not start (see ~/.trirouter/logs/daemon.log).
+
+**See also:** [daemon stop](#daemon-stop), [daemon status](#daemon-status)
+
+### daemon stop
+
+Stop the hook daemon.
+
+```
+trirouter daemon stop
+```
+
+Stops the running daemon. With the http transport still enabled the next Claude Code session start starts it again; use `daemon disable` to switch it off for good.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Stops a background process.
+
+Examples:
+
+```bash
+trirouter daemon stop    # stop it
+```
+
+**Exit status:** 0 when no daemon runs afterwards. 1 otherwise.
+
+**See also:** [daemon start](#daemon-start), [daemon disable](#daemon-disable)
 
 ## learn
 
