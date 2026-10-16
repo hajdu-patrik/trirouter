@@ -1077,6 +1077,8 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     except Exception as exc:  # any JEV failure falls back to the local classifier
         error = f"{type(exc).__name__}: {exc}"[:200]
         answers = classify(own, candidates, backend="local", effort=effort, models=models)
+    if fast == "distilled" and not error:
+        _apply_distilled(answers, own, effort)
     d = decide(answers, routes, by_name, prompt=own)
     if inline_reason:
         force_inline(d, inline_reason)
@@ -1104,12 +1106,51 @@ def _same_tier_at_low_levels(task, routes):
     return tier(0) == tier(1)
 
 
+def _distilled_prediction(own):
+    """The distilled model's answer for `own` when it is sure (distill.py), else None. No model file, a disabled
+    model, ROUTER_DISTILLED=0 or any error all mean None: nothing is even loaded without a model file."""
+    try:
+        from . import distill  # lazy: only paid for when a JEV call could be skipped
+        if distill.disabled_by_env():
+            return None
+        p = distill.predict(own)
+        return p if p and p["confident"] and p["task"] != "research" else None
+    except Exception:  # noqa: BLE001 - the model is an optimisation, never a reason for the hook to fail
+        return None
+
+
+def _distilled_ok(own, a, candidates):
+    """The local model may stand in for JEV: the same guards as the keyword fast path (no strong skill candidate,
+    a bounded length, nothing that needs the web or a long context per the local signals) and a confident answer."""
+    if candidates and candidates[0][0] >= 3.0 or len(own) > LOCAL_FAST_MAX_CHARS:
+        return False
+    if a["task"]["choice"] == "research" or a["needs_web"]["noul"] >= LONG_CTX_T or a["long_context"]["noul"] >= LONG_CTX_T:
+        return False
+    return _distilled_prediction(own) is not None
+
+
+def _apply_distilled(answers, own, effort):
+    """Fast path 'distilled': the model's task and difficulty replace the keyword classifier's. Its confidence is
+    that of the tier the pair routes to, which is what was calibrated against JEV."""
+    p = _distilled_prediction(own)
+    if p is None:
+        return
+    answers["task"] = {"choice": p["task"], "confidence": max(p["task_p"], p["conf"])}
+    answers["difficulty"] = {"score": p["level"], "confidence": max(p["level_p"], p["conf"])}
+    answers["agents"] = local_agents_answer(_norm(own), p["level"])
+    choice = _mock_effort(float(p["level"]), effort)
+    if choice:
+        answers["effort"] = {"choice": choice, "confidence": 0.5}
+
+
 def _fast_path_reason(own, pasted, candidates, routes, backend):
     """Why the network call can be skipped, or None. A trivially short plain line, or a prompt the local classifier
     is sure about (a clear task, nothing hard, no skill in play), is decided locally: JEV adds seconds, not insight."""
     if pasted or backend or BACKEND != "auto" or not use_jev(None):  # an explicit backend is never second-guessed
         return None
     a = local_answers(own)
+    if _distilled_ok(own, a, candidates):
+        return "distilled"
     if not _same_tier_at_low_levels(a["task"]["choice"], routes):
         return None  # the local trivial/moderate guess is a coin flip and the tier depends on it: that is JEV's
     cc = routes.get("cost_cap") or {}
