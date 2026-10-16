@@ -13,6 +13,13 @@ for _name in [n for n in os.environ if n.startswith("ROUTER_")]:
 
 
 @pytest.fixture(autouse=True)
+def no_distilled_model(monkeypatch):
+    """A model trained on the real traffic (~/.trirouter) must never change a test's routing; the distill tests
+    switch it back on against a temporary state folder."""
+    monkeypatch.setenv("ROUTER_DISTILLED", "0")
+
+
+@pytest.fixture(autouse=True)
 def isolated_machine(tmp_path_factory, monkeypatch):
     """No test may reach the real shim folders, ~/.local/bin, the Windows user PATH or a scheduled task. A test
     that exercises one of them patches it itself (a later monkeypatch wins)."""

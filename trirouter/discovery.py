@@ -603,9 +603,22 @@ def run_scheduled():
         work = core.STATE_DIR / "tmp"
         work.mkdir(parents=True, exist_ok=True)
         os.chdir(work)  # the probes run here, not in a project folder
-        run("discover", apply=True, say=None)
+        try:
+            run("discover", apply=True, say=None)
+        finally:
+            learn_routing()
     finally:
         release_lock()
+
+
+def learn_routing():
+    """The same daily job also lets the local routing model learn from the JEV answers that piled up in the log
+    (distill.maybe_retrain: at most once a day, only with enough new answers). Never a reason for the check to fail."""
+    try:
+        from . import distill
+        distill.maybe_retrain()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def main(argv=None):

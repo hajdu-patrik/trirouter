@@ -20,6 +20,7 @@ from pathlib import Path
 # Measure with the defaults, as CI does: a local ROUTER_MIN_CONFIDENCE would change every number.
 for _var in [v for v in os.environ if v.startswith("ROUTER_")]:
     del os.environ[_var]
+os.environ["ROUTER_DISTILLED"] = "0"  # never let a model trained on the user's own traffic (~/.trirouter) change the numbers
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
