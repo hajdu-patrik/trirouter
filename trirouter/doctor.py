@@ -298,6 +298,32 @@ def delegation_compliance(routed, subagents):
     return counts
 
 
+GUARD_DAYS = 7
+
+
+def guard_summary(rows, days=GUARD_DAYS, now=None):
+    """{"deny", "model", "prompts"} over the guard log's last `days` days: subagent calls denied over the routed
+    budget, general-purpose calls given the routed worker's model, and the distinct prompts involved."""
+    import datetime
+    now = now or datetime.datetime.now()
+    since = (now - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    recent = [r for r in rows if isinstance(r, dict) and str(r.get("ts", "")) >= since]
+    return {"deny": sum(r.get("action") == "deny" for r in recent),
+            "model": sum(r.get("action") == "model" for r in recent),
+            "prompts": len({r.get("prompt_id") for r in recent if r.get("prompt_id")})}
+
+
+def report_guard(cfg=None):
+    """The PreToolUse agent guard's actions (~/.trirouter/logs/guard.jsonl), next to the delegation compliance."""
+    guard = (cfg or {}).get("guard")
+    if isinstance(guard, dict) and guard.get("agents") is False:
+        line(True, "Agent guard", "off (config.json guard.agents = false)")
+        return
+    c = guard_summary(_jsonl(STATE / "logs" / "guard.jsonl", 5000))
+    line(True, "Agent guard", f"last {GUARD_DAYS} days: {c['deny']} subagent call(s) denied over the routed budget, "
+         f"{c['model']} given the routed worker's model ({c['prompts']} prompt(s))")
+
+
 def report_activity():
     print("\n== Router activity (~/.trirouter/logs/routing.jsonl)")
     last = last_prompts(STATE / "logs" / "routing.jsonl")
@@ -308,11 +334,12 @@ def report_activity():
     sub_log = STATE / "logs" / "subagents.jsonl"
     if not sub_log.exists():
         line(True, "Delegation compliance", "no SubagentStart data yet")
-        return
-    c = delegation_compliance(_jsonl(STATE / "logs" / "routing.jsonl", 500), _jsonl(sub_log, 2000))
-    total = sum(c.values())
-    line(True, "Delegation compliance", f"{c['followed']}/{total} turns used the advised worker, "
-         f"{c['elsewhere']} another agent, {c['in_session']} answered in-session" if total else "no advised worker yet")
+    else:
+        c = delegation_compliance(_jsonl(STATE / "logs" / "routing.jsonl", 500), _jsonl(sub_log, 2000))
+        total = sum(c.values())
+        line(True, "Delegation compliance", f"{c['followed']}/{total} turns used the advised worker, "
+             f"{c['elsewhere']} another agent, {c['in_session']} answered in-session" if total else "no advised worker yet")
+    report_guard(jload(STATE / "config.json"))
 
 
 def main():

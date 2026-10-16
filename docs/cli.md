@@ -177,20 +177,25 @@ Find new models, drop retired ones, test which ones your accounts can use.
 trirouter models [-n]
 trirouter models --discover [-n]
 trirouter models --auto=on|off
+trirouter models --main=FAMILY|off [--subagent-model=FAMILY|off] [-n]
 ```
 
 Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
 
 Without --discover the command also sends the one-word prompt to every known Codex model, the full account check. --discover runs only the cheap daily check, which also runs by itself in the background at most once every 24 hours, started by a Claude Code session start or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next Claude Code session is told once what changed, and `trirouter doctor` shows the last check. --auto=off switches the background check off.
 
+--main and --subagent-model set Claude Code's own defaults: the model new sessions start on (~/.claude/settings.json `model`) and the model of subagents that name none, such as general-purpose (env CLAUDE_CODE_SUBAGENT_MODEL; trirouter's worker agents keep their own models). Most prompts are answered in the session itself, so a cheaper main model (sonnet) with the router escalating hard work to opus / fable workers costs far less than an opus session. Both are remembered and re-applied by setup; `off` removes the setting.
+
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `--discover` | - | off | no | Only the daily check: list every tool's models, try only the new ones (and ones offered again). |
 | `--auto` | `on|off` | on | yes (model_discovery.auto) | Switch the automatic daily check on or off. Given alone, only the setting is saved. |
+| `--main` | `FAMILY|off` | unchanged | yes (claude.main_model) | Claude Code's default model for new sessions (haiku, sonnet, opus or fable); off removes it. |
+| `--subagent-model` | `FAMILY|off` | unchanged | yes (claude.subagent_model) | The model of Claude subagents that name none (general-purpose, plugin agents); off removes it. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
 
-**Changes:** Changes files (models.local.json, worker agents); preview with --dry-run.
+**Changes:** Changes files (models.local.json, worker agents, ~/.claude/settings.json); preview with --dry-run.
 
 Examples:
 
@@ -199,6 +204,7 @@ trirouter models --discover    # the daily check now
 trirouter models --discover --dry-run    # show what it would add or remove, save nothing
 trirouter models    # full check: also try every known Codex model
 trirouter models --auto=off    # no automatic daily check
+trirouter models --main=sonnet --subagent-model=sonnet    # cheap sessions; the router escalates
 ```
 
 **Exit status:** 0 on success. 2 on a usage error. 1 when another model check is already running.

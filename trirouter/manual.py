@@ -146,7 +146,8 @@ _add(key="keys", summary="Protect the API keys saved in config.json",
      see_also=("setup", "doctor"))
 
 _add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
-     synopsis=("{prog} models [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off"),
+     synopsis=("{prog} models [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off",
+               "{prog} models --main=FAMILY|off [--subagent-model=FAMILY|off] [-n]"),
      description=(
          "Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; "
          "Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family "
@@ -162,18 +163,29 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
          "also runs by itself in the background at most once every 24 hours, started by a Claude Code session start "
          "or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next "
          "Claude Code session is told once what changed, and `{prog} doctor` shows the last check. "
-         "--auto=off switches the background check off."),
+         "--auto=off switches the background check off.\n\n"
+         "--main and --subagent-model set Claude Code's own defaults: the model new sessions start on "
+         "(~/.claude/settings.json `model`) and the model of subagents that name none, such as general-purpose "
+         "(env CLAUDE_CODE_SUBAGENT_MODEL; trirouter's worker agents keep their own models). Most prompts are "
+         "answered in the session itself, so a cheaper main model (sonnet) with the router escalating hard work to "
+         "opus / fable workers costs far less than an opus session. Both are remembered and re-applied by setup; "
+         "`off` removes the setting."),
      flags=(Flag("--discover", doc="Only the daily check: list every tool's models, try only the new ones "
                                    "(and ones offered again)."),
             Flag("--auto", value="on|off", default="on", remembered="yes (model_discovery.auto)",
                  choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
                  doc="Switch the automatic daily check on or off. Given alone, only the setting is saved."),
+            Flag("--main", value="FAMILY|off", default="unchanged", remembered="yes (claude.main_model)",
+                 doc="Claude Code's default model for new sessions (haiku, sonnet, opus or fable); off removes it."),
+            Flag("--subagent-model", value="FAMILY|off", default="unchanged", remembered="yes (claude.subagent_model)",
+                 doc="The model of Claude subagents that name none (general-purpose, plugin agents); off removes it."),
             DRY),
-     changes="Changes files (models.local.json, worker agents); preview with --dry-run",
+     changes="Changes files (models.local.json, worker agents, ~/.claude/settings.json); preview with --dry-run",
      examples=(("{prog} models --discover", "the daily check now"),
                ("{prog} models --discover --dry-run", "show what it would add or remove, save nothing"),
                ("{prog} models", "full check: also try every known Codex model"),
-               ("{prog} models --auto=off", "no automatic daily check")),
+               ("{prog} models --auto=off", "no automatic daily check"),
+               ("{prog} models --main=sonnet --subagent-model=sonnet", "cheap sessions; the router escalates")),
      exit_status="0 on success. 2 on a usage error. 1 when another model check is already running.",
      see_also=("skills", "doctor"))
 

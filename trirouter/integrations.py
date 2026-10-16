@@ -5,8 +5,10 @@ Every entry calls a shim in ~/.trirouter/bin/, so moving the repository only req
 the installer. A changed file's original is kept once as `<file>.bak`; a config file that is not
 valid JSON is reported and left untouched.
 
-    claude       UserPromptSubmit, Stop, StopFailure, SessionEnd, SubagentStart    ~/.claude/settings.json
-                 (with config.json hooks.transport "http" these are http hooks to the daemon, see daemon.py;
+    claude       UserPromptSubmit, Stop, StopFailure, SessionEnd, SubagentStart,    ~/.claude/settings.json
+                 SessionStart, PostModelSwitch, PreToolUse (Agent)
+                 (+ the remembered model defaults: `model`, env.CLAUDE_CODE_SUBAGENT_MODEL;
+                 with config.json hooks.transport "http" the hooks go to the daemon, see daemon.py;
                  SessionStart always stays a command hook: it starts the daemon)
     codex        UserPromptSubmit + Stop    ~/.codex/hooks.json (trust once via /hooks)
     antigravity  PreInvocation + Stop       ~/.gemini/config/hooks.json
@@ -184,15 +186,25 @@ HOOK_EVENTS = {
     # StopFailure / SessionEnd release the queue when a turn dies on an API error or the session ends;
     # SubagentStart records which worker the model really delegated to.
     # SessionStart purges expired quarantine entries (at most every 6 hours) and starts the daily model check;
-    # it prints only a one-line note when that check changed the model list
-    "claude": ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart"),
+    # it prints only a one-line note when that check changed the model list. SessionStart (when it carries `model`)
+    # and PostModelSwitch record the family the session runs; PreToolUse (the Agent tool only, see HOOK_MATCHERS)
+    # holds subagent calls to the routed budget and gives a general-purpose call the routed worker's model
+    "claude": ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart",
+               "PostModelSwitch", "PreToolUse"),
     "codex": ("UserPromptSubmit", "Stop"),
+}
+# (provider, event) -> the hook group's "matcher"; an event not listed gets a group without one
+HOOK_MATCHERS = {
+    ("codex", "UserPromptSubmit"): "*",
+    ("claude", "PreToolUse"): "^(Agent|Task)$",  # the subagent tool (Task: its former name); anchored: not TaskCreate
 }
 ROUTER_EVENTS = tuple(dict.fromkeys(e for events in HOOK_EVENTS.values() for e in events))
 
 
-def claude_codex_hooks(path, provider, w, uninstall=False, transport=None):
-    """transport: "http" or "command"; None reads config.json hooks.transport (only Claude has http hooks)."""
+def claude_codex_hooks(path, provider, w, uninstall=False, claude_models=None, transport=None):
+    """transport: "http" or "command"; None reads config.json hooks.transport (only Claude has http hooks).
+    claude_models (Claude only): the remembered (main, subagent) model defaults, re-applied in the same write
+    (see apply_claude_models); on uninstall the values trirouter set are removed."""
     cfg = load(path)
     hooks = cfg.setdefault("hooks", {})
     wanted = () if uninstall else HOOK_EVENTS[provider]
@@ -205,17 +217,106 @@ def claude_codex_hooks(path, provider, w, uninstall=False, transport=None):
         if event not in hooks and event not in wanted:
             continue
         groups = _strip_router(hooks.get(event))
-        matcher = provider == "codex" and event == "UserPromptSubmit"
+        matcher = HOOK_MATCHERS.get((provider, event))
         if event in wanted:
             entry = {"hooks": [hook_entry(provider, event, transport, token)]}
-            groups.append({"matcher": "*", **entry} if matcher else entry)
+            groups.append({"matcher": matcher, **entry} if matcher else entry)
         if groups:
             hooks[event] = groups
         else:
             hooks.pop(event, None)
     if not hooks:
         cfg.pop("hooks", None)
+    if provider == "claude" and claude_models:
+        (_forget_claude_models if uninstall else _reapply_claude_models)(cfg, claude_models)
     w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", f"{provider} hooks")
+
+
+# ---- Claude model defaults (settings.json `model` and env.CLAUDE_CODE_SUBAGENT_MODEL) --------------------------
+
+SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
+
+
+def claude_families():
+    """The Claude families that may be set as a default: the selectable ones (models.json + per-account overrides)."""
+    from . import core  # lazy: only the model defaults need the catalog
+    return [m for m in core.models_for("claude") if core.claude_alias_allowed(m)]
+
+
+def _check_family(value, what):
+    if value is None or value == "off":
+        return value
+    family = str(value).strip().lower()
+    allowed = claude_families()
+    if family not in allowed:
+        raise ValueError(f"{what}: '{value}' is not a selectable Claude family (one of {', '.join(allowed)}, or off)")
+    return family
+
+
+def apply_claude_models(cfg, main_model=None, subagent_model=None):
+    """Sets, in a parsed settings.json, the main session's default family (`model`) and the family of subagents that
+    pin none (env.CLAUDE_CODE_SUBAGENT_MODEL; a worker agent's own `model:` still wins - verified live). "off"
+    removes the key, None leaves it as it is. Both values are validated before anything changes: ValueError."""
+    main_model = _check_family(main_model, "main model")
+    subagent_model = _check_family(subagent_model, "subagent model")
+    if main_model == "off":
+        cfg.pop("model", None)
+    elif main_model:
+        cfg["model"] = main_model
+    if subagent_model is not None:
+        env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
+        if subagent_model == "off":
+            env.pop(SUBAGENT_MODEL_ENV, None)
+        else:
+            env[SUBAGENT_MODEL_ENV] = subagent_model
+        if env:
+            cfg["env"] = env
+        else:
+            cfg.pop("env", None)
+    return cfg
+
+
+def claude_model_settings(w, main_model=None, subagent_model=None, path=None):
+    """Writes the Claude model defaults into ~/.claude/settings.json through the Writer (dry-run unless w.apply,
+    the original kept once as `.bak`). main_model / subagent_model: a selectable family, "off" (remove the key) or
+    None (leave it). ValueError for an unknown family, BadConfig for a settings.json that is not a JSON object."""
+    path = Path(path or P.PATHS["claude_settings"])
+    cfg = apply_claude_models(load(path), main_model, subagent_model)
+    w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", "claude model defaults")
+
+
+def remembered_claude_models(cfg=None):
+    """(main, subagent) from config.json `claude.main_model` / `claude.subagent_model` (stored by `trirouter models
+    --main / --subagent-model`): each a family, "off" or None. A value that is no longer valid becomes None."""
+    if cfg is None:
+        from . import core
+        cfg = core.user_config()
+    claude = cfg.get("claude") if isinstance(cfg, dict) and isinstance(cfg.get("claude"), dict) else {}
+    out = []
+    for key in ("main_model", "subagent_model"):
+        try:
+            out.append(_check_family(claude.get(key), key))
+        except ValueError:
+            out.append(None)
+    return tuple(out)
+
+
+def _reapply_claude_models(cfg, remembered):
+    """Setup: a remembered family is written again; a remembered "off" was applied once by the `models` command and
+    is not repeated, so a value the user set in settings.json by hand later is kept."""
+    apply_claude_models(cfg, *(None if v == "off" else v for v in remembered))
+
+
+def _forget_claude_models(cfg, remembered):
+    """Uninstall: removes only what trirouter set (a key still equal to the remembered family)."""
+    main, sub = remembered
+    if main not in (None, "off") and cfg.get("model") == main:
+        cfg.pop("model", None)
+    env = cfg.get("env")
+    if sub not in (None, "off") and isinstance(env, dict) and env.get(SUBAGENT_MODEL_ENV) == sub:
+        env.pop(SUBAGENT_MODEL_ENV, None)
+        if not env:
+            cfg.pop("env", None)
 
 
 AGY_EVENTS = ("PreToolUse", "PostToolUse", "PreInvocation", "PostInvocation", "Stop")
@@ -334,16 +435,22 @@ def install_shims(w):
     w.write(SHIM_ROUTE, shim("trirouter", "route"), "route shim")
 
 
-def install(providers=ALL, apply=False, uninstall=False, launcher=True):
-    """Number of files that changed (or would change)."""
+def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None):
+    """Number of files that changed (or would change). claude_models: (main, subagent) Claude model defaults to keep
+    in settings.json; None re-applies the ones remembered in config.json (remembered_claude_models)."""
     w = Writer(apply)
     if not uninstall:
         install_shims(w)
     if launcher:
         (uninstall_launcher if uninstall else install_launcher)(w)
+    if claude_models is None and "claude" in providers:
+        try:
+            claude_models = remembered_claude_models()
+        except Exception:  # noqa: BLE001 - an unreadable catalog or config never stops the setup
+            claude_models = (None, None)
     steps = []
     if "claude" in providers:
-        steps += [lambda: claude_codex_hooks(P.PATHS["claude_settings"], "claude", w, uninstall),
+        steps += [lambda: claude_codex_hooks(P.PATHS["claude_settings"], "claude", w, uninstall, claude_models),
                   lambda: claude_desktop_mcp(w, uninstall)]
     if "codex" in providers:
         steps += [lambda: claude_codex_hooks(P.PATHS["codex_hooks"], "codex", w, uninstall),

@@ -24,7 +24,7 @@ def state(tmp_path, monkeypatch):
 
 
 FILL = "alpha beta gamma delta kappa sigma omega lambda theta zeta".split()
-CLUSTERS = [  # (template, task, level): disjoint vocabulary, tiers fast / main / test / main in the Claude table
+CLUSTERS = [  # (template, task, level): disjoint vocabulary, tiers main / main / test / main in the Claude table
     ("write a short thank you note to {w} about the {v} dinner", "general", 0),
     ("fix the crash in module {w}.py when the {v} parser gets empty input", "code", 1),
     ("write pytest unit tests for the {w} service and mock the {v} client", "test", 1),
@@ -113,7 +113,7 @@ def test_train_enables_on_clear_data_and_round_trips(log, state):
     assert saved["log"]["size"] == log.stat().st_size and saved["log"]["sha"]
     assert saved["table"] == distill.claude_table()
     p = distill.predict("write a short thank you note to sigma about the beta dinner")
-    assert (p["task"], p["level"], p["tier"]) == ("general", 0, "fast") and p["confident"]
+    assert (p["task"], p["level"], p["tier"]) == ("general", 0, "main") and p["confident"]
     p = distill.predict("write pytest unit tests for the zeta service and mock the omega client")
     assert (p["task"], p["tier"]) == ("test", "test") and p["confident"]
     assert any("tier" in line for line in distill.report_lines(rep))
@@ -192,7 +192,7 @@ def test_a_changed_route_table_makes_the_model_unsure(log, monkeypatch):
     distill.train(apply=True, log=log, files=[])
     text = "write a short thank you note to sigma about the beta dinner"
     assert distill.predict(text)["confident"]
-    table = dict(distill.claude_table(), general=["main", "main", "deep"])
+    table = dict(distill.claude_table(), general=["fast", "main", "deep"])
     monkeypatch.setattr(distill, "claude_table", lambda: table)
     assert not distill.predict(text)["confident"]
 
@@ -225,7 +225,7 @@ def test_fast_path_uses_the_model_only_when_confident(log, jev):
     d, _, _, err = core.route(SURE, "claude")
     assert jev == [] and err is None
     assert d["fast_path"] == "distilled" and d["backend"] == "local"
-    assert d["task"] == "general" and d["level"] == 0 and d["primary"] == "fast" and d["task_conf"] >= 0.6
+    assert d["task"] == "general" and d["level"] == 0 and d["primary"] == "main" and d["task_conf"] >= 0.6
     # nothing the model knows: JEV decides
     d, _, _, _ = core.route("zzqx vvkt plorp wubble", "claude")
     assert len(jev) == 1 and "fast_path" not in d and d["backend"] == "jev"

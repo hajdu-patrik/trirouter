@@ -379,8 +379,37 @@ def set_model_auto(value):
     say(f"Daily model check: {'on' if on else 'off'}" + (" (dry run: not saved)" if DRY else " (saved in config.json)"))
 
 
+def set_claude_models(main, sub):
+    """`models --main / --subagent-model`: Claude Code's default model for new sessions (settings.json `model`) and
+    for subagents that name none (env CLAUDE_CODE_SUBAGENT_MODEL); remembered as config.json claude.*, re-applied
+    by setup. "off" removes the setting."""
+    try:
+        w = integrations.Writer(not DRY)
+        integrations.claude_model_settings(w, main, sub)
+    except (ValueError, integrations.BadConfig) as exc:
+        say(f"[!!]  {exc}")
+        return 1
+    if not DRY:
+        cfg = load_config()
+        claude = dict(cfg.get("claude") or {})
+        for key, value in (("main_model", main), ("subagent_model", sub)):
+            if value is not None:
+                claude[key] = value
+        cfg["claude"] = claude
+        save_config(cfg)
+    if main and main != "off":
+        say(f"New Claude Code sessions start on {main}; the router hands harder work to stronger workers. "
+            "A running session keeps its model until /model.")
+    return 0
+
+
 def run_models():
     """The model check (discovery.py): --discover is the cheap daily one, without it every Codex model is tried."""
+    main, sub = (FLAGS.get(f) if isinstance(FLAGS.get(f), str) else None for f in ("--main", "--subagent-model"))
+    if main or sub:
+        code = set_claude_models(main and main.strip().lower(), sub and sub.strip().lower())
+        if code or ("--discover" not in FLAGS and not isinstance(FLAGS.get("--auto"), str)):
+            return code
     auto = FLAGS.get("--auto")
     if isinstance(auto, str):
         set_model_auto(auto)

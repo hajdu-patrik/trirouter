@@ -431,6 +431,28 @@ def excluded_efforts():
 # Claude Code aliases that name a mode or a setting, not a model family
 CLAUDE_MODE_ALIASES = frozenset({"default", "best", "inherit", "opusplan"})
 _GENERIC_ALIAS = re.compile(r"[a-z]+")
+CLAUDE_FAMILIES = ("haiku", "sonnet", "opus", "fable")
+
+
+def claude_family(model):
+    """The Claude family a model alias or id names ('opus' for `opus`, `claude-opus-5-5`, `opus[1m]`), or None
+    (a mode alias such as `opusplan` runs more than one family; another provider's model names none)."""
+    name = str(model or "").strip().lower()
+    if not name or name in CLAUDE_MODE_ALIASES:
+        return None
+    families = load_json("models.json", {}).get("claude", {}).get("allowed_families") or CLAUDE_FAMILIES
+    return next((f for f in families if f in name), None)
+
+
+def same_model(session_model, model, provider=None):
+    """True when the session already runs `model`: the same id, or for Claude the same family (a session reports
+    an id such as claude-opus-5-5 or a family, a tier names the family alias)."""
+    if not session_model or not model:
+        return False
+    if session_model == model:
+        return True
+    family = claude_family(session_model) if base_provider(provider or "claude") == "claude" else None
+    return family is not None and family == claude_family(model)
 
 
 def claude_alias_allowed(alias, cfg=None):
@@ -899,9 +921,15 @@ def resolve_tier(d, targets, models=None, session_model=None, provider=None):
     """(text, effort, model, agent). A plain-text tier answers in-session (model and agent None).
     Placeholders in agent/text: {model}, {model_} (TOML-safe), {effort}, {slug}, {agent}.
     With `provider`, a tier whose model is no longer selectable falls back to the closest one that is."""
+    return _resolve_tier(d, targets, models, session_model, provider)[:4]
+
+
+def _resolve_tier(d, targets, models=None, session_model=None, provider=None):
+    """resolve_tier plus a fifth value: True when the tier's model is the one the session already runs and the tier
+    has a `same_model_text`, so the work stays in-session (no agent)."""
     spec = _tier_spec(d, targets)
     if isinstance(spec, str):
-        return spec, d.get("effort"), None, None
+        return spec, d.get("effort"), None, None, False
     model = spec.get("model", "")
     if provider:
         spec, models = _available_spec(d, spec, targets, models, provider)
@@ -911,10 +939,10 @@ def resolve_tier(d, targets, models=None, session_model=None, provider=None):
     slug = ((mdef or {}).get("slug") or spec.get("slug") or "{id}").format(id=model, effort=effort or "")
     fields = {"model": model, "model_": model.replace(".", "_"), "effort": effort or "default", "slug": slug}
     fields["agent"] = spec.get("agent", "").format(**fields)
-    same_model = session_model and session_model == model and spec.get("same_model_text")
-    template = spec["same_model_text"] if same_model else spec.get("text", "")
+    in_session = bool(spec.get("same_model_text")) and same_model(session_model, model, provider)
+    template = spec["same_model_text"] if in_session else spec.get("text", "")
     agent = fields["agent"] if fields["agent"] and "{agent}" in template else None
-    return template.format(**fields), effort, model, agent
+    return template.format(**fields), effort, model, agent, in_session
 
 
 def _tier_spec(d, targets):
@@ -961,30 +989,36 @@ def _tier_effort(d, spec, mdef):
     return effort
 
 
-def machine_route(targets, models, provider, model, effort):
+def machine_route(targets, models, provider, model, effort, session_model=None):
     """(model, effort) for machine readers (the header fields, `route --json`, the MCP Decision). A tier that names
-    a model keeps it; a tier that answers in-session names none, so targets.json `machine_default_model` stands in
-    (Claude: sonnet) with the effort clamped to its levels. The instruction text is never changed by this."""
+    a model keeps it; a tier that answers in-session names none, so the model the session runs stands in when it is
+    known (`session_model`; Claude: its family), else targets.json `machine_default_model` (Claude: sonnet), with
+    the effort clamped to its levels. The instruction text is never changed by this."""
     if model:
         return model, effort
-    default = targets.get("machine_default_model")
-    if not default:
-        return None, effort
-    default = available_model(provider, default, models)
-    mdef = (models if models is not None else models_for(provider)).get(default)
+    pool = models if models is not None else models_for(provider)
+    current = claude_family(session_model) if base_provider(provider) == "claude" else session_model
+    if current and current in pool:
+        chosen = current
+    else:
+        chosen = targets.get("machine_default_model")
+        if not chosen:
+            return None, effort
+        chosen = available_model(provider, chosen, models)
+    mdef = pool.get(chosen)
     if mdef is not None and effort and mdef["levels"]:
         effort = clamp_effort(effort, mdef["levels"])
-    return default, effort
+    return chosen, effort
 
 
 def render(d, destructive_hit, targets, provider="claude", lang_code="hu", models=None, session_model=None):
-    text, effort, model, agent = resolve_tier(d, targets, models, session_model, provider)
+    text, effort, model, agent, in_session = _resolve_tier(d, targets, models, session_model, provider)
     d["effort"] = effort
-    if model:
+    if model and not in_session:  # in-session on the right model: nothing is delegated
         d["target_model"] = model
     if agent:
         d["target_agent"] = agent
-    route_model, route_effort = machine_route(targets, models, provider, model, effort)
+    route_model, route_effort = machine_route(targets, models, provider, model, effort, session_model)
     d["route_model"], d["route_effort"] = route_model, route_effort
     machine = "".join(f" {k}={v}" for k, v in (("model", route_model), ("effort", route_effort)) if v)
     parts = [f"[router] backend={d.get('backend', 'override')} task={d['task']} difficulty={d['level']} "

@@ -6,7 +6,7 @@ turn and carries no prompt text. So the latest user input is read back from the 
 context is injected only once per user turn.
 
     python -m trirouter.hooks claude|codex UserPromptSubmit|Stop [--cloud-only]
-    python -m trirouter.hooks claude StopFailure|SessionEnd|SubagentStart|SessionStart
+    python -m trirouter.hooks claude StopFailure|SessionEnd|SubagentStart|SessionStart|PostModelSwitch|PreToolUse
     python -m trirouter.hooks antigravity  PreInvocation|Stop
 
 The handlers return their output (the JSON the host reads from stdout, or ""); main() prints it. The
@@ -20,10 +20,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import core, queue_state
+from . import core, platforms as P, queue_state
 
 LOG_FILE = core.STATE_DIR / "logs" / "routing.jsonl"
 SUBAGENT_LOG = core.STATE_DIR / "logs" / "subagents.jsonl"
+GUARD_LOG = core.STATE_DIR / "logs" / "guard.jsonl"
+CLAUDE_SETTINGS = P.PATHS["claude_settings"]  # only read: the fallback for the session's model
 SEEN_FILE = core.STATE_DIR / "state" / "antigravity_seen.json"
 SKIP_TAGS = ("#norouter", "#privat")
 # Harness-injected pseudo-prompts (background task results, reminders, subagent hand-backs) are not
@@ -41,12 +43,11 @@ def redact(text):
 
 
 def log(entry, path=None):
-    path = path or LOG_FILE
+    """One JSON line, appended under an OS file lock: hooks running in parallel (several subagents starting at once)
+    never tear a line. Never raises."""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
+        P.append_line(path or LOG_FILE, json.dumps(entry, ensure_ascii=False))
+    except (TypeError, ValueError):  # an entry that is not JSON-serializable
         pass
 
 
@@ -220,6 +221,8 @@ def session_start_output(provider, raw):
     if provider == "claude":
         start_daemon()
     start_model_discovery()
+    if provider == "claude":
+        record_session_model(_json_object(raw), "model")
     out = ""
     note = model_note()
     if note:
@@ -291,13 +294,19 @@ def route_and_log(prompt, provider, payload, cwd, queue_text):
              "sha": _short_hash(prompt), "session": _short_hash(session_id), "prompt_id": (payload or {}).get("prompt_id"),
              "prompt": redact(prompt if os.environ.get("ROUTER_LOG_PROMPTS") == "1" else prompt[:200])}
     try:
-        # Codex reports the session's model, so a tier can stay in-session
+        # Codex reports the session's model, Claude's is recorded per session: a tier on that model stays in-session
         session_model = payload.get("model") if provider == "codex" and isinstance(payload.get("model"), str) else None
+        if provider == "claude":
+            session_model = claude_session_model(payload)
+            if session_model:
+                entry["session_model"] = session_model
         previous = queue_state.recall(core.STATE_DIR, provider, session_id)
         d, text, _, error = core.route(prompt, provider, session_model=session_model, previous=previous)
         if error:
             entry["error"] = error
         queue_state.remember(core.STATE_DIR, provider, session_id, d)
+        if provider == "claude":
+            remember_agent_budget(payload, d)
     except Exception as exc:  # e.g. a malformed routes.json: never block
         entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
         entry["latency_ms"] = int((time.perf_counter() - t0) * 1000)
@@ -324,7 +333,166 @@ def handle(provider, hook_event_name, raw):
         return subagent_start_output(provider, raw)
     if hook_event_name == "SessionStart":
         return session_start_output(provider, raw)
+    if hook_event_name == "PostModelSwitch":
+        return model_switch_output(provider, raw)
+    if hook_event_name == "PreToolUse":
+        return pre_tool_use_output(provider, raw)
     return prompt_output(provider, hook_event_name, raw)
+
+
+# ---- Claude: the session's model and the subagent guard ---------------------------------------------------------
+
+AGENT_TOOLS = ("Agent", "Task")  # the subagent tool's current and former name
+TRANSCRIPT_TAIL_BYTES = 256 * 1024
+
+
+def record_session_model(payload, key):
+    """SessionStart (`model`, not always sent) and PostModelSwitch (`to_model`): records the session's Claude family.
+    A switch to something that names no family forgets the record, so the fallbacks apply. Never raises."""
+    try:
+        if key in payload:
+            queue_state.remember_model(core.STATE_DIR, "claude", _session_id(payload), core.claude_family(payload[key]))
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+
+
+def _transcript_family(payload):
+    """The family of the newest main-session assistant message in the transcript tail, or None."""
+    path = (payload or {}).get("transcript_path")
+    if not path:
+        return None
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - TRANSCRIPT_TAIL_BYTES))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+    for line in reversed(lines):
+        if '"assistant"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:  # the first line of the tail is usually cut
+            continue
+        message = entry.get("message") if isinstance(entry, dict) else None
+        if entry.get("type") == "assistant" and not entry.get("isSidechain") and isinstance(message, dict):
+            family = core.claude_family(message.get("model"))  # "<synthetic>" (an error turn) names none
+            if family:
+                return family
+    return None
+
+
+def _settings_family():
+    try:
+        return core.claude_family(json.loads(CLAUDE_SETTINGS.read_text(encoding="utf-8-sig")).get("model"))
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def claude_session_model(payload):
+    """The Claude family this session runs: recorded at SessionStart / PostModelSwitch, else the newest assistant
+    message of the transcript, else the `model` of ~/.claude/settings.json; None when unknown. Never raises."""
+    for source in (lambda: queue_state.session_model(core.STATE_DIR, "claude", _session_id(payload)),
+                   lambda: _transcript_family(payload), _settings_family):
+        try:
+            family = source()
+        except Exception:  # noqa: BLE001 - an unreadable source falls through to the next one
+            family = None
+        if family:
+            return family
+    return None
+
+
+def model_switch_output(provider, raw):
+    """PostModelSwitch (`from_model` / `to_model`): the session now runs another family."""
+    if provider == "claude":
+        record_session_model(_json_object(raw), "to_model")
+    return ""
+
+
+def on_model_switch(provider, raw):
+    _print(model_switch_output(provider, raw))
+
+
+def agent_budget(d):
+    """How many subagents a decision allows: its extra parallel agents plus the worker it delegates to."""
+    return int(d.get("extra_agents") or 0) + (1 if d.get("target_agent") else 0)
+
+
+def remember_agent_budget(payload, d):
+    """Stores the decision's subagent budget and worker family under the prompt_id for the PreToolUse guard."""
+    try:
+        prompt_id = (payload or {}).get("prompt_id")
+        if prompt_id:
+            queue_state.remember_prompt(core.STATE_DIR, prompt_id, {
+                "budget": agent_budget(d), "agent": d.get("target_agent"),
+                "family": core.claude_family(d.get("target_model")) if d.get("target_agent") else None})
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+
+
+def guard_enabled():
+    """config.json {"guard": {"agents": false}} turns the subagent guard off; it is on by default."""
+    guard = core.user_config().get("guard")
+    return not (isinstance(guard, dict) and guard.get("agents") is False)
+
+
+def _count_agent_call(entry):
+    """One Agent call against the prompt's budget. Over the budget the first time: 'deny' (not counted, it starts
+    nothing); every later call passes, so a retry the user asked for goes through."""
+    calls = int(entry.get("calls") or 0) + 1
+    if calls > int(entry.get("budget") or 0) and not entry.get("warned"):
+        entry["warned"] = True
+        return "deny"
+    entry["calls"] = calls
+    return "allow"
+
+
+def deny_text(budget):
+    return (f"[router] The router allowed {budget} subagent(s) for this request, and this call would exceed that. "
+            "Do the work inline in this session or within that budget. If the user explicitly asked for (more) "
+            "agents, simply call the tool again: the retry is allowed.")
+
+
+def agent_guard(payload):
+    """PreToolUse for the Agent tool (Claude) -> the hook output (a dict to print as JSON), or None to let the call
+    through unchanged. Over the prompt's subagent budget the first call is denied with a reason; a general-purpose
+    call that names no model gets the routed worker's family (updatedInput replaces the whole input, so every
+    original field is copied). Calls inside a subagent, unknown prompts and a disabled guard pass. Never raises."""
+    try:
+        if not isinstance(payload, dict) or payload.get("agent_id") or payload.get("tool_name") not in AGENT_TOOLS:
+            return None
+        prompt_id = payload.get("prompt_id")
+        if not prompt_id or not guard_enabled():
+            return None
+        verdict, entry = queue_state.update_prompt(core.STATE_DIR, prompt_id, _count_agent_call)
+        if verdict is None:
+            return None  # no router decision for this prompt (not routed, #norouter, expired)
+        tool_input = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
+        agent_type = tool_input.get("subagent_type") or "general-purpose"
+        record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": _short_hash(_session_id(payload)),
+                  "prompt_id": prompt_id, "agent_type": agent_type, "budget": entry.get("budget"),
+                  "calls": entry.get("calls")}
+        if verdict == "deny":
+            log({**record, "action": "deny"}, GUARD_LOG)
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": deny_text(entry.get("budget", 0))}}
+        family = entry.get("family")
+        if family and agent_type == "general-purpose" and not tool_input.get("model"):
+            log({**record, "action": "model", "model": family}, GUARD_LOG)
+            # no permissionDecision: the normal permission rules still apply to the call (verified live: the
+            # subagent runs on the model in updatedInput without an "allow")
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "model": family}}}
+    except Exception:  # noqa: BLE001 - a hook must never crash the host tool
+        pass
+    return None
+
+
+def pre_tool_use_output(provider, raw):
+    out = agent_guard(_json_object(raw)) if provider == "claude" else None
+    return json.dumps(out) if out else ""
+
+
+def on_pre_tool_use(provider, raw):
+    _print(pre_tool_use_output(provider, raw))
 
 
 def main(argv=None):

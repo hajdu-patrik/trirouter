@@ -98,11 +98,19 @@ def test_level_zero_never_gets_opus_or_fable_through_decide(monkeypatch):
 
 
 def test_short_plain_requests_never_run_above_haiku(monkeypatch):
-    fake_jev(monkeypatch, task="general", level=0, model="fable")
+    fake_jev(monkeypatch, task="general", level=2, model="fable")
     d, text, _, _ = core.route("Reply with the single word ok", "claude", backend="jev")
     assert d["primary"] == "fast" and d.get("target_model") == "haiku", d
     d, _, _, _ = core.route("Mi a főváros Franciaországban?", "claude", backend="jev")
     assert d["primary"] == "fast" and d.get("target_model") == "haiku", d
+
+
+def test_trivial_short_requests_stay_inline(monkeypatch):
+    # a subagent for trivial work costs more (an extra main-model turn, a fresh context) than it saves
+    fake_jev(monkeypatch, task="general", level=0, model="fable")
+    d, text, _, _ = core.route("Reply with the single word ok", "claude", backend="jev")
+    assert d["primary"] == "main" and "target_model" not in d and "target_agent" not in d, d
+    assert "do not spawn a subagent" in text
 
 
 def test_short_but_code_is_not_inline_by_the_short_rule():
@@ -190,13 +198,11 @@ def test_confident_local_classifier_skips_the_network(monkeypatch):
 
 
 def test_tasks_whose_tier_depends_on_trivial_vs_moderate_always_ask_jev(monkeypatch):
-    # general: fast vs main, math: main vs deep. The local level guess is a coin flip there.
+    # math: main vs deep. The local level guess is a coin flip there.
     auto_jev(monkeypatch)
     calls = fake_jev(monkeypatch)
-    for prompt in ("Write a short note", "Compute the derivative of x squared"):
-        d, _, _, _ = core.route(prompt, "claude")
-        assert "fast_path" not in d, prompt
-    assert len(calls) == 2
+    d, _, _, _ = core.route("Compute the derivative of x squared", "claude")
+    assert "fast_path" not in d and len(calls) == 1
 
 
 def test_same_tier_at_low_levels_follows_the_route_table():

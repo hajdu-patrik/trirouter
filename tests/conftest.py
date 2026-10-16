@@ -38,3 +38,7 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     # the hooks start the daily model check in a detached process: never for real in a test
     from trirouter import platforms
     monkeypatch.setattr(platforms, "spawn_detached", lambda *a, **k: False)
+    # the hooks read ~/.claude/settings.json for the session's model and log the agent guard's actions
+    from trirouter import hooks
+    monkeypatch.setattr(hooks, "CLAUDE_SETTINGS", base / "claude-settings.json")
+    monkeypatch.setattr(hooks, "GUARD_LOG", base / "guard.jsonl")

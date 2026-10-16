@@ -43,7 +43,7 @@ def test_every_command_subcommand_flag_and_value_is_in_the_script(shell):
 
 
 def test_value_flags_end_in_equals_and_values_follow_the_hint():
-    assert C.flags_of("models") == ["--discover", "--auto=", "--dry-run", "--help"]
+    assert C.flags_of("models") == ["--discover", "--auto=", "--main=", "--subagent-model=", "--dry-run", "--help"]
     auto = next(f for f in manual.COMMANDS["models"].flags if f.long == "--auto")
     assert C.values_of(auto) == ["on", "off"]
     provider = next(f for f in manual.COMMANDS["route"].flags if f.long == "--provider")
@@ -244,7 +244,7 @@ t trirouter --v
     lines = out.stdout.splitlines()
     assert lines[0] == "complete -o default -F _trirouter_completion trirouter"
     assert lines[1] == "models"
-    assert lines[2] == "--discover --auto= --dry-run --help"
+    assert lines[2] == "--discover --auto= --main= --subagent-model= --dry-run --help"
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
     assert lines[6] == "setup keys models skills quarantine remote daemon learn doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
@@ -273,7 +273,7 @@ foreach ($line in @('trirouter mo', 'trirouter models --', 'trirouter models --a
     out = subprocess.run([real_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(test), str(script)],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0 and not out.stderr.strip(), out.stderr
-    assert out.stdout.splitlines() == ["models", "--discover --auto= --dry-run --help", "--auto=on --auto=off",
+    assert out.stdout.splitlines() == ["models", "--discover --auto= --main= --subagent-model= --dry-run --help", "--auto=on --auto=off",
                                        "list restore purge", "--version -V --help -h"]
 
 

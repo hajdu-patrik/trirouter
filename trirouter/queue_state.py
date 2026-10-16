@@ -5,6 +5,10 @@ The tools queue messages typed while the agent is busy, but never tell the model
 unfinished. This module tracks work in flight and adds QUEUE: / CONCURRENCY: context. Entries expire
 after a TTL, or when the session's transcript goes quiet: Claude runs no Stop hook on Esc, and a
 cancelled or crashed turn must never make the next prompt resume old work.
+
+It also keeps the other small per-session hook state, each file bounded, expiring and replaced atomically: the
+last decision (a go-ahead continues it), the model a Claude session runs, and each prompt's subagent budget
+for the PreToolUse agent guard.
 """
 import json
 import os
@@ -153,6 +157,83 @@ def forget(state_dir, provider, session_id):
         data = _load(path)
         if data.pop(f"{provider}:{session_id}", None) is not None:
             _save(path, data)
+
+
+# ---- the model a session runs (Claude: SessionStart / PostModelSwitch) --------------------------------------
+
+MODEL_TTL_S = 7 * 24 * 3600  # a session can stay open for days; a switch re-records it
+MODEL_MAX = 200
+
+
+def _models_path(state_dir):
+    return Path(state_dir) / "state" / "session_models.json"
+
+
+def remember_model(state_dir, provider, session_id, model):
+    """Records the model (Claude: the family) a session runs; None forgets it (a switch to an unknown model).
+    Bounded to the MODEL_MAX newest sessions."""
+    if not session_id:
+        return
+    path = _models_path(state_dir)
+    now = time.time()
+    key = f"{provider}:{session_id}"
+    with _Lock(path.with_suffix(".lock")):
+        data = {k: v for k, v in _load(path).items() if isinstance(v, dict) and now - v.get("ts", 0) < MODEL_TTL_S}
+        if model:
+            data[key] = {"ts": now, "model": model}
+        elif data.pop(key, None) is None:
+            return
+        _save(path, dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-MODEL_MAX:]))
+
+
+def session_model(state_dir, provider, session_id):
+    """The recorded model of the session, or None."""
+    if not session_id:
+        return None
+    entry = _load(_models_path(state_dir)).get(f"{provider}:{session_id}")
+    if not isinstance(entry, dict) or time.time() - entry.get("ts", 0) >= MODEL_TTL_S:
+        return None
+    return entry.get("model") or None
+
+
+# ---- per-prompt subagent budget (Claude PreToolUse guard) ---------------------------------------------------
+
+PROMPT_TTL_S = 12 * 3600
+PROMPT_MAX = 300
+
+
+def _prompts_path(state_dir):
+    return Path(state_dir) / "state" / "agent_budget.json"
+
+
+def remember_prompt(state_dir, prompt_id, info):
+    """Stores `info` (the routed decision's budget and target) for a prompt_id, with a fresh call counter. Bounded to
+    the PROMPT_MAX newest prompts; entries expire after PROMPT_TTL_S."""
+    if not prompt_id:
+        return
+    path = _prompts_path(state_dir)
+    now = time.time()
+    with _Lock(path.with_suffix(".lock")):
+        data = {k: v for k, v in _load(path).items() if isinstance(v, dict) and now - v.get("ts", 0) < PROMPT_TTL_S}
+        data[prompt_id] = {**info, "ts": now, "calls": 0, "warned": False}
+        _save(path, dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-PROMPT_MAX:]))
+
+
+def update_prompt(state_dir, prompt_id, change):
+    """Runs change(entry) on the prompt's stored entry under the lock and saves what it changed in place.
+    -> (change's result, a copy of the entry), or (None, None) when the prompt is unknown or expired. Two hooks
+    racing past the lock's wait both proceed: a missed count is acceptable, a blocked tool call is not."""
+    if not prompt_id:
+        return None, None
+    path = _prompts_path(state_dir)
+    with _Lock(path.with_suffix(".lock")):
+        data = _load(path)
+        entry = data.get(prompt_id)
+        if not isinstance(entry, dict) or time.time() - entry.get("ts", 0) >= PROMPT_TTL_S:
+            return None, None
+        result = change(entry)
+        _save(path, data)
+        return result, dict(entry)
 
 
 def render(info):

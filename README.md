@@ -71,9 +71,12 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 | `trirouter setup [--dry-run]` | the interactive setup (what `python install.py` runs) |
 | `trirouter keys [--apply]` | protect the saved API key (Windows DPAPI; owner-only file elsewhere), keep no plaintext backup; preview without `--apply` |
 | `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
+| `trirouter models --main=<family> [--subagent-model=<family>]` | Claude Code's default session model and the model of subagents that name none ([cost](#-cost-and-speed)) |
+| `trirouter daemon [status\|enable\|disable\|start\|stop]` | Claude Code hooks over HTTP to a resident router: no Python start per prompt ([speed](#-cost-and-speed)) |
+| `trirouter learn [--dry-run]` | train the local routing model on JEV's past decisions; it skips JEV when it is sure |
 | `trirouter remote --name "My PC" [--workdir <folder>]` | remote access from other devices ([guide](docs/remote-access.md)) |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
-| `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N]` | scan + re-link skills, regenerate workers, rebuild the catalog |
+| `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N] [--catalog-only=<pattern>,...]` | scan + re-link skills, regenerate workers, rebuild the catalog |
 | `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
 | `trirouter doctor` | health report (also: which tools are installed, their version, logged in or not) |
 | `trirouter route [--provider claude] [--json] <text>` | routing decision for one prompt or sub-task, side-effect free ([details](#routing-decision-on-demand)) |
@@ -159,8 +162,8 @@ The `ultra` effort level is never offered, stripped from any answer and has no w
 
 No Claude family is banned. The catalog lists them cheapest first (haiku, sonnet, opus, fable) with a
 cost-aware description, so JEV's own model pick weighs capability against cost across all four. Without a
-model pick the routing table decides: trivial everyday requests (the `fast` tier, difficulty 0) run on
-`haiku`, the cheapest family; everything else keeps its tier (`main`, `sonnet`, `test`, `deep` = opus).
+model pick the routing table decides: trivial everyday requests are answered in-session (delegating a one-liner
+to Haiku costs more than it saves); everything else keeps its tier (`main`, `sonnet`, `test`, `deep` = opus).
 `#haiku` forces the `fast` tier and `#fable` the `fable` tier (same efforts as before: low to high).
 
 **New and retired models are picked up by themselves.** Once a day (at most every 24 hours, started in the
@@ -210,6 +213,26 @@ so a crashed session never blocks anything.
 
 `doctor` also reports **delegation compliance**: the `SubagentStart` hook records which worker the
 model really started, so you can see how often it followed the router's advice.
+
+### 💸 Cost and speed
+
+Measured on real traffic, most prompts (73%) are answered in the session itself, so the session's own model is the
+biggest cost lever, and the hook's own start-up was most of its latency. trirouter therefore offers:
+
+* **A cheap session that escalates.** `trirouter models --main=sonnet --subagent-model=sonnet` makes new Claude Code
+  sessions start on Sonnet (and subagents that name no model, such as `general-purpose`); the router hands hard work
+  to Opus / Fable workers. The router learns the session's real model (`SessionStart`, `PostModelSwitch`, the
+  transcript), never delegates to the model the session already runs, and reports it in `model=`.
+* **A subagent guard.** A `PreToolUse` hook on the Agent tool holds each prompt to its routed subagent budget (the
+  first call over it is denied with a reason; a retry passes, so an explicit request still works) and gives a
+  `general-purpose` call without a model the routed worker's family.
+* **The hook daemon.** `trirouter daemon enable` turns Claude Code's hooks into HTTP hooks to a local router process
+  (127.0.0.1, token-protected, hot-reloading) that also keeps its JEV connection open: tens of milliseconds per hook
+  instead of a Python start. `SessionStart` stays a command hook and starts the daemon.
+* **Catalog-only skills.** `trirouter skills --apply --catalog-only=gke-*,google-*` keeps rarely used skills out of
+  every session's skill list (their descriptions are context on every request) while the router still finds them.
+* **A distilled classifier.** `trirouter learn` trains a local model on JEV's past decisions; when cross-validation
+  shows it routes like JEV, confident prompts skip the network call. It is retrained daily as decisions accumulate.
 
 ### Shared skills
 

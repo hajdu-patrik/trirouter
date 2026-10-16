@@ -8,6 +8,40 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- **Hook daemon** (`trirouter daemon status|enable|disable|start|stop`, new module `trirouter/daemon.py`). With
+  `daemon enable` (config.json `hooks.transport = "http"`) Claude Code's hooks become `"type": "http"` hooks to a
+  local server on 127.0.0.1 (port `daemon.port`, default 47621, random token in the request header) that keeps the
+  router loaded: a hook takes tens of milliseconds instead of a Python start per prompt (measured p50 51-63 ms vs
+  140-294 ms on Windows). `SessionStart` stays a command hook and starts the daemon when it is down; the daemon
+  hot-reloads source and config changes and exits after 7 idle days. Inside the daemon the JEV client keeps its
+  HTTPS connection open (`core.KEEPALIVE`; urllib with a system proxy). Default transport stays `command`;
+  Codex and Antigravity keep command hooks. `hooks.py` handlers now return their output (`hooks.handle`).
+- **Subagent guard** (Claude `PreToolUse` hook, matcher `^(Agent|Task)$`). Each routed prompt gets a subagent
+  budget (its extra parallel agents + the worker it delegates to). The first Agent call over the budget is denied
+  with a reason (a retry passes, so an explicit user request still works), and a `general-purpose` call that names
+  no model is given the routed worker's family through `updatedInput` (verified live: the subagent runs on that
+  model). Actions go to `~/.trirouter/logs/guard.jsonl`; `doctor` summarises them. Off with config.json
+  `{"guard": {"agents": false}}`. In the logs, only 11 of 149 advised delegations had started the right family and
+  one inline-routed prompt had started 38 subagents.
+- **The session's real model** (Claude): recorded from `SessionStart` (`model`, when sent) and the new
+  `PostModelSwitch` hook, else read from the newest assistant message of the transcript, else from settings.json.
+  A tier that would delegate to the model the session already runs answers in-session (`same_model_text`), and the
+  header's `model=` reports the session's family instead of always `sonnet`. Logged as `session_model`.
+- `trirouter models --main=FAMILY|off --subagent-model=FAMILY|off`: Claude Code's default session model
+  (settings.json `model`) and the model of subagents that name none (`env.CLAUDE_CODE_SUBAGENT_MODEL`); remembered
+  as `claude.main_model` / `claude.subagent_model` and re-applied by setup. A Sonnet session with escalation to
+  Opus/Fable workers replaces the Opus session that answered 73% of the prompts in-session.
+- **Catalog-only skills**: `trirouter skills --catalog-only=PATTERN,...` (fnmatch on the folder name, remembered as
+  `skills.catalog_only`, `none` clears it). Matching hub skills stay in `~/.skills` and the catalog but are not
+  linked into Claude Code or Codex, so their descriptions stop loading into every session; the router names them
+  with their path ("read and follow ...SKILL.md") and MCP `get_skill` serves them. Antigravity reads the whole hub
+  and still lists them.
+- **Distilled routing model** (`trirouter learn [--dry-run]`, new module `trirouter/distill.py`): a standard-library
+  Naive Bayes trained on JEV's logged decisions plus the eval prompts, calibrated by 5-fold cross-validation on the
+  routed tier. When a threshold reaches 92% tier agreement on >= 10% of prompts, a confident prediction skips the
+  JEV call (`fast_path = "distilled"`); otherwise it is saved disabled. Retrained in the daily background check
+  after 30 new JEV decisions. `ROUTER_DISTILLED=0` switches it off.
+- `platforms.append_line`: every jsonl log line is appended under an OS file lock (concurrent hooks had torn lines).
 - `trirouter keys` (preview; `--apply` writes) and protected key storage: the TypeSafe token / OpenRouter key in `~/.trirouter/config.json` is encrypted with Windows DPAPI (`{"dpapi": ...}`, current user and machine only) instead of plain text; macOS and Linux keep the string but enforce mode 0600 on `config.json` and its backups. Plaintext values stay readable; a blob that cannot be decrypted (copied to another account) counts as no key, never crashes a hook, and `doctor` reports it. The migration writes `config.json.bak` without the key and removes plaintext keys from older backups; `doctor` warns about backups that still contain one. New module `trirouter/secret.py`.
 - The MCP server hot-reloads: before each message it scans the mtimes of `trirouter/*.py` and
   `trirouter/config/*.json` and, after a change, re-imports the tool module with its dependencies, so code and
@@ -22,6 +56,9 @@ dates are ISO 8601.
   dropped from ~12 ms to ~2.5 ms.
 
 ### Changed
+- Claude: a trivial `general` request (difficulty 0) is answered in-session instead of being delegated to a Haiku
+  worker: for a one-liner the extra main-model turn, the fresh subagent context and reading the result back cost
+  more than Haiku saves, and the logged advice was almost never followed (`#haiku` still forces it).
 - Cost-aware routing (Claude). The in-session `main` tier no longer delegates: `main` left `model_pick_tiers`, so
   JEV's model pick cannot turn "answer inline" into a subagent (119 of 154 logged `main` decisions had been
   delegated, 71 of them level-0 prompts to `fable-worker-low`). `routes.json` has a new `cost_cap` table (max
