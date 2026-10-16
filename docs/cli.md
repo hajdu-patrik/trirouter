@@ -112,6 +112,7 @@ An install from before the rename (state folder ~/.jev-router) is migrated first
 | `--scan-llm` | `on|off` | off | yes (skillscan.llm) | Add SkillSpector's LLM analysis to the static scan. Skill content then leaves the machine through SkillSpector's own provider settings. |
 | `--accept-flagged` | - | off | no (this run only) | Keep every skill now rated DO_NOT_INSTALL without asking, like answering "none" to the quarantine question. Bound to the skill's current content: it is asked about again when it changes. |
 | `--quarantine-days` | `N` | 3 | yes (skillscan.quarantine_days) | Days a quarantined skill is kept before it is deleted for good. 0 = never delete. |
+| `--catalog-only` | `PATTERN,...` | none | yes (skills.catalog_only) | Hub skills whose folder name matches one of these patterns (fnmatch, e.g. gke-*,google-*) stay in ~/.skills and in the catalog but are not linked into Claude Code or Codex, so their descriptions do not load into every session; the router still names them with their path and the MCP get_skill tool serves them. Replaces the saved list; `none` clears it. Antigravity reads the whole hub and keeps seeing them. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
 
 **Changes:** Changes files; preview with --dry-run.
@@ -202,7 +203,7 @@ trirouter models --auto=off    # no automatic daily check
 Scan and re-link skills, regenerate worker agents, rebuild the catalog.
 
 ```
-trirouter skills [-a] [-y] [--allow-skill=NAME,...] [--scan-llm=on|off] [--accept-flagged] [--quarantine-days=N]
+trirouter skills [-a] [-y] [--allow-skill=NAME,...] [--scan-llm=on|off] [--accept-flagged] [--quarantine-days=N] [--catalog-only=PATTERN,...]
 ```
 
 Scans every third-party skill in ~/.skills with NVIDIA SkillSpector (when installed), links the skills into Claude Code and Codex, registers the folder with Antigravity, regenerates the worker agents from config/models.json + config/targets.json and rebuilds the skill catalog. Expired quarantine entries are purged.
@@ -218,6 +219,7 @@ A skill rated DO_NOT_INSTALL is not decided one by one: after all scans you are 
 | `--scan-llm` | `on|off` | off | yes (skillscan.llm) | Add SkillSpector's LLM analysis to the static scan. Skill content then leaves the machine through SkillSpector's own provider settings. |
 | `--accept-flagged` | - | off | no (this run only) | Keep every skill now rated DO_NOT_INSTALL without asking, like answering "none" to the quarantine question. Bound to the skill's current content: it is asked about again when it changes. |
 | `--quarantine-days` | `N` | 3 | yes (skillscan.quarantine_days) | Days a quarantined skill is kept before it is deleted for good. 0 = never delete. |
+| `--catalog-only` | `PATTERN,...` | none | yes (skills.catalog_only) | Hub skills whose folder name matches one of these patterns (fnmatch, e.g. gke-*,google-*) stay in ~/.skills and in the catalog but are not linked into Claude Code or Codex, so their descriptions do not load into every session; the router still names them with their path and the MCP get_skill tool serves them. Replaces the saved list; `none` clears it. Antigravity reads the whole hub and keeps seeing them. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
 
 **Changes:** Preview by default; --apply writes.
@@ -230,6 +232,7 @@ trirouter skills --apply    # scan, ask the quarantine question once, link
 trirouter skills --apply --accept-flagged    # keep every flagged skill after a review
 trirouter skills --apply --allow-skill=docx,xlsx    # trust two skills for good
 trirouter skills --apply --scan-llm=on    # add the LLM analysis to the scan
+trirouter skills --apply --catalog-only=gke-*,google-*    # keep rarely used skills out of every session
 ```
 
 **Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.

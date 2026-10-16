@@ -61,6 +61,12 @@ SCAN_LLM = Flag("--scan-llm", value="on|off", default="off", remembered="yes (sk
 ACCEPT = Flag("--accept-flagged", remembered="no (this run only)",
               doc="Keep every skill now rated DO_NOT_INSTALL without asking, like answering \"none\" to the "
                   "quarantine question. Bound to the skill's current content: it is asked about again when it changes.")
+CATALOG_ONLY = Flag("--catalog-only", value="PATTERN,...", default="none", remembered="yes (skills.catalog_only)",
+                    doc="Hub skills whose folder name matches one of these patterns (fnmatch, e.g. gke-*,google-*) stay "
+                        "in ~/.skills and in the catalog but are not linked into Claude Code or Codex, so their "
+                        "descriptions do not load into every session; the router still names them with their path "
+                        "and the MCP get_skill tool serves them. Replaces the saved list; `none` clears it. "
+                        "Antigravity reads the whole hub and keeps seeing them.")
 QDAYS = Flag("--quarantine-days", value="N", default="3", remembered="yes (skillscan.quarantine_days)", kind="int",
              doc="Days a quarantined skill is kept before it is deleted for good. 0 = never delete.")
 
@@ -108,7 +114,7 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
             Flag("--no-migrate", doc="Do not move the skills of other tools into ~/.skills."),
             Flag("--no-completion", doc="Do not install tab completion for `trirouter` into your shell profile "
                                         "(`uninstall` removes it again)."),
-            ALLOW, SCAN_LLM, ACCEPT, QDAYS),
+            ALLOW, SCAN_LLM, ACCEPT, QDAYS, CATALOG_ONLY),
      changes="Changes files; preview with --dry-run",
      examples=(("{prog} setup", "interactive setup (python install.py alone does the same)"),
                ("{prog} setup --dry-run", "show every change, write nothing"),
@@ -173,7 +179,7 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
 
 _add(key="skills", summary="Scan and re-link skills, regenerate worker agents, rebuild the catalog",
      synopsis=("{prog} skills [-a] [-y] [--allow-skill=NAME,...] [--scan-llm=on|off] [--accept-flagged] "
-               "[--quarantine-days=N]",),
+               "[--quarantine-days=N] [--catalog-only=PATTERN,...]",),
      description=(
          "Scans every third-party skill in ~/.skills with NVIDIA SkillSpector (when installed), links the skills into "
          "Claude Code and Codex, registers the folder with Antigravity, regenerates the worker agents from "
@@ -183,13 +189,14 @@ _add(key="skills", summary="Scan and re-link skills, regenerate worker agents, r
          "[a]ll / [n]one / [s]elect (default: none) -- which of them go to quarantine "
          "(~/.trirouter/quarantine, linked nowhere, deleted after 3 days). A skill you keep is remembered for its "
          "exact content. With --yes or without a terminal nothing is quarantined and only a warning is printed."),
-     flags=(APPLY, YES, DRY, ALLOW, SCAN_LLM, ACCEPT, QDAYS),
+     flags=(APPLY, YES, DRY, ALLOW, SCAN_LLM, ACCEPT, QDAYS, CATALOG_ONLY),
      changes="Preview by default; --apply writes",
      examples=(("{prog} skills", "preview what would be linked, quarantined or purged"),
                ("{prog} skills --apply", "scan, ask the quarantine question once, link"),
                ("{prog} skills --apply --accept-flagged", "keep every flagged skill after a review"),
                ("{prog} skills --apply --allow-skill=docx,xlsx", "trust two skills for good"),
-               ("{prog} skills --apply --scan-llm=on", "add the LLM analysis to the scan")),
+               ("{prog} skills --apply --scan-llm=on", "add the LLM analysis to the scan"),
+               ("{prog} skills --apply --catalog-only=gke-*,google-*", "keep rarely used skills out of every session")),
      see_also=("quarantine", "setup", "doctor"))
 
 _add(key="quarantine", summary="List, restore or purge skills the scan moved to quarantine",

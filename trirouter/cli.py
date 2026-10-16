@@ -225,10 +225,26 @@ def scan_settings(cfg, persist):
     if persist and sc != (cfg.get("skillscan") or {}):
         cfg["skillscan"] = sc
         save_config(cfg)
+    link_settings(cfg, persist)
     hub.SCAN = {"llm": bool(sc.get("llm")), "allow": tuple(sc.get("allow") or ()),
                 "accept_flagged": "--accept-flagged" in FLAGS,  # one-off, never saved
                 "quarantine_days": sc.get("quarantine_days", skillscan.DEFAULT_DAYS)}
     hub.CHOOSE = choose_quarantine
+
+
+def link_settings(cfg, persist):
+    """config.json skills.catalog_only plus --catalog-only (`none` clears it); saved only when applying."""
+    sk = dict(cfg.get("skills") or {})
+    value = FLAGS.get("--catalog-only")
+    if isinstance(value, str):
+        sk["catalog_only"] = [] if value.strip().lower() == "none" else hub.parse_catalog_only(value)
+        names = hub.catalog_only_matches(sk["catalog_only"])
+        say(f"  Catalog-only: {len(names)} hub skill(s) match {', '.join(sk['catalog_only']) or '(no pattern)'}"
+            + (" - not linked into Claude/Codex, served through the catalog" if names else ""))
+    if persist and sk != (cfg.get("skills") or {}):
+        cfg["skills"] = sk
+        save_config(cfg)
+    hub.LINK = {"catalog_only": tuple(hub.parse_catalog_only(sk.get("catalog_only") or []))}
 
 
 def choose_quarantine(items):
