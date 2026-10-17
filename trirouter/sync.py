@@ -80,9 +80,7 @@ def _completion(apply):
     shells = completion.installed()
     if not shells:
         return [("tab completion", False, f"not installed (`{P.command_hint('setup')}` installs it)")]
-    old = completion.stale()
-    if old:
-        completion.refresh(apply=apply, say=lambda _m: None)
+    old = completion.refresh(apply=apply, say=lambda _m: None)
     detail = ", ".join(shells)
     return [("tab completion", bool(old), (f"rewritten: {', '.join(old)}" if apply else f"out of date: {', '.join(old)}")
              if old else f"up to date ({detail})")]
@@ -128,13 +126,13 @@ def _agents(apply):
 def items(apply, user=True, repo=None):
     """Runs every item; [(label, stale, detail)]. A failing item is reported, never raised."""
     repo = is_checkout() if repo is None else repo
-    steps = ([_docs, _git_hook] if repo else []) + ([_completion, _agents] if user else [])
+    steps = ([("docs/cli.md", _docs), ("pre-commit hook", _git_hook)] if repo else []) +             ([("tab completion", _completion), ("worker agents", _agents)] if user else [])
     out = []
-    for step in steps:
+    for label, step in steps:
         try:
             out += step(apply)
         except Exception as exc:  # noqa: BLE001 - one broken item must not stop the others
-            out.append((step.__name__.strip("_"), True, f"failed: {type(exc).__name__}: {exc}"[:200]))
+            out.append((label, True, f"failed: {type(exc).__name__}: {exc}"[:200]))
     return out
 
 
@@ -165,17 +163,21 @@ def _docs_unstaged():
     return git("diff", "--quiet", "--", "docs/cli.md")[0] == 1
 
 
-def _stage_docs(say):
-    """docs/cli.md was regenerated: stage it, unless manual.py has unstaged edits (then the staged reference would
-    describe code that is not in this commit)."""
+def _stage_docs(say, files):
+    """docs/cli.md differs from the index after the sync: stage it when it describes exactly the manual.py of this
+    commit. With unstaged manual.py edits it describes code outside the commit (perhaps another session's work in
+    progress): then it stays unstaged, and only a commit that stages part of manual.py is stopped."""
     if not _docs_unstaged():
         return True
-    if git("diff", "--quiet", "--", "trirouter/manual.py")[0] == 1:
-        say("  [!!]  docs/cli.md was regenerated, but trirouter/manual.py has unstaged changes: stage both (or neither) "
-            "and commit again")
+    if git("diff", "--quiet", "--", "trirouter/manual.py")[0] != 1:
+        git("add", "--", "docs/cli.md")
+        say("  [DO]  git add docs/cli.md (regenerated from manual.py)")
+        return True
+    if "trirouter/manual.py" in files:
+        say("  [!!]  trirouter/manual.py is only partly staged, so docs/cli.md cannot match this commit: stage all of "
+            "manual.py (or none of it) and commit again")
         return False
-    git("add", "--", "docs/cli.md")
-    say("  [DO]  git add docs/cli.md (regenerated from manual.py)")
+    say("  [OK]  docs/cli.md left unstaged: it follows unstaged manual.py edits that are not part of this commit")
     return True
 
 
@@ -193,8 +195,8 @@ def pre_commit(say=print, run_tests=True):
     """0 when the commit may go ahead."""
     say("trirouter pre-commit: sync, tests, evaluation (skip once: git commit --no-verify)")
     show(items(apply=True), True, say)
-    ok = _stage_docs(say)
     files = staged()
+    ok = _stage_docs(say, files)
     if any(f.startswith(VISIBLE_PATHS) for f in files) and "CHANGELOG.md" not in files:
         say("  [!!]  user-visible files are staged but CHANGELOG.md is not: record the change under [Unreleased] "
             "(not blocking)")

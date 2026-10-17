@@ -16,7 +16,8 @@ dates are ISO 8601.
   daily background check refreshes completion and agents by itself, so a new command can be tab-completed without
   re-running setup.
 - **Git pre-commit hook** (`.githooks/pre-commit` → `trirouter sync --pre-commit`): sync, `git add docs/cli.md`
-  when it was regenerated (refused while manual.py has unstaged edits), a CHANGELOG reminder for staged
+  when it was regenerated (left unstaged while manual.py has unstaged edits, e.g. another session's, which do
+  not block; only a partly staged manual.py stops the commit), a CHANGELOG reminder for staged
   user-visible files, the tests and – when routing code is staged – the routing evaluation. A failure stops the
   commit; `git commit --no-verify` skips it once.
 - `trirouter remote --start-session=on|off` (remembered as `remote_start_session`, default off).

@@ -437,7 +437,7 @@ def test_setting_up_claude_remote_drops_the_old_task_first(monkeypatch, tmp_path
     fake = FakePs()
     monkeypatch.setattr(remote, "_ps", fake)
     monkeypatch.setattr(remote, "BIN", tmp_path)
-    remote._setup_claude("box", "claude.exe", tmp_path)
+    remote._setup_claude("box", "claude.exe", tmp_path, ["remote-control", "--name", "box"])
     old = next(i for i, s in enumerate(fake.scripts) if "JevRouter-ClaudeRemote" in s and "Unregister" in s)
     new = next(i for i, s in enumerate(fake.scripts) if "Register-ScheduledTask -TaskName \"Trirouter-ClaudeRemote\"" in s)
     assert old < new

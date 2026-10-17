@@ -293,8 +293,7 @@ WantedBy=default.target
 """
 
 
-def _setup_claude(name, claude, workdir, start_session=False):
-    args = claude_rc_args(claude, name, start_session)
+def _setup_claude(name, claude, workdir, args):
     if P.IS_WINDOWS:
         for old in LEGACY_TASKS:
             _ps(f'Unregister-ScheduledTask -TaskName "{old}" -Confirm:$false -ErrorAction SilentlyContinue')
@@ -335,9 +334,14 @@ def _remote_claude(name, workdir, start_session=None):
         return ("claude", False, f"{workdir} is not a trusted Claude Code folder: run `claude` there once, "
                                  f"accept the trust dialog, then re-run `{P.command_hint('remote')}`")
     start_session = start_session_saved() if start_session is None else start_session
-    ok, out = _setup_claude(name, claude, workdir, start_session)
-    what = ("one session is pre-created at logon" if start_session else
-            "only the connection opens at logon; start sessions from the Claude app or claude.ai/code")
+    args = claude_rc_args(claude, name, start_session)
+    ok, out = _setup_claude(name, claude, workdir, args)
+    if "--no-create-session-in-dir" in args:
+        what = "only the connection opens at logon; start sessions from the Claude app or claude.ai/code"
+    elif start_session:
+        what = "one session is pre-created at logon"
+    else:
+        what = "one session is pre-created at logon (this Claude Code is too old for connection-only: `claude update`)"
     return ("claude", ok, f"Remote Control server \"{name}\" in {workdir}: {what}" if ok else out[:200])
 
 

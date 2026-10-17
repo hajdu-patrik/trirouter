@@ -143,12 +143,32 @@ def test_pre_commit_stages_the_regenerated_reference(checkout, user_home):
     assert "git add docs/cli.md" in text and "CHANGELOG.md is not" in text
 
 
-def test_pre_commit_refuses_a_reference_for_unstaged_manual_edits(checkout, user_home):
+def test_unstaged_manual_edits_of_another_session_do_not_block(checkout, user_home):
+    """manual.py edited but not staged (perhaps by another session): the reference stays unstaged, the commit goes."""
     (checkout / "trirouter" / "manual.py").write_text("# changed, not staged\n", encoding="utf-8")
+    (checkout / "other.txt").write_text("x\n", encoding="utf-8")
+    git(checkout, "add", "other.txt")
+    said = []
+    assert sync.pre_commit(said.append, run_tests=False) == 0
+    assert "docs/cli.md left unstaged" in "\n".join(said)
+    assert git(checkout, "diff", "--cached", "--name-only").split() == ["other.txt"]
+
+
+def test_a_partly_staged_manual_stops_the_commit(checkout, user_home):
+    manual_py = checkout / "trirouter" / "manual.py"
+    manual_py.write_text("# staged part\n", encoding="utf-8")
+    git(checkout, "add", "trirouter/manual.py")
+    manual_py.write_text("# staged part\n# unstaged part\n", encoding="utf-8")
     said = []
     assert sync.pre_commit(said.append, run_tests=False) == 1
-    assert "unstaged changes" in "\n".join(said)
+    assert "only partly staged" in "\n".join(said)
     assert "docs/cli.md" not in git(checkout, "diff", "--cached", "--name-only")
+
+
+def test_a_failed_item_keeps_its_label(checkout, user_home, monkeypatch):
+    monkeypatch.setattr(sync, "_git_hook", lambda apply: 1 / 0)
+    lines = by_label(sync.items(apply=False))
+    assert lines["pre-commit hook"][0] and lines["pre-commit hook"][1].startswith("failed: ZeroDivisionError")
 
 
 def test_pre_commit_runs_the_tests_and_the_evaluation_only_for_routing_code(checkout, user_home, monkeypatch):

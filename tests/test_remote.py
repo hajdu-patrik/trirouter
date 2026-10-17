@@ -40,11 +40,11 @@ def test_windows_loop_runs_the_connection_only_server(help_text, monkeypatch, tm
     monkeypatch.setattr(P, "IS_WINDOWS", True)
     monkeypatch.setattr(remote, "BIN", tmp_path)
     monkeypatch.setattr(remote, "_ps", lambda script: (0, ""))
-    remote._setup_claude("My PC", r"C:\bin\claude.exe", tmp_path)
+    remote._setup_claude("My PC", r"C:\bin\claude.exe", tmp_path, remote.claude_rc_args("claude", "My PC"))
     script = (tmp_path / "claude-remote.cmd").read_bytes().decode("utf-8")
     assert ('"C:\\bin\\claude.exe" remote-control --no-create-session-in-dir '
             '--remote-control-session-name-prefix "My PC"\r\n') in script
-    remote._setup_claude("My PC", r"C:\bin\claude.exe", tmp_path, start_session=True)
+    remote._setup_claude("My PC", r"C:\bin\claude.exe", tmp_path, remote.claude_rc_args("claude", "My PC", True))
     assert '"C:\\bin\\claude.exe" remote-control --name "My PC"\r\n' in (tmp_path / "claude-remote.cmd").read_bytes().decode("utf-8")
 
 
@@ -64,7 +64,7 @@ def test_the_choice_is_saved_and_reused(help_text, monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(P, "find_exe", lambda exe: "claude" if exe == "claude" else None)
     monkeypatch.setattr(remote, "claude_trusts", lambda folder: True)
-    monkeypatch.setattr(remote, "_setup_claude", lambda name, claude, wd, start: seen.append(start) or (True, ""))
+    monkeypatch.setattr(remote, "_setup_claude", lambda name, claude, wd, args: seen.append("--name" in args) or (True, ""))
     monkeypatch.setattr(P, "IS_WINDOWS", False)
     (tool, ok, msg), = remote.setup("Box", ["claude"], workdir=tmp_path)
     assert ok and seen == [False] and "only the connection opens" in msg
@@ -72,6 +72,18 @@ def test_the_choice_is_saved_and_reused(help_text, monkeypatch, tmp_path):
     assert json.loads((tmp_path / "config.json").read_text())["remote_start_session"] is True
     (_, _, msg), = remote.setup("Box", ["claude"], workdir=tmp_path)  # None: the saved choice
     assert seen == [False, True, True] and "pre-created" in msg
+
+
+def test_an_old_claude_code_is_reported_honestly(help_text, monkeypatch, tmp_path):
+    """Too old for --no-create-session-in-dir: the classic command runs, and the report says so."""
+    help_text("OPTIONS\n  --name <name>\n")
+    monkeypatch.setattr(remote, "CONFIG", tmp_path / "config.json")
+    monkeypatch.setattr(P, "find_exe", lambda exe: "claude" if exe == "claude" else None)
+    monkeypatch.setattr(remote, "claude_trusts", lambda folder: True)
+    monkeypatch.setattr(remote, "_setup_claude", lambda name, claude, wd, args: (True, ""))
+    monkeypatch.setattr(P, "IS_WINDOWS", False)
+    (_, ok, msg), = remote.setup("Box", ["claude"], workdir=tmp_path)
+    assert ok and "too old" in msg and "claude update" in msg and "only the connection" not in msg
 
 
 def test_cli_flag_reaches_setup(monkeypatch):
