@@ -24,6 +24,7 @@ PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
 DOCS_CLI = REPO / "docs" / "cli.md"
 HOOKS_DIR = ".githooks"
+LOCAL_SETTINGS = ("pre-commit hook",)  # reported by --check and doctor, but never a reason for --check to fail
 # staged paths that change routing decisions: the pre-commit hook then also runs eval/eval_router.py
 ROUTING_PATHS = ("trirouter/core.py", "trirouter/lang.py", "trirouter/distill.py", "trirouter/config/", "eval/")
 # staged paths that are user-visible: the hook reminds to record them in CHANGELOG.md
@@ -224,7 +225,8 @@ def main(flags, say=print):
     lines = items(apply=not check)
     show(lines, not check, say)
     failed = any(d.startswith("failed") for _, _, d in lines)
-    if "--check" in flags and any(s for _, s, _ in lines):
+    # the hook folder is a setting of this clone, not a generated file: a fresh clone (CI) is not out of date
+    if "--check" in flags and any(s for label, s, _ in lines if label not in LOCAL_SETTINGS):
         say(f"\nOut of date: run `{P.command_hint('sync')}`")
         return 1
     return 1 if failed else 0

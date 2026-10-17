@@ -11,7 +11,8 @@ dates are ISO 8601.
 - **`trirouter sync`** (new module `trirouter/sync.py`): one step after every change or `git pull` that brings the
   generated files up to date – the installed tab-completion scripts (profiles untouched), the worker agents of the
   tools that already have generated ones and, in a checkout, docs/cli.md and `core.hooksPath = .githooks`.
-  `--check` changes nothing and exits 1 when something is stale (CI runs it); `doctor` shows the same check. The
+  `--check` changes nothing and exits 1 when a generated file is stale (CI runs it; an unset `core.hooksPath` is
+  only reported, since a fresh clone never has it); `doctor` shows the same check. The
   daily background check refreshes completion and agents by itself, so a new command can be tab-completed without
   re-running setup.
 - **Git pre-commit hook** (`.githooks/pre-commit` → `trirouter sync --pre-commit`): sync, `git add docs/cli.md`

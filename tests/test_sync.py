@@ -58,9 +58,15 @@ def test_check_reports_and_changes_nothing(checkout, user_home, capsys):
     out = capsys.readouterr().out
     assert "docs/cli.md: out of date" in out and "core.hooksPath not set" in out and "trirouter sync" in out
     assert (checkout / "docs" / "cli.md").read_text(encoding="utf-8") == "old\n"
-    assert git(checkout, "config", "--get", "core.hooksPath") if False else True
     assert subprocess.run(["git", "-C", str(checkout), "config", "--get", "core.hooksPath"]).returncode == 1
     assert sync.main({"--dry-run": True}) == 0  # a preview is not a failure
+
+
+def test_check_passes_on_a_fresh_clone_with_current_files(checkout, user_home, capsys):
+    """CI: docs/cli.md is current, the clone has no core.hooksPath - reported, but not a failure."""
+    (checkout / "docs" / "cli.md").write_bytes(manual.render_markdown().encode("utf-8"))
+    assert sync.main({"--check": True}) == 0
+    assert "core.hooksPath not set" in capsys.readouterr().out
 
 
 def test_sync_regenerates_docs_with_lf_and_sets_the_hook_folder(checkout, user_home):
