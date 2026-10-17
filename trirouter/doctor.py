@@ -263,6 +263,14 @@ def report_interpreters(claude_settings, cfg_toml):
              f"{exe} is gone (Python updated or removed?) - re-run: {P.command_hint('setup --yes')}")
 
 
+def report_sync():
+    """Generated files that no longer match the sources (read-only: sync.items with apply=False)."""
+    from . import sync
+    print("\n== Generated files (tab completion, agents" + (", docs/cli.md, pre-commit hook)" if sync.is_checkout() else ")"))
+    for label, stale, detail in sync.items(apply=False):
+        line(not stale, label, detail + (f" - run: {P.command_hint('sync')}" if stale else ""))
+
+
 def report_remote(cfg):
     if not cfg.get("remote_name"):
         return
@@ -362,6 +370,7 @@ def main():
     cfg_toml = report_mcp()
     report_skills(cfg_toml)
     report_command()
+    report_sync()
     cfg = report_config()
     report_interpreters(claude_settings, cfg_toml)
     report_remote(cfg)

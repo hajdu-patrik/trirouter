@@ -18,6 +18,7 @@
   * [quarantine restore](#quarantine-restore)
   * [quarantine purge](#quarantine-purge)
 * [remote](#remote) -- Set up or remove phone / other-device access
+* [sync](#sync) -- Bring everything generated from the sources up to date (after a pull or a change)
 * [daemon](#daemon) -- The local hook daemon: Claude Code hooks without a Python start per prompt
   * [daemon status](#daemon-status)
   * [daemon enable](#daemon-enable)
@@ -88,6 +89,7 @@ behave like `trirouter <command>`.
 | Turn the daily model check off | `trirouter models --auto=off` |
 | Print the version | `trirouter --version` |
 | Reach this computer from a phone | `trirouter remote --name "My PC"` |
+| Update tab completion, agents and docs after a pull or a change | `trirouter sync` |
 | Remove everything the installer added | `trirouter uninstall` |
 
 ## setup
@@ -379,16 +381,17 @@ trirouter quarantine purge --quarantine-days=7    # keep entries a week from now
 Set up or remove phone / other-device access.
 
 ```
-trirouter remote [--name=NAME] [--workdir=DIR] [-n]
+trirouter remote [--name=NAME] [--workdir=DIR] [--start-session=on|off] [-n]
 trirouter remote --remove [-n]
 ```
 
-Starts each tool's own remote service at logon (Claude Code Remote Control, Antigravity and Codex), under one machine name. See docs/remote-access.md.
+Starts each tool's own remote service at logon (Claude Code Remote Control, Antigravity and Codex), under one machine name. At logon only the connection opens: no Claude session is created until you start one from the Claude app or claude.ai/code (or make a terminal session reachable with /remote-control); the ChatGPT app and antigravity.google.com work the same way. See docs/remote-access.md.
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | saved name or hostname | yes (remote_name) | The machine name shown on your other devices. |
 | `--workdir` | `DIR` | saved folder or the checkout | yes (remote_workdir) | Folder remote Claude sessions start in; it must be a trusted Claude Code folder. |
+| `--start-session` | `on|off` | off | yes (remote_start_session) | on: Claude's server also pre-creates one session in the folder at every logon (the old behaviour). off: only the connection; sessions start when you open one. |
 | `--remove` | - | off | no | Remove the remote-access services instead of creating them. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
@@ -400,12 +403,47 @@ Examples:
 ```bash
 trirouter remote --name "My PC"    # set up under a name
 trirouter remote --name "My PC" --workdir ~/code    # choose the working folder
+trirouter remote --start-session=on    # also pre-create a Claude session at logon
 trirouter remote --remove    # undo
 ```
 
 **Exit status:** 0 on success. 2 on a usage error (unknown or misused option, missing argument). 1 when the command ran but failed.
 
 **See also:** [setup](#setup), [doctor](#doctor)
+
+## sync
+
+Bring everything generated from the sources up to date (after a pull or a change).
+
+```
+trirouter sync [--check | -n]
+trirouter sync --pre-commit
+```
+
+One step after every development round or `git pull`, so new commands, flags and models work everywhere: rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), regenerates the worker agents of the tools that already have generated ones (from templates/agents, targets.json and models.json) and, in a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to .githooks (never over another hooks folder or your own .git/hooks). The daily background check refreshes the completion scripts and agents by itself.
+
+The checkout's git pre-commit hook runs `trirouter sync --pre-commit`: the sync, `git add docs/cli.md` when it was regenerated, a reminder when user-visible files are staged without CHANGELOG.md, the tests and, when routing code is staged (core, lang, distill, config, eval), the routing evaluation. A failure stops the commit; `git commit --no-verify` skips the hook once.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `--check` | - | off | no | Change nothing; exit 1 when something is out of date (for CI). |
+| `--pre-commit` | - | off | no | What the git pre-commit hook runs: sync, stage docs/cli.md, tests, evaluation. Only in a trirouter checkout. |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+| `-h`, `--help` | - | - | - | Show this help page and exit. |
+
+**Changes:** Changes files; preview with --dry-run or --check.
+
+Examples:
+
+```bash
+trirouter sync    # after a pull or a change
+trirouter sync --check    # is anything out of date?
+trirouter sync --pre-commit    # the checks the git hook runs, by hand
+```
+
+**Exit status:** 0 on success. 2 on a usage error. 1 when --check found something out of date, an item failed, or a --pre-commit check failed.
+
+**See also:** [setup](#setup), [skills](#skills), [doctor](#doctor)
 
 ## daemon
 

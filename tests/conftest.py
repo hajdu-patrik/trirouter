@@ -35,6 +35,7 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(integrations, "user_path_write", lambda value, kind: store.update(path=(value, kind)))
     monkeypatch.setattr(integrations, "broadcast_env_change", lambda: None)
     monkeypatch.setattr(remote, "_ps", lambda script, *a, **k: (1, ""))
+    monkeypatch.setattr(remote, "_rc_help", lambda claude: "")  # never start a real `claude remote-control --help`
     # the hooks start the daily model check in a detached process: never for real in a test
     from trirouter import platforms
     monkeypatch.setattr(platforms, "spawn_detached", lambda *a, **k: False)
@@ -42,3 +43,11 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     from trirouter import hooks
     monkeypatch.setattr(hooks, "CLAUDE_SETTINGS", base / "claude-settings.json")
     monkeypatch.setattr(hooks, "GUARD_LOG", base / "guard.jsonl")
+    # the user's own config.json (e.g. hooks.transport = "http" after `daemon enable`) must not change a test
+    from trirouter import core
+    monkeypatch.setattr(core, "STATE_DIR", base / "state")
+    # generated agents (the model check regenerates them): never the real ~/.claude, ~/.codex or ~/.gemini
+    from trirouter import hub
+    for name in ("CLAUDE_AGENTS", "CODEX_AGENTS", "AGY_AGENTS"):
+        monkeypatch.setattr(hub, name, base / name.lower())
+    monkeypatch.setattr(hub, "CODEX_CONFIG", base / "codex-config.toml")

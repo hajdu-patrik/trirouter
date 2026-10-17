@@ -3,8 +3,8 @@
 One source of truth: `cliparse` validates arguments against these definitions, `render_help` prints the
 man-page-like pages (`trirouter help <command>`, `<command> --help`), `render_overview` the short
 command list, and `render_markdown` the wiki-style reference in docs/cli.md (`trirouter help --markdown`).
-Edit the texts here, then regenerate the file: `trirouter help --markdown > docs/cli.md`
-(a test fails when docs/cli.md is out of date). `{prog}` in a text stands for the program name:
+Edit the texts here, then run `trirouter sync`: it regenerates docs/cli.md and the installed tab completion
+(the git pre-commit hook does it too; a test fails when docs/cli.md is out of date). `{prog}` in a text stands for the program name:
 `trirouter`, or `python install.py` when run from the checkout.
 """
 import textwrap
@@ -263,19 +263,51 @@ _add(key="quarantine purge", summary="Delete expired quarantine entries now",
      see_also=("quarantine list", "skills"))
 
 _add(key="remote", summary="Set up or remove phone / other-device access",
-     synopsis=("{prog} remote [--name=NAME] [--workdir=DIR] [-n]", "{prog} remote --remove [-n]"),
+     synopsis=("{prog} remote [--name=NAME] [--workdir=DIR] [--start-session=on|off] [-n]", "{prog} remote --remove [-n]"),
      description="Starts each tool's own remote service at logon (Claude Code Remote Control, Antigravity and Codex), "
-                 "under one machine name. See docs/remote-access.md.",
+                 "under one machine name. At logon only the connection opens: no Claude session is created until you "
+                 "start one from the Claude app or claude.ai/code (or make a terminal session reachable with "
+                 "/remote-control); the ChatGPT app and antigravity.google.com work the same way. "
+                 "See docs/remote-access.md.",
      flags=(Flag("--name", value="NAME", default="saved name or hostname", remembered="yes (remote_name)",
                  doc="The machine name shown on your other devices."),
             Flag("--workdir", value="DIR", default="saved folder or the checkout", remembered="yes (remote_workdir)",
                  doc="Folder remote Claude sessions start in; it must be a trusted Claude Code folder."),
+            Flag("--start-session", value="on|off", default="off", remembered="yes (remote_start_session)",
+                 choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
+                 doc="on: Claude's server also pre-creates one session in the folder at every logon (the old "
+                     "behaviour). off: only the connection; sessions start when you open one."),
             Flag("--remove", doc="Remove the remote-access services instead of creating them."), DRY),
      changes="Changes files and system services; preview with --dry-run",
      examples=(("{prog} remote --name \"My PC\"", "set up under a name"),
                ("{prog} remote --name \"My PC\" --workdir ~/code", "choose the working folder"),
+               ("{prog} remote --start-session=on", "also pre-create a Claude session at logon"),
                ("{prog} remote --remove", "undo")),
      see_also=("setup", "doctor"))
+
+_add(key="sync", summary="Bring everything generated from the sources up to date (after a pull or a change)",
+     synopsis=("{prog} sync [--check | -n]", "{prog} sync --pre-commit"),
+     description=(
+         "One step after every development round or `git pull`, so new commands, flags and models work everywhere: "
+         "rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), regenerates "
+         "the worker agents of the tools that already have generated ones (from templates/agents, targets.json and "
+         "models.json) and, in a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to "
+         ".githooks (never over another hooks folder or your own .git/hooks). The daily background check refreshes "
+         "the completion scripts and agents by itself.\n\n"
+         "The checkout's git pre-commit hook runs `{prog} sync --pre-commit`: the sync, `git add docs/cli.md` when it "
+         "was regenerated, a reminder when user-visible files are staged without CHANGELOG.md, the tests and, when "
+         "routing code is staged (core, lang, distill, config, eval), the routing evaluation. A failure stops the "
+         "commit; `git commit --no-verify` skips the hook once."),
+     flags=(Flag("--check", doc="Change nothing; exit 1 when something is out of date (for CI)."),
+            Flag("--pre-commit", doc="What the git pre-commit hook runs: sync, stage docs/cli.md, tests, evaluation. "
+                                     "Only in a trirouter checkout."),
+            DRY),
+     changes="Changes files; preview with --dry-run or --check",
+     examples=(("{prog} sync", "after a pull or a change"), ("{prog} sync --check", "is anything out of date?"),
+               ("{prog} sync --pre-commit", "the checks the git hook runs, by hand")),
+     exit_status="0 on success. 2 on a usage error. 1 when --check found something out of date, an item failed, "
+                 "or a --pre-commit check failed.",
+     see_also=("setup", "skills", "doctor"))
 
 _add(key="daemon", summary="The local hook daemon: Claude Code hooks without a Python start per prompt",
      synopsis=("{prog} daemon [status]", "{prog} daemon enable|disable [-n]", "{prog} daemon start|stop"),
@@ -400,7 +432,7 @@ _add(key="help", summary="Show the manual of a command",
                ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
      see_also=("doctor",))
 
-ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "daemon", "learn", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))
@@ -468,6 +500,7 @@ TASKS = (
     ("Turn the daily model check off", "trirouter models --auto=off"),
     ("Print the version", "trirouter --version"),
     ("Reach this computer from a phone", "trirouter remote --name \"My PC\""),
+    ("Update tab completion, agents and docs after a pull or a change", "trirouter sync"),
     ("Remove everything the installer added", "trirouter uninstall"),
 )
 

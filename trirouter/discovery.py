@@ -607,6 +607,8 @@ def run_scheduled():
             run("discover", apply=True, say=None)
         finally:
             learn_routing()
+            from . import sync
+            sync.user_side()  # tab completion and agents follow a pulled or changed checkout
     finally:
         release_lock()
 

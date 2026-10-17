@@ -7,8 +7,23 @@ runs on your computer.
 ```bash
 trirouter remote --name "My Workstation"                  # name defaults to the hostname
 trirouter remote --name "My Workstation" --workdir ~/code  # folder remote sessions start in
+trirouter remote --start-session=on                       # also pre-create a Claude session at logon
 trirouter remote --remove                                 # undo
 ```
+
+**Only the connection opens at logon.** Nothing starts a session by itself: each tool keeps a background
+connection, and you open a session when you need one:
+
+- **Claude:** Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* → new session (it
+  starts in `--workdir`). A session you already run in a terminal joins with `/remote-control`.
+- **Codex:** the ChatGPT app (after the one-time pairing below).
+- **Antigravity:** [antigravity.google.com](https://antigravity.google.com) → *<name>*.
+
+The Claude server runs `claude remote-control --no-create-session-in-dir
+--remote-control-session-name-prefix <name>`, so on-demand sessions are named after the machine. With
+`--start-session=on` (remembered as `remote_start_session`) it runs `claude remote-control --name <name>` as
+before, which pre-creates one session at every logon. A Claude Code too old to know
+`--no-create-session-in-dir` also gets the old command; update it with `claude update`.
 
 (`trirouter` exists after the first `python install.py` setup; until then, or if it is not on PATH,
 use `python install.py remote ...`, which does the same. `trirouter help remote` lists the options.)
@@ -24,7 +39,7 @@ directory: run `claude` once in that folder and accept the dialog before setting
 
 | Tool | On the computer (starts automatically at logon) | On the phone / another device |
 | --- | --- | --- |
-| **Claude Code** | `claude remote-control --name <name>` – Windows scheduled task `Trirouter-ClaudeRemote`, macOS launchd agent `com.trirouter.claude-remote`, Linux `systemd --user` service `trirouter-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
+| **Claude Code** | `claude remote-control --no-create-session-in-dir` (connection only, see above) – Windows scheduled task `Trirouter-ClaudeRemote`, macOS launchd agent `com.trirouter.claude-remote`, Linux `systemd --user` service `trirouter-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
 | **Antigravity** | `agy remote-control start --name <name> --session` (the CLI registers its own autostart) | [antigravity.google.com](https://antigravity.google.com) → *<name>* (can be installed as a web app for notifications) |
 | **Codex** | macOS / Linux: `codex remote-control start`. Windows: `codex app-server --remote-control --listen off`, kept running by the scheduled task `Trirouter-CodexRemote` | ChatGPT app, after a one-time pairing (below) |
 

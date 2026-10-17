@@ -6,7 +6,7 @@ The commands, flags and help texts live in manual.py (one source for the parser,
 docs/cli.md); argument validation is in cliparse.py; this module does the work.
 
     trirouter help [command]     manual page; `trirouter <command> --help` too
-    trirouter setup | models | skills | quarantine | remote | doctor | route | uninstall | help
+    trirouter setup | models | skills | quarantine | remote | sync | doctor | route | uninstall | help
     trirouter --version | -V     the version
 
 Ctrl+C (and Ctrl+D) stop a command at once: exit status 130, files are written atomically (interrupt.py).
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt, legacy,
-               manual, platforms as P, remote, secret, skillscan)
+               manual, platforms as P, remote, secret, skillscan, sync)
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -643,7 +643,9 @@ def run_remote():
     providers = [p for p, i in found.items() if i["installed"]]
     cfg = load_config()
     name = FLAGS.get("--name") if isinstance(FLAGS.get("--name"), str) else (cfg.get("remote_name") or P.hostname())
-    report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg)))
+    start = FLAGS.get("--start-session")
+    start = start.strip().lower() in ON_WORDS if isinstance(start, str) else None  # None: the saved choice
+    report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg), start_session=start))
 
 
 def run_uninstall():
@@ -763,7 +765,8 @@ def _main(argv):
     if (code := prepare_state(inv.key)) is not None:
         return code
     commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
-                "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn}
+                "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn,
+                "sync": lambda: sync.main(FLAGS, say)}
     if inv.key.startswith("quarantine"):
         return run_quarantine(inv.key)
     if inv.key.startswith("daemon"):

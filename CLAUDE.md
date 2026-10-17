@@ -26,7 +26,8 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
   templates in `trirouter/templates/agents/`, bundled skills in `trirouter/skills/`. One CLI
   (`trirouter <command>` = `python install.py <command>` = `python -m trirouter <command>`; the launcher
   only exists after the first setup); no stand-alone scripts. Commands, flags and help texts are data in
-  `trirouter/manual.py`: after editing it run `trirouter help --markdown > docs/cli.md` (a test checks it).
+  `trirouter/manual.py`: after editing it run `python -m trirouter sync` (regenerates docs/cli.md, the installed
+  tab completion and agents; a test checks docs/cli.md).
   `jev_router/` is a thin compatibility package for shims written before the rename (remove it after the
   next release); `trirouter/legacy.py` holds the old names and the state-folder migration.
 - Hooks must never block or crash the host tool: catch everything, always exit 0.
@@ -48,8 +49,13 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
 
 ## Checks before committing
 
+The git pre-commit hook (`.githooks/pre-commit`, enabled by the first `python -m trirouter sync`) runs them:
+`sync --pre-commit` = sync + stage docs/cli.md + tests + the evaluation when routing code is staged. It takes up
+to ~2.5 minutes: give `git commit` a 10-minute Bash timeout. By hand:
+
 ```bash
-python -m pytest tests -q        # includes the model-policy test
+python -m trirouter sync --pre-commit   # or the pieces:
+python -m pytest tests -q               # includes the model-policy test
 python eval/eval_router.py
 ```
 

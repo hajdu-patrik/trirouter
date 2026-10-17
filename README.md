@@ -74,7 +74,8 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 | `trirouter models --main=<family> [--subagent-model=<family>]` | Claude Code's default session model and the model of subagents that name none ([cost](#-cost-and-speed)) |
 | `trirouter daemon [status\|enable\|disable\|start\|stop]` | Claude Code hooks over HTTP to a resident router: no Python start per prompt ([speed](#-cost-and-speed)) |
 | `trirouter learn [--dry-run]` | train the local routing model on JEV's past decisions; it skips JEV when it is sure |
-| `trirouter remote --name "My PC" [--workdir <folder>]` | remote access from other devices ([guide](docs/remote-access.md)) |
+| `trirouter remote --name "My PC" [--workdir <folder>] [--start-session=on\|off]` | remote access from other devices: at logon only the connection opens, sessions start when you open one ([guide](docs/remote-access.md)) |
+| `trirouter sync [--check]` | after a pull or a change: refresh tab completion, worker agents and (in the checkout) docs/cli.md + the pre-commit hook |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
 | `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N] [--catalog-only=<pattern>,...]` | scan + re-link skills, regenerate workers, rebuild the catalog |
 | `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
@@ -86,6 +87,8 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 (`~/.bashrc`; macOS: `~/.bash_profile`), zsh (`~/.zshrc`, the macOS default) or fish – as one marked block
 in the profile (with a `.bak` of the original; skip it with `--no-completion`; `trirouter uninstall` removes it). In a new terminal type
 `mo` + Tab after `trirouter` completes to `models`; after `trirouter models`, `--` + Tab lists its flags and `--auto=` + Tab offers `on` / `off`.
+New commands and flags reach the installed scripts through `trirouter sync` (also run by the git pre-commit hook and the
+daily background check); `trirouter doctor` says when they are out of date.
 
 **Interrupting:** Ctrl+C (and Ctrl+D, also at a question) stops any command at once: it prints `Interrupted: nothing was
 left half-written.`, ends the programs it started and exits with status 130. Config files are written atomically
@@ -349,7 +352,9 @@ and phone dictation.
 ## 📱 Remote Access
 
 Control your computer from a phone or another device under one machine name, with every tool
-starting its remote service at logon. See **[docs/remote-access.md](docs/remote-access.md)**.
+starting its remote service at logon. At logon only the connection opens – no session is created until
+you start one from the Claude app, claude.ai/code, the ChatGPT app or antigravity.google.com.
+See **[docs/remote-access.md](docs/remote-access.md)**.
 
 ---
 
@@ -384,7 +389,8 @@ starting its remote service at logon. See **[docs/remote-access.md](docs/remote-
 install.py                 entry point: `python install.py [command]` (same as `python -m trirouter` and `trirouter`)
 pyproject.toml             package metadata, console script `trirouter`, pytest settings
 trirouter/                 the package
-├── cli.py                 the commands (setup, models, skills, quarantine, remote, doctor, route, uninstall)
+├── cli.py                 the commands (setup, models, skills, quarantine, remote, sync, doctor, route, uninstall)
+├── sync.py                `trirouter sync`: regenerates docs/cli.md, completion and agents; the pre-commit checks
 ├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
 ├── cliparse.py            argument validation against manual.py
 ├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
@@ -420,8 +426,13 @@ docs/                      cli.md (command reference, generated), speech-to-text
 pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
 python -m pytest tests -q          # unit tests incl. the model-policy check
 python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
-trirouter help --markdown > docs/cli.md   # after editing trirouter/manual.py (a test checks the file)
+python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, pre-commit hook
 ```
+
+The first `sync` in the checkout sets `core.hooksPath` to `.githooks`. Its `pre-commit` hook runs
+`python -m trirouter sync --pre-commit` before every commit: the sync (a regenerated docs/cli.md is staged), a
+reminder when user-visible files are staged without CHANGELOG.md, the tests and – when routing code is staged –
+the routing evaluation. A failure stops the commit; `git commit --no-verify` skips it once.
 
 Evaluation targets on the curated sets: task accuracy ≥ 85 % per language, "routing uncertain" ≤ 30 %,
 destructive-request recall 100 %, false positives < 5 %, reply language 100 %. The real-traffic set

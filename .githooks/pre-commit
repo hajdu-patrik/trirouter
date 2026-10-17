@@ -1,0 +1,12 @@
+#!/bin/sh
+# trirouter pre-commit hook (core.hooksPath = .githooks, set by `trirouter sync`): sync, tests, evaluation.
+# Skip it once with `git commit --no-verify`.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+for py in python3 python py; do
+    # the Windows Store `python3` stub fails this check, so the real interpreter is found
+    if "$py" -c "import sys; sys.exit(sys.version_info < (3, 10))" >/dev/null 2>&1; then
+        exec "$py" -m trirouter sync --pre-commit
+    fi
+done
+echo "trirouter pre-commit: no Python 3.10+ found; commit with --no-verify to skip the checks" >&2
+exit 1

@@ -196,7 +196,7 @@ def test_completion_is_no_command_any_more(capsys, monkeypatch):
 
 
 def test_scripts_offer_exactly_the_commands(monkeypatch):
-    assert C.commands() == ["setup", "keys", "models", "skills", "quarantine", "remote", "daemon", "learn", "doctor", "route", "uninstall", "help"]
+    assert C.commands() == ["setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert "--version -V --help -h" in C.bash_script()
 
 
@@ -246,7 +246,7 @@ t trirouter --v
     assert lines[1] == "models"
     assert lines[2] == "--discover --auto= --main= --subagent-model= --dry-run --help"
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
-    assert lines[6] == "setup keys models skills quarantine remote daemon learn doctor route uninstall help"
+    assert lines[6] == "setup keys models skills quarantine remote sync daemon learn doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
 
 
@@ -284,7 +284,7 @@ def test_powershell_block_defines_a_trirouter_function_that_bypasses_the_cmd_lau
     monkeypatch.setattr(P, "python_exe", lambda: r"C:\Program Files\Py'thon\python.exe")
     block = C.profile_block("powershell")
     assert block.startswith(C.BEGIN) and block.endswith(C.END + "\n")
-    assert ("function global:trirouter { & 'C:\Program Files\Py''thon\python.exe' "
+    assert (r"function global:trirouter { & 'C:\Program Files\Py''thon\python.exe' "
             '"$HOME/.trirouter/bin/trirouter.py" @args }') in block
     assert ".cmd" not in block and "exit" not in block  # $LASTEXITCODE is left as the program set it
     assert C.with_block(C.with_block("", block), block) == block  # idempotent

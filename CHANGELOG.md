@@ -8,6 +8,30 @@ dates are ISO 8601.
 ## [Unreleased]
 
 ### Added
+- **`trirouter sync`** (new module `trirouter/sync.py`): one step after every change or `git pull` that brings the
+  generated files up to date – the installed tab-completion scripts (profiles untouched), the worker agents of the
+  tools that already have generated ones and, in a checkout, docs/cli.md and `core.hooksPath = .githooks`.
+  `--check` changes nothing and exits 1 when something is stale (CI runs it); `doctor` shows the same check. The
+  daily background check refreshes completion and agents by itself, so a new command can be tab-completed without
+  re-running setup.
+- **Git pre-commit hook** (`.githooks/pre-commit` → `trirouter sync --pre-commit`): sync, `git add docs/cli.md`
+  when it was regenerated (refused while manual.py has unstaged edits), a CHANGELOG reminder for staged
+  user-visible files, the tests and – when routing code is staged – the routing evaluation. A failure stops the
+  commit; `git commit --no-verify` skips it once.
+- `trirouter remote --start-session=on|off` (remembered as `remote_start_session`, default off).
+
+### Changed
+- **Remote access opens only the connection at logon.** Claude's Remote Control server now runs with
+  `--no-create-session-in-dir --remote-control-session-name-prefix <name>`: no session appears at every boot;
+  sessions start when you open one from the Claude app or claude.ai/code (a terminal session joins with
+  `/remote-control`), like the ChatGPT app and antigravity.google.com already worked. `--start-session=on`, or a
+  Claude Code too old for the flag, keeps the old `--name` command. `doctor` recognises both forms.
+
+### Fixed
+- The tests wrote to the real home folder: `test_discovery.py` regenerated agents into `~/.claude/agents`,
+  `~/.codex/agents` and `~/.codex/config.toml` (and removed real generated agents as stale), and the user's own
+  config.json (`hooks.transport = "http"`) made a hook test fail. `conftest.py` now isolates the agent folders,
+  the Codex config and the state folder; `trirouter sync` restores agents a test run removed.
 - `doctor` warns when Claude Code is older than 2.1.301: older versions resolve the `haiku` alias (sessions,
   `haiku-worker-*` agents and the Agent tool's `model: haiku`) to Haiku 4.5, because their model catalog does not
   know Haiku 5.5; `claude update` fixes it (verified: after the update both the alias and a subagent run on

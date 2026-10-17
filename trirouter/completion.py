@@ -577,6 +577,23 @@ def installed():
     return [s for s in SHELLS if script_path(s).is_file()]
 
 
+def stale():
+    """Installed shells whose script no longer matches the commands of manual.py (`trirouter sync` rewrites them)."""
+    out = []
+    for shell in installed():
+        try:
+            if _read(script_path(shell))[0] != script(shell):
+                out.append(shell)
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
+def refresh(apply=True, say=print):
+    """Rewrites the installed scripts that are out of date; profiles are left alone. Returns the number changed."""
+    return sum(_write(script_path(s), script(s), f"{s} completion script", apply, say) for s in stale())
+
+
 def remove(apply=True, say=print, shells=SHELLS):
     """Removes the profile blocks and the scripts; returns the number of files changed."""
     changes = 0

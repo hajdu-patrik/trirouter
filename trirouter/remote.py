@@ -2,7 +2,10 @@
 """Remote access from a phone or another device through each tool's own remote feature, started at
 logon under one machine name.
 
-  Claude       `claude remote-control` (Windows: scheduled task, macOS: launchd, Linux: systemd --user)
+  Claude       `claude remote-control` (Windows: scheduled task, macOS: launchd, Linux: systemd --user), as a
+               server that only holds the connection: no session is created at logon (`--no-create-session-in-dir`);
+               sessions start on demand from the Claude app or claude.ai/code. `remote --start-session=on`
+               restores the pre-created session.
   Antigravity  `agy remote-control start` (registers its own autostart)
   Codex        macOS/Linux: `codex remote-control start`. Windows: `codex app-server --remote-control`
                in a scheduled task, because every process there runs inside a Job Object without
@@ -38,12 +41,58 @@ OLD_LAUNCHD = P.HOME / "Library" / "LaunchAgents" / f"{OLD_LAUNCHD_LABEL}.plist"
 OLD_SYSTEMD = P.HOME / ".config" / "systemd" / "user" / legacy.SYSTEMD_UNIT
 
 
-def save_name(name, workdir=None):
-    cfg = json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
+def load_config():
+    try:
+        return json.loads(CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_name(name, workdir=None, start_session=None):
+    cfg = load_config()
     cfg["remote_name"] = name
     if workdir:
         cfg["remote_workdir"] = str(workdir)
+    if start_session is not None:
+        cfg["remote_start_session"] = bool(start_session)
     P.atomic_write(CONFIG, json.dumps(cfg, indent=2), mode=0o600)
+
+
+def start_session_saved():
+    """config.json remote_start_session: pre-create a Claude session at logon (default: no, only the connection)."""
+    return load_config().get("remote_start_session") is True
+
+
+_RC_HELP = {}
+
+
+def _rc_help(claude):
+    """`claude remote-control --help`, read once per executable ("" when it cannot be read)."""
+    if claude not in _RC_HELP:
+        code, out = P.run([claude, "remote-control", "--help"], timeout=60)
+        _RC_HELP[claude] = out if code == 0 else ""
+    return _RC_HELP[claude]
+
+
+def claude_rc_args(claude, name, start_session=False):
+    """The arguments after `claude`. By default the server only holds the connection: no session is pre-created in
+    the folder, and on-demand sessions are named "<name>-...". A Claude Code too old for these flags (or with
+    start_session) gets the classic `--name`, which pre-creates one session under that name."""
+    help_text = _rc_help(claude)
+    if start_session or "create-session-in-dir" not in help_text:  # listed as --[no-]create-session-in-dir
+        return ["remote-control", "--name", str(name)]
+    args = ["remote-control", "--no-create-session-in-dir"]
+    if "--remote-control-session-name-prefix" in help_text:
+        args += ["--remote-control-session-name-prefix", str(name)]
+    return args
+
+
+_PLAIN_ARG = re.compile(r"^[\w./:=-]+$")
+
+
+def _cmd_args(args):
+    """Arguments for a .cmd line: anything but a plain word is quoted (a name may contain spaces)."""
+    return " ".join(a if _PLAIN_ARG.match(a) else '"' + a.replace('"', "") + '"' for a in args)
 
 
 def _ps(script):
@@ -198,11 +247,11 @@ def claude_trusts(folder):
     return any(norm(k) == norm(folder) and v.get("hasTrustDialogAccepted") for k, v in projects.items())
 
 
-def _launchd_plist(name, claude, workdir):
+def _launchd_plist(name, claude, workdir, args=None):
     """PATH is copied from this process so an npm/Homebrew/nvm `claude` script finds node."""
     return plistlib.dumps({
         "Label": LAUNCHD_LABEL,
-        "ProgramArguments": [str(claude), "remote-control", "--name", str(name)],
+        "ProgramArguments": [str(claude), *(args or ["remote-control", "--name", str(name)])],
         "WorkingDirectory": str(workdir),
         "EnvironmentVariables": {"PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")},
         "RunAtLoad": True,
@@ -225,13 +274,15 @@ def _sd_quote(value, dollar=True):
     return f'"{value}"'
 
 
-def _systemd_unit(name, claude, workdir):
+def _systemd_unit(name, claude, workdir, args=None):
     path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    args = args or ["remote-control", "--name", str(name)]
+    argv = " ".join(a if _PLAIN_ARG.match(a) else _sd_quote(a) for a in args)
     return f"""[Unit]
 Description=Claude Code Remote Control ({_one_line(name).replace("%", "%%")})
 
 [Service]
-ExecStart={_sd_quote(claude)} remote-control --name {_sd_quote(name)}
+ExecStart={_sd_quote(claude)} {argv}
 WorkingDirectory={_one_line(workdir).replace("%", "%%")}
 Environment={_sd_quote("PATH=" + path, dollar=False)}
 Restart=always
@@ -242,19 +293,20 @@ WantedBy=default.target
 """
 
 
-def _setup_claude(name, claude, workdir):
+def _setup_claude(name, claude, workdir, start_session=False):
+    args = claude_rc_args(claude, name, start_session)
     if P.IS_WINDOWS:
         for old in LEGACY_TASKS:
             _ps(f'Unregister-ScheduledTask -TaskName "{old}" -Confirm:$false -ErrorAction SilentlyContinue')
         _drop_old_task("claude")
-        code, out = _win_loop(TASK_CLAUDE, "claude-remote.cmd", workdir, f'"{claude}" remote-control --name "{name}"',
+        code, out = _win_loop(TASK_CLAUDE, "claude-remote.cmd", workdir, f'"{claude}" {_cmd_args(args)}',
                               '($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") -or '
                               '($_.Name -eq "cmd.exe" -and $_.CommandLine -match "start-rc\\.cmd")')
     elif P.IS_MAC:
         _drop_old_launchd()
         LAUNCHD.parent.mkdir(parents=True, exist_ok=True)
         LOG.parent.mkdir(parents=True, exist_ok=True)  # launchd does not create the log folder
-        P.atomic_write(LAUNCHD, _launchd_plist(name, claude, workdir))
+        P.atomic_write(LAUNCHD, _launchd_plist(name, claude, workdir, args))
         domain = f"gui/{os.getuid()}"
         P.run(["launchctl", "bootout", f"{domain}/{LAUNCHD_LABEL}"])  # fails harmlessly when not loaded
         out = ""
@@ -267,7 +319,7 @@ def _setup_claude(name, claude, workdir):
     else:
         _drop_old_systemd()
         SYSTEMD.parent.mkdir(parents=True, exist_ok=True)
-        P.atomic_write(SYSTEMD, _systemd_unit(name, claude, workdir))
+        P.atomic_write(SYSTEMD, _systemd_unit(name, claude, workdir, args))
         P.run(["systemctl", "--user", "daemon-reload"])
         P.run(["systemctl", "--user", "enable", SYSTEMD.name])
         # restart, not start: a changed name or workdir must take effect on re-run
@@ -275,15 +327,18 @@ def _setup_claude(name, claude, workdir):
     return code == 0, out
 
 
-def _remote_claude(name, workdir):
+def _remote_claude(name, workdir, start_session=None):
     claude = P.find_exe("claude")
     if not claude:
         return None
     if not claude_trusts(workdir):
         return ("claude", False, f"{workdir} is not a trusted Claude Code folder: run `claude` there once, "
                                  f"accept the trust dialog, then re-run `{P.command_hint('remote')}`")
-    ok, out = _setup_claude(name, claude, workdir)
-    return ("claude", ok, f"Remote Control server \"{name}\" (sessions start in {workdir})" if ok else out[:200])
+    start_session = start_session_saved() if start_session is None else start_session
+    ok, out = _setup_claude(name, claude, workdir, start_session)
+    what = ("one session is pre-created at logon" if start_session else
+            "only the connection opens at logon; start sessions from the Claude app or claude.ai/code")
+    return ("claude", ok, f"Remote Control server \"{name}\" in {workdir}: {what}" if ok else out[:200])
 
 
 def _remote_agy(name):
@@ -316,15 +371,15 @@ def _remote_codex(workdir):
     return ("codex", code == 0, done if code == 0 else out[:200])
 
 
-def setup(name, providers, apply=True, workdir=None):
-    """[(tool, ok, message)]. `workdir` must be a folder Claude Code trusts."""
+def setup(name, providers, apply=True, workdir=None, start_session=None):
+    """[(tool, ok, message)]. `workdir` must be a folder Claude Code trusts. start_session None: the saved choice."""
     workdir = workdir or P.HOME
     if not apply:
         return [(p, True, f"would set up remote access as \"{name}\"") for p in providers]
-    save_name(name, workdir)
+    save_name(name, workdir, start_session)
     report = []
     if "claude" in providers:
-        report.append(_remote_claude(name, workdir))
+        report.append(_remote_claude(name, workdir, start_session))
     if "antigravity" in providers:
         report.append(_remote_agy(name))
     if "codex" in providers:
@@ -387,9 +442,11 @@ def status():
 
 def _server_status(tasks, procs):
     lines = []
-    for tool, task, marker in (("claude", TASK_CLAUDE, " remote-control --name"), ("codex", TASK_CODEX, "app-server --remote-control")):
+    # one "name|command line" per process; agy's own `remote-control serve` must not count as Claude's server
+    for tool, task, marker in (("claude", TASK_CLAUDE, r"^claude[^|\n]*\|[^\n]* remote-control(?: |$)"),
+                               ("codex", TASK_CODEX, r"app-server --remote-control")):
         if task in tasks:
-            server = marker in procs
+            server = bool(re.search(marker, procs, re.M))
             lines.append((tool, tasks[task] == "Running" and server,
                           f"task {task}: {tasks[task]}, server {'running' if server else 'NOT running'}"))
     return lines
