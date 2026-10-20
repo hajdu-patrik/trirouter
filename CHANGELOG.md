@@ -23,6 +23,10 @@ dates are ISO 8601.
 - `trirouter remote --start-session=on|off` (remembered as `remote_start_session`, default off).
 
 ### Changed
+- **Windows scheduled tasks moved into the Task Scheduler folder `\Automations\`** with readable names and a
+  Description: `Trirouter - Claude Remote`, `Trirouter - Codex Remote`, `Trirouter - Watchdog` (the setup helper task
+  is `Trirouter - Setup`). `trirouter remote` / `setup` replaces the old root-folder `Trirouter-*` tasks, `doctor`
+  reports one that is left, and `remote --remove` removes both sets. The watchdog starts the tasks by folder and name.
 - **Remote access opens only the connection at logon.** Claude's Remote Control server now runs with
   `--no-create-session-in-dir --remote-control-session-name-prefix <name>`: no session appears at every boot;
   sessions start when you open one from the Claude app or claude.ai/code (a terminal session joins with

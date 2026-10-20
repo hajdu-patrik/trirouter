@@ -404,8 +404,10 @@ class FakePs:
 
 
 def test_old_task_names_are_known_and_new_ones_differ():
-    assert remote.TASK_CLAUDE == "Trirouter-ClaudeRemote" and remote.TASK_CODEX == "Trirouter-CodexRemote"
-    assert remote.TASK_WATCHDOG == "Trirouter-Watchdog"
+    assert remote.TASK_CLAUDE == "Trirouter - Claude Remote" and remote.TASK_CODEX == "Trirouter - Codex Remote"
+    assert remote.TASK_WATCHDOG == "Trirouter - Watchdog" and remote.TASK_FOLDER == "\\Automations\\"
+    assert set(remote.TASK_DESCRIPTIONS) == {remote.TASK_CLAUDE, remote.TASK_CODEX, remote.TASK_WATCHDOG}
+    assert set(remote.PREV_TASKS.values()) == {"Trirouter-ClaudeRemote", "Trirouter-CodexRemote", "Trirouter-Watchdog"}
     assert set(remote.OLD_TASKS.values()) == {"JevRouter-ClaudeRemote", "JevRouter-CodexRemote", "JevRouter-Watchdog"}
     assert remote.LAUNCHD_LABEL == "com.trirouter.claude-remote" and remote.SYSTEMD.name == "trirouter-claude-remote.service"
     assert remote.OLD_SYSTEMD.name == "jev-router-claude-remote.service"
@@ -430,6 +432,8 @@ def test_remote_remove_unregisters_old_and_new_task_names(monkeypatch):
     for task in ("Trirouter-ClaudeRemote", "Trirouter-CodexRemote", "Trirouter-Watchdog",
                  "JevRouter-ClaudeRemote", "JevRouter-CodexRemote", "JevRouter-Watchdog"):
         assert f'Unregister-ScheduledTask -TaskName "{task}"' in text
+    for task in ("Trirouter - Claude Remote", "Trirouter - Codex Remote", "Trirouter - Watchdog"):
+        assert f'Unregister-ScheduledTask -TaskPath \'\\Automations\\\' -TaskName "{task}"' in text
 
 
 def test_setting_up_claude_remote_drops_the_old_task_first(monkeypatch, tmp_path):
@@ -439,8 +443,10 @@ def test_setting_up_claude_remote_drops_the_old_task_first(monkeypatch, tmp_path
     monkeypatch.setattr(remote, "BIN", tmp_path)
     remote._setup_claude("box", "claude.exe", tmp_path, ["remote-control", "--name", "box"])
     old = next(i for i, s in enumerate(fake.scripts) if "JevRouter-ClaudeRemote" in s and "Unregister" in s)
-    new = next(i for i, s in enumerate(fake.scripts) if "Register-ScheduledTask -TaskName \"Trirouter-ClaudeRemote\"" in s)
-    assert old < new
+    prev = next(i for i, s in enumerate(fake.scripts) if '-TaskName "Trirouter-ClaudeRemote"' in s and "Unregister" in s)
+    new = next(i for i, s in enumerate(fake.scripts)
+               if 'Register-ScheduledTask -TaskPath \'\\Automations\\\' -TaskName "Trirouter - Claude Remote" -Description' in s)
+    assert old < new and prev < new
 
 
 def test_migrate_recreates_only_what_existed(monkeypatch):
@@ -461,9 +467,10 @@ def test_migrate_recreates_only_what_existed(monkeypatch):
 def test_remote_status_warns_about_old_tasks(monkeypatch):
     monkeypatch.setattr(P, "IS_WINDOWS", True)
     monkeypatch.setattr(P, "find_exe", lambda name: None)
-    monkeypatch.setattr(remote, "_ps", FakePs("JevRouter-Watchdog=Ready\nTrirouter-Watchdog=Ready\n"))
+    monkeypatch.setattr(remote, "_ps", FakePs("JevRouter-Watchdog=Ready\nTrirouter-Watchdog=Ready\nTrirouter - Watchdog=Ready\n"))
     lines = remote.status()
     assert any("pre-rename task JevRouter-Watchdog" in msg for _, ok, msg in lines)
+    assert any("task Trirouter-Watchdog (from before the" in msg and not ok for _, ok, msg in lines)
     assert any(tool == "watchdog" and ok for tool, ok, _ in lines)
 
 

@@ -39,9 +39,9 @@ directory: run `claude` once in that folder and accept the dialog before setting
 
 | Tool | On the computer (starts automatically at logon) | On the phone / another device |
 | --- | --- | --- |
-| **Claude Code** | `claude remote-control --no-create-session-in-dir` (connection only, see above) – Windows scheduled task `Trirouter-ClaudeRemote`, macOS launchd agent `com.trirouter.claude-remote`, Linux `systemd --user` service `trirouter-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
+| **Claude Code** | `claude remote-control --no-create-session-in-dir` (connection only, see above) – Windows scheduled task `\Automations\Trirouter - Claude Remote`, macOS launchd agent `com.trirouter.claude-remote`, Linux `systemd --user` service `trirouter-claude-remote` | Claude app → **Code**, or [claude.ai/code](https://claude.ai/code) → *<name>* |
 | **Antigravity** | `agy remote-control start --name <name> --session` (the CLI registers its own autostart) | [antigravity.google.com](https://antigravity.google.com) → *<name>* (can be installed as a web app for notifications) |
-| **Codex** | macOS / Linux: `codex remote-control start`. Windows: `codex app-server --remote-control --listen off`, kept running by the scheduled task `Trirouter-CodexRemote` | ChatGPT app, after a one-time pairing (below) |
+| **Codex** | macOS / Linux: `codex remote-control start`. Windows: `codex app-server --remote-control --listen off`, kept running by the scheduled task `\Automations\Trirouter - Codex Remote` | ChatGPT app, after a one-time pairing (below) |
 
 **Windows: no windows, no apps.** Everything runs in the background from logon: the console
 programs run under `conhost.exe --headless`, so no terminal window opens (a plain `cmd.exe` task or
@@ -52,7 +52,7 @@ Antigravity) are not started – open them whenever you like, they work as usual
 **Checking and self-repair.** `trirouter doctor` shows whether every task and server runs,
 whether the Antigravity autostart entry is hidden, the Codex remote connection state and whether
 the installed Codex still accepts `app-server --remote-control` (an experimental flag). On Windows
-the task `Trirouter-Watchdog` runs at logon and every 30 minutes: it re-hides the Antigravity
+the task `\Automations\Trirouter - Watchdog` runs at logon and every 30 minutes: it re-hides the Antigravity
 autostart entry after an agy update rewrote it, and restarts a daemon or remote task that is not
 running.
 

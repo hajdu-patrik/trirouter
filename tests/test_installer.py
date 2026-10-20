@@ -276,7 +276,8 @@ def test_windows_remote_loops_run_headless(tmp_path, monkeypatch):
     monkeypatch.setattr(remote, "_ps", lambda script: calls.append(script) or (0, ""))
     remote._win_loop("Trirouter-Test", "test-remote.cmd", tmp_path, 'call "codex.cmd" app-server', '$_.Name -eq "x"')
     script = (tmp_path / "test-remote.cmd").read_bytes().decode("utf-8")
-    assert ':loop\r\ncall "codex.cmd" app-server\r\ntimeout /t 30' in script
+    assert '\r\ncall "codex.cmd" app-server\r\n' in script
+    assert "timeout /t %w% /nobreak" in script
     assert "goto loop\r\n" in script
     assert "\r\r" not in script
     assert "Stop-ScheduledTask" in calls[0]
@@ -307,6 +308,7 @@ def test_agy_setup_and_watchdog_scripts(monkeypatch):
     assert "Start-ScheduledTask" in w
     assert remote.TASK_CLAUDE in w
     assert remote.TASK_CODEX in w
+    assert "Start-ScheduledTask -TaskPath '\\Automations\\' -TaskName $t" in w
 
 
 def test_codex_connection_from_log(tmp_path, monkeypatch):
