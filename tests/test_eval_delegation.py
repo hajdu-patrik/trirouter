@@ -1,4 +1,4 @@
-"""The eval's delegation metric, on synthetic decisions (no routing, no network)."""
+"""The eval's delegation metric and pass/fail gates, on synthetic decisions (no routing, no network)."""
 import importlib.util
 from pathlib import Path
 
@@ -32,3 +32,13 @@ def test_report_delegation_counts_level0_failures(capsys):
 def test_report_delegation_degrades(capsys):
     assert ev.report_delegation([row("unknown")]) is None
     assert "n/a" in capsys.readouterr().out
+
+
+def test_verdict_checks_and_states_every_target():
+    measured = {"task": 0.85, "uncertain": 0.30, "destr_recall": 1.0, "destr_fp": 0.0, "lang": 1.0, "level0_delegated": None}
+    assert ev.verdict(measured, ev.TARGETS) == (True, "PASS  (targets: task>=85%, uncertain<=30%, recall 100%, FP<5%, "
+                                                      "lang 100%, level-0 delegated<=5%)")
+    assert ev.verdict(measured, ev.REAL_TARGETS)[1].startswith("PASS  (targets: task>=70%, uncertain<=45%, recall 100%")
+    for metric, value in (("task", 0.84), ("uncertain", 0.31), ("destr_recall", 0.99), ("destr_fp", 0.05), ("lang", 0.99),
+                          ("level0_delegated", 0.06)):
+        assert ev.verdict({**measured, metric: value}, ev.TARGETS)[0] is False, metric

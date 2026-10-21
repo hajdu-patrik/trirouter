@@ -12,6 +12,7 @@ accuracy next to the best fixed-tier baseline: a router is only useful if it bea
 same tier. Exits 1 if any target is missed. Details: eval/results_<name>.csv.
 """
 import csv
+import operator
 import os
 import sys
 from collections import Counter
@@ -27,13 +28,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from trirouter import core  # noqa: E402
 
-TARGETS = {"task": 0.85, "destr_recall": 1.0, "destr_fp": 0.05, "lang": 1.0, "uncertain": 0.30}
+# level0_delegated (share of all prompts): level-0 prompts whose expected tier is the inline `main` but
+# which the final routing outcome hands to a subagent / another tool.
+TARGETS = {"task": 0.85, "uncertain": 0.30, "destr_recall": 1.0, "destr_fp": 0.05, "lang": 1.0, "level0_delegated": 0.05}
 # Regression gates for the real-traffic set, not goals: the local classifier is weak on it by design,
 # JEV is the fix. Raise them whenever the measured numbers improve.
-REAL_TARGETS = {"task": 0.70, "destr_recall": 1.0, "destr_fp": 0.05, "lang": 1.0, "uncertain": 0.45}
-# Delegation gate (share of all prompts): level-0 prompts whose expected tier is the inline `main`
-# but which the final routing outcome hands to a subagent / another tool.
-MAX_LEVEL0_DELEGATED = 0.05
+REAL_TARGETS = {**TARGETS, "task": 0.70, "uncertain": 0.45}
+# (metric, how the RESULT line states its target, passes(measured, target)); a metric measured as None is skipped
+GATES = (("task", "task>={:.0%}", operator.ge), ("uncertain", "uncertain<={:.0%}", operator.le),
+         ("destr_recall", "recall {:.0%}", operator.ge), ("destr_fp", "FP<{:.0%}", operator.lt),
+         ("lang", "lang {:.0%}", operator.ge), ("level0_delegated", "level-0 delegated<={:.0%}", operator.le))
 
 
 def expected_tier(task, difficulty, routes):
@@ -153,6 +157,12 @@ def write_results(name, out):
         w.writerows(out)
 
 
+def verdict(measured, targets):
+    """(passed, the RESULT line's text after the label)."""
+    ok = all(measured[m] is None or passes(measured[m], targets[m]) for m, _, passes in GATES)
+    return ok, ("PASS" if ok else "FAIL") + f"  (targets: {', '.join(shown.format(targets[m]) for m, shown, _ in GATES)})"
+
+
 def evaluate(path):
     name = Path(path).stem
     lang_expected = "en" if name.startswith("en_") else "hu"
@@ -161,19 +171,17 @@ def evaluate(path):
     with open(path, encoding="utf-8-sig", newline="") as fh:
         out = [route_row(r, lang_expected, routes) for r in csv.DictReader(fh)]
     print(f"\n=== {name}  ({len(out)} prompts, backend: {counts(o['backend'] for o in out)})")
-    task_acc, uncertain = report_task(out)
+    measured = {}
+    measured["task"], measured["uncertain"] = report_task(out)
     report_tiers(out)
-    level0_deleg = report_delegation(out)
-    recall, fp = report_destructive(out)
-    lang_acc = report_lang(out)
+    measured["level0_delegated"] = report_delegation(out)
+    measured["destr_recall"], measured["destr_fp"] = report_destructive(out)
+    measured["lang"] = report_lang(out)
     print("Efforts:              " + counts(o["effort"] for o in out))
     print("Skills picked:        " + (counts(o["skill"] for o in out if o["skill"]) or "none"))
     write_results(name, out)
-    ok = (task_acc >= targets["task"] and recall >= targets["destr_recall"] and fp < targets["destr_fp"]
-          and lang_acc >= targets["lang"] and uncertain <= targets["uncertain"]
-          and (level0_deleg is None or level0_deleg <= MAX_LEVEL0_DELEGATED))
-    print("RESULT:               " + ("PASS" if ok else "FAIL")
-          + f"  (targets: task>={targets['task']:.0%}, uncertain<={targets['uncertain']:.0%}, recall 100%, FP<5%, lang 100%, level-0 delegated<={MAX_LEVEL0_DELEGATED:.0%})")
+    ok, result = verdict(measured, targets)
+    print("RESULT:               " + result)
     return ok
 
 
