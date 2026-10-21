@@ -29,11 +29,6 @@ IDLE_S = _minutes("ROUTER_QUEUE_IDLE_MIN", "10")
 LOCK_WAIT_S = 2.0
 
 
-def _paths(state_dir):
-    d = Path(state_dir) / "state"
-    return d / "inflight.json", d / "inflight.lock"
-
-
 class _Lock:
     """O_EXCL lock file; one older than 10 s is considered abandoned."""
 
@@ -87,16 +82,74 @@ def _prune(data, now):
     return {key: entries for key, entries in fresh.items() if entries}
 
 
+class _Store:
+    """One small JSON map in <state>/state/<name>.json, rewritten under its own lock file. Entries carry a "ts" stamp:
+    one older than `ttl` seconds is expired, and with `limit` only the newest entries are kept."""
+
+    def __init__(self, name, ttl=None, limit=None):
+        self.name, self.ttl, self.limit = name, ttl, limit
+
+    def path(self, state_dir):
+        return Path(state_dir) / "state" / f"{self.name}.json"
+
+    def lock(self, path):
+        return _Lock(path.with_suffix(".lock"))
+
+    def _fresh(self, entry, now):
+        return isinstance(entry, dict) and now - entry.get("ts", 0) < self.ttl
+
+    def get(self, state_dir, key):
+        """The key's entry while it is fresh, else None."""
+        entry = _load(self.path(state_dir)).get(key)
+        return entry if self._fresh(entry, time.time()) else None
+
+    def put(self, state_dir, key, entry):
+        """Stores `entry`, stamped now, under `key` and drops the expired entries; None removes the key instead."""
+        path, now = self.path(state_dir), time.time()
+        with self.lock(path):
+            data = {k: v for k, v in _load(path).items() if self._fresh(v, now)}
+            if entry is not None:
+                data[key] = {**entry, "ts": now}
+            elif data.pop(key, None) is None:
+                return
+            if self.limit:
+                data = dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-self.limit:])
+            _save(path, data)
+
+    def pop(self, state_dir, key):
+        path = self.path(state_dir)
+        with self.lock(path):
+            data = _load(path)
+            if data.pop(key, None) is not None:
+                _save(path, data)
+
+    def update(self, state_dir, key, change):
+        """Runs change(entry) on the key's fresh entry under the lock and saves what it changed in place.
+        -> (change's result, a copy of the entry), or (None, None) when the key is unknown or expired."""
+        path = self.path(state_dir)
+        with self.lock(path):
+            data = _load(path)
+            entry = data.get(key)
+            if not self._fresh(entry, time.time()):
+                return None, None
+            result = change(entry)
+            _save(path, data)
+            return result, dict(entry)
+
+
+INFLIGHT = _Store("inflight")  # {key: [entries]}: pruned per entry by on_submit, so no ttl of its own
+
+
 def on_submit(state_dir, provider, session_id, cwd, summary, last_activity=None):
     """{"ahead": unfinished entries of this session, "others": other sessions in the same folder}.
     last_activity: the transcript's mtime; a session silent for IDLE_S had its turn cancelled."""
     if not session_id:
         return {"ahead": [], "others": []}
-    path, lock = _paths(state_dir)
+    path = INFLIGHT.path(state_dir)
     now = time.time()
     key = f"{provider}:{session_id}"
     norm_cwd = os.path.normcase(os.path.abspath(cwd)) if cwd else ""
-    with _Lock(lock):
+    with INFLIGHT.lock(path):
         data = _prune(_load(path), now)
         if last_activity is not None and now - last_activity > IDLE_S:
             data.pop(key, None)
@@ -108,130 +161,65 @@ def on_submit(state_dir, provider, session_id, cwd, summary, last_activity=None)
 
 
 def on_stop(state_dir, provider, session_id):
-    if not session_id:
-        return
-    path, lock = _paths(state_dir)
-    with _Lock(lock):
-        data = _load(path)
-        if data.pop(f"{provider}:{session_id}", None) is not None:
-            _save(path, data)
+    if session_id:
+        INFLIGHT.pop(state_dir, f"{provider}:{session_id}")
 
 
-LAST_TTL_S = _minutes("ROUTER_CONTINUATION_TTL_MIN", "180")
 LAST_KEYS = ("task", "task_conf", "level", "primary", "verify", "skill", "skill_path", "skill_native", "effort",
              "model", "extra_agents", "lang", "target_agent")
-
-
-def _last_path(state_dir):
-    return Path(state_dir) / "state" / "last_decision.json"
+LAST = _Store("last_decision", ttl=_minutes("ROUTER_CONTINUATION_TTL_MIN", "180"))
 
 
 def remember(state_dir, provider, session_id, decision):
     """The session's latest decision, so a following "mehet" can continue it."""
-    if not session_id:
-        return
-    path = _last_path(state_dir)
-    now = time.time()
-    with _Lock(path.with_suffix(".lock")):
-        data = {k: v for k, v in _load(path).items() if now - v.get("ts", 0) < LAST_TTL_S}
-        data[f"{provider}:{session_id}"] = {"ts": now, **{k: decision[k] for k in LAST_KEYS if k in decision}}
-        _save(path, data)
+    if session_id:
+        LAST.put(state_dir, f"{provider}:{session_id}", {k: decision[k] for k in LAST_KEYS if k in decision})
 
 
 def recall(state_dir, provider, session_id):
-    if not session_id:
-        return None
-    entry = _load(_last_path(state_dir)).get(f"{provider}:{session_id}")
-    if not isinstance(entry, dict) or time.time() - entry.get("ts", 0) >= LAST_TTL_S:
-        return None
-    return entry
+    return LAST.get(state_dir, f"{provider}:{session_id}") if session_id else None
 
 
 def forget(state_dir, provider, session_id):
-    if not session_id:
-        return
-    path = _last_path(state_dir)
-    with _Lock(path.with_suffix(".lock")):
-        data = _load(path)
-        if data.pop(f"{provider}:{session_id}", None) is not None:
-            _save(path, data)
+    if session_id:
+        LAST.pop(state_dir, f"{provider}:{session_id}")
 
 
 # ---- the model a session runs (Claude: SessionStart / PostModelSwitch) --------------------------------------
 
-MODEL_TTL_S = 7 * 24 * 3600  # a session can stay open for days; a switch re-records it
-MODEL_MAX = 200
-
-
-def _models_path(state_dir):
-    return Path(state_dir) / "state" / "session_models.json"
+# a session can stay open for days; a switch re-records it
+MODELS = _Store("session_models", ttl=7 * 24 * 3600, limit=200)
 
 
 def remember_model(state_dir, provider, session_id, model):
     """Records the model (Claude: the family) a session runs; None forgets it (a switch to an unknown model).
-    Bounded to the MODEL_MAX newest sessions."""
-    if not session_id:
-        return
-    path = _models_path(state_dir)
-    now = time.time()
-    key = f"{provider}:{session_id}"
-    with _Lock(path.with_suffix(".lock")):
-        data = {k: v for k, v in _load(path).items() if isinstance(v, dict) and now - v.get("ts", 0) < MODEL_TTL_S}
-        if model:
-            data[key] = {"ts": now, "model": model}
-        elif data.pop(key, None) is None:
-            return
-        _save(path, dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-MODEL_MAX:]))
+    Bounded to the 200 newest sessions."""
+    if session_id:
+        MODELS.put(state_dir, f"{provider}:{session_id}", {"model": model} if model else None)
 
 
 def session_model(state_dir, provider, session_id):
     """The recorded model of the session, or None."""
-    if not session_id:
-        return None
-    entry = _load(_models_path(state_dir)).get(f"{provider}:{session_id}")
-    if not isinstance(entry, dict) or time.time() - entry.get("ts", 0) >= MODEL_TTL_S:
-        return None
-    return entry.get("model") or None
+    entry = MODELS.get(state_dir, f"{provider}:{session_id}") if session_id else None
+    return (entry or {}).get("model") or None
 
 
 # ---- per-prompt subagent budget (Claude PreToolUse guard) ---------------------------------------------------
 
-PROMPT_TTL_S = 12 * 3600
-PROMPT_MAX = 300
-
-
-def _prompts_path(state_dir):
-    return Path(state_dir) / "state" / "agent_budget.json"
+PROMPTS = _Store("agent_budget", ttl=12 * 3600, limit=300)
 
 
 def remember_prompt(state_dir, prompt_id, info):
     """Stores `info` (the routed decision's budget and target) for a prompt_id, with a fresh call counter. Bounded to
-    the PROMPT_MAX newest prompts; entries expire after PROMPT_TTL_S."""
-    if not prompt_id:
-        return
-    path = _prompts_path(state_dir)
-    now = time.time()
-    with _Lock(path.with_suffix(".lock")):
-        data = {k: v for k, v in _load(path).items() if isinstance(v, dict) and now - v.get("ts", 0) < PROMPT_TTL_S}
-        data[prompt_id] = {**info, "ts": now, "calls": 0, "warned": False}
-        _save(path, dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-PROMPT_MAX:]))
+    the 300 newest prompts; entries expire after 12 hours."""
+    if prompt_id:
+        PROMPTS.put(state_dir, prompt_id, {**info, "calls": 0, "warned": False})
 
 
 def update_prompt(state_dir, prompt_id, change):
-    """Runs change(entry) on the prompt's stored entry under the lock and saves what it changed in place.
-    -> (change's result, a copy of the entry), or (None, None) when the prompt is unknown or expired. Two hooks
-    racing past the lock's wait both proceed: a missed count is acceptable, a blocked tool call is not."""
-    if not prompt_id:
-        return None, None
-    path = _prompts_path(state_dir)
-    with _Lock(path.with_suffix(".lock")):
-        data = _load(path)
-        entry = data.get(prompt_id)
-        if not isinstance(entry, dict) or time.time() - entry.get("ts", 0) >= PROMPT_TTL_S:
-            return None, None
-        result = change(entry)
-        _save(path, data)
-        return result, dict(entry)
+    """Runs change(entry) on the prompt's stored entry (see _Store.update). Two hooks racing past the lock's wait
+    both proceed: a missed count is acceptable, a blocked tool call is not."""
+    return PROMPTS.update(state_dir, prompt_id, change) if prompt_id else (None, None)
 
 
 def render(info):

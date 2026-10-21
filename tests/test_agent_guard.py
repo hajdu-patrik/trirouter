@@ -142,7 +142,7 @@ def test_session_model_fallbacks(tmp_path):
 
 
 def test_session_model_store_is_bounded(tmp_path, monkeypatch):
-    monkeypatch.setattr(queue_state, "MODEL_MAX", 3)
+    monkeypatch.setattr(queue_state.MODELS, "limit", 3)
     for i in range(5):
         queue_state.remember_model(tmp_path, "claude", f"s{i}", "opus")
     data = json.loads((tmp_path / "state" / "session_models.json").read_text(encoding="utf-8"))
@@ -224,12 +224,12 @@ def test_guard_never_raises(monkeypatch, capsys):
 
 
 def test_prompt_budget_store_is_bounded_and_expires(tmp_path, monkeypatch):
-    monkeypatch.setattr(queue_state, "PROMPT_MAX", 2)
+    monkeypatch.setattr(queue_state.PROMPTS, "limit", 2)
     for i in range(4):
         queue_state.remember_prompt(tmp_path, f"p{i}", {"budget": 0})
     assert queue_state.update_prompt(tmp_path, "p0", lambda e: "seen") == (None, None)
     assert queue_state.update_prompt(tmp_path, "p3", lambda e: "seen")[0] == "seen"
-    monkeypatch.setattr(queue_state, "PROMPT_TTL_S", 0)
+    monkeypatch.setattr(queue_state.PROMPTS, "ttl", 0)
     assert queue_state.update_prompt(tmp_path, "p3", lambda e: "seen") == (None, None)
 
 
