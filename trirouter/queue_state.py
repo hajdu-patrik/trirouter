@@ -96,7 +96,7 @@ class _Store:
         return _Lock(path.with_suffix(".lock"))
 
     def _fresh(self, entry, now):
-        return isinstance(entry, dict) and now - entry.get("ts", 0) < self.ttl
+        return isinstance(entry, dict) and (self.ttl is None or now - entry.get("ts", 0) < self.ttl)
 
     def get(self, state_dir, key):
         """The key's entry while it is fresh, else None."""
