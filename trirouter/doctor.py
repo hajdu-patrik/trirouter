@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Read-only health report (`trirouter doctor`)."""
 import json
-import os
 import re
 from pathlib import Path
 
-from . import integrations, legacy, platforms as P, remote, secret, skillscan
+from . import core, integrations, legacy, platforms as P, remote, secret, skillscan
 
 HOME = P.HOME
 STATE = legacy.state_dir(HOME)
@@ -192,13 +191,8 @@ def report_command():
 def report_config():
     print("\n== Configuration (~/.trirouter/config.json)")
     cfg = jload(STATE / "config.json") or {}
-    if os.environ.get("TYPESAFE_API_KEY") or secret.reveal(cfg.get("typesafe_api_key")):
-        backend = "JEV (TypeSafe token)"
-    elif os.environ.get("JEV_OPENROUTER_API_KEY") or secret.reveal(cfg.get("openrouter_api_key")):
-        backend = "JEV through OpenRouter"
-    else:
-        backend = f"built-in local model ({P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')})"
-    line(True, "Decision backend", backend)
+    line(True, "Decision backend", core.JEV_LABELS.get(core.jev_access(cfg)[0])
+         or f"built-in local model ({P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')})")
     report_keys(cfg)
     line(True, "Remote access name", cfg.get("remote_name") or f"not set up ({P.command_hint('remote')})")
     line(True, "Per-account model overrides", "yes" if (STATE / "models.local.json").exists()

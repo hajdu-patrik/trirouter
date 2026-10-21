@@ -373,18 +373,30 @@ def user_config():
     return platforms.read_json(STATE_DIR / "config.json", {})
 
 
-def jev_endpoint():
-    """(channel, url, key, model), or None. A TypeSafe token wins over an OpenRouter key. The generic
-    OPENROUTER_API_KEY is deliberately not read: other tools set it, and routing would then spend
-    that account's credit without the user ever opting in.
+# (channel, environment variable, config.json field), in priority order: a TypeSafe token wins over an OpenRouter key
+JEV_KEYS = (("typesafe", "TYPESAFE_API_KEY", "typesafe_api_key"),
+            ("openrouter", "JEV_OPENROUTER_API_KEY", "openrouter_api_key"))
+JEV_LABELS = {"typesafe": "JEV (TypeSafe token)", "openrouter": "JEV through OpenRouter"}
+
+
+def jev_access(cfg):
+    """(channel, key) of the JEV access the environment or `cfg` (a parsed config.json) gives, or (None, None).
     A stored key may be protected (secret.py); one that cannot be decrypted here counts as no key."""
-    cfg = user_config()
-    key = os.environ.get("TYPESAFE_API_KEY") or secret.reveal(cfg.get("typesafe_api_key"))
-    if key:
-        return "typesafe", API_URL, key, JEV_MODEL
-    key = os.environ.get("JEV_OPENROUTER_API_KEY") or secret.reveal(cfg.get("openrouter_api_key"))
-    if key:
-        return "openrouter", OPENROUTER_URL, key, OPENROUTER_JEV_MODEL
+    for channel, env, field in JEV_KEYS:
+        key = os.environ.get(env) or secret.reveal(cfg.get(field))
+        if key:
+            return channel, key
+    return None, None
+
+
+def jev_endpoint():
+    """(channel, url, key, model), or None. The generic OPENROUTER_API_KEY is deliberately not read: other tools set
+    it, and routing would then spend that account's credit without the user ever opting in."""
+    channel, key = jev_access(user_config())
+    if channel == "typesafe":
+        return channel, API_URL, key, JEV_MODEL
+    if channel == "openrouter":
+        return channel, OPENROUTER_URL, key, OPENROUTER_JEV_MODEL
     return None
 
 

@@ -181,11 +181,8 @@ def store_jev_key(cfg, key):
 
 
 def jev_backend_label(cfg):
-    if secret.reveal(cfg.get("typesafe_api_key")) or os.environ.get("TYPESAFE_API_KEY"):
-        return "JEV (TypeSafe token)"
-    if secret.reveal(cfg.get("openrouter_api_key")) or os.environ.get("JEV_OPENROUTER_API_KEY"):
-        return "JEV through OpenRouter"
-    return "built-in local model (add JEV later with `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`)"
+    return core.JEV_LABELS.get(core.jev_access(cfg)[0]) or \
+        "built-in local model (add JEV later with `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`)"
 
 
 def configure_jev(cfg):
