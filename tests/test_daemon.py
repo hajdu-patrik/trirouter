@@ -5,6 +5,7 @@ import http.client
 import json
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -374,3 +375,21 @@ def test_dropped_client_connections_are_not_logged(server):
             server.handle_error(None, ("127.0.0.1", 1))
         log = core.STATE_DIR / "logs" / "daemon.log"
         assert (log.exists() and type(exc).__name__ in log.read_text(encoding="utf-8")) is logged
+
+
+def test_a_negative_chunk_size_is_a_bad_request(server):
+    headers = {"Transfer-Encoding": "chunked"}
+    assert call(server, "POST", "/hook/claude/UserPromptSubmit", b"-5\r\n{}\r\n0\r\n\r\n", headers=headers)[0] == 400
+    assert call(server, "POST", "/hook/claude/UserPromptSubmit", b"2\r\n{}\r\n0\r\n\r\n", headers=headers)[0] == 200
+
+
+def test_a_reload_does_not_wait_forever_for_a_stuck_request(monkeypatch):
+    monkeypatch.setattr(daemon, "RELOAD_WAIT_S", 0.1)
+    runner = daemon.HookRunner(keepalive=False)
+    runner.active = 1  # a request that never finishes
+    checks = []
+    monkeypatch.setattr(runner.reloader, "stale", lambda: not checks and not checks.append(1))  # stale once
+    monkeypatch.setattr(runner.reloader, "current", lambda: setattr(runner.reloader, "module", "fresh"))
+    t0 = time.monotonic()
+    assert runner._acquire() == "fresh" and time.monotonic() - t0 < 2.0
+    assert "still running" in (core.STATE_DIR / "logs" / "daemon.log").read_text(encoding="utf-8")

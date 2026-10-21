@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import catalog, lang, legacy, platforms, secret
+from . import catalog, lang, legacy, platforms, secret, store
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
 # ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it (hooks and the MCP server only read)
@@ -22,15 +22,19 @@ API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemo
 JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")
 OPENROUTER_URL = os.environ.get("JEV_OPENROUTER_URL", "https://openrouter.ai/api/v1/systemone")
 OPENROUTER_JEV_MODEL = os.environ.get("JEV_OPENROUTER_MODEL", "jev-1.13")  # OpenRouter takes the bare id
-TIMEOUT_S = float(os.environ.get("JEV_TIMEOUT", "1.8"))  # the hook runs before every prompt: fail fast to the local classifier
-MIN_CONF = float(os.environ.get("ROUTER_MIN_CONFIDENCE", "0.6"))
-DESTRUCTIVE_T = float(os.environ.get("ROUTER_DESTRUCTIVE_THRESHOLD", "0.3"))
-LONG_CTX_T = float(os.environ.get("ROUTER_LONG_CONTEXT_THRESHOLD", "0.7"))
+TIMEOUT_S = platforms.env_number("JEV_TIMEOUT", 1.8)  # the hook runs before every prompt: fail fast to the local classifier
+MIN_CONF = platforms.env_number("ROUTER_MIN_CONFIDENCE", 0.6)
+DESTRUCTIVE_T = platforms.env_number("ROUTER_DESTRUCTIVE_THRESHOLD", 0.3)
+LONG_CTX_T = platforms.env_number("ROUTER_LONG_CONTEXT_THRESHOLD", 0.7)
 MAX_STATE_CHARS = 6000  # well under JEV's 32k-token limit: long states degrade its answers
-SKILL_CANDIDATES = int(os.environ.get("ROUTER_SKILL_CANDIDATES", "5"))
+MAX_RESPONSE_BYTES = 256 * 1024  # a JEV answer is a few KB: more is not an answer
+CLASSIFY_MAX_CHARS = 20_000  # classification reads the first and last this many characters of the user's own text
+SKILL_CANDIDATES = platforms.env_number("ROUTER_SKILL_CANDIDATES", 5, int)
 SKILL_DESC_CHARS = 120  # per skill description sent to the classifier: request size is latency
 CACHE_MAX = 128  # decision cache entries (classifier answers by prompt hash)
 CACHE_TTL_S = 24 * 3600
+JEV_FAILURES = 2      # failures in a row that open the circuit breaker ...
+JEV_COOLDOWN_S = 60   # ... for this long: every prompt is decided locally instead of each paying the timeout
 LOCAL_CONFIDENT = 0.9  # local task confidence at which the network call is skipped (replayed on real traffic: 0.8 agreed with JEV on 3 of 4, 0.9 on 2 of 2)
 LOCAL_FAST_MAX_CHARS = 400  # longer prompts are not decided on keywords alone
 BACKEND = os.environ.get("ROUTER_BACKEND", "auto").lower()
@@ -73,6 +77,12 @@ def split_pasted(prompt):
     pasted = "\n".join(m.group(0) for m in PASTED_RE.finditer(prompt))
     own = " ".join(PASTED_RE.sub(" ", prompt).split())
     return (own or prompt), pasted
+
+
+def clip(text, limit=CLASSIFY_MAX_CHARS):
+    """The first and last `limit` characters of a very long text: classification stays fast whatever is pasted
+    (the destructive check still reads the whole prompt)."""
+    return text if len(text) <= 2 * limit else f"{text[:limit]}\n...\n{text[-limit:]}"
 
 
 def language_of(prompt):
@@ -286,7 +296,7 @@ LOCAL_LONG_RE = (r"\d{2,}\s*oldal|(egesz|teljes|osszes) (kodbazis|repo|projekt|k
 
 
 # Extra parallel agents multiply token usage, so 0 is the answer for almost every request.
-MAX_EXTRA_AGENTS = int(os.environ.get("ROUTER_MAX_EXTRA_AGENTS", "4"))
+MAX_EXTRA_AGENTS = platforms.env_number("ROUTER_MAX_EXTRA_AGENTS", 4, int)
 AGENTS_MIN_CONF = 0.7  # independent of ROUTER_MIN_CONFIDENCE; below it, one agent fewer
 AGENT_CRITERIA = {
     "0": "DEFAULT - choose this for the vast majority of requests. One agent does the whole job: questions, "
@@ -601,19 +611,71 @@ def build_questions(skills, effort=None, models=None):
     return q
 
 
+LOOPBACK = ("127.0.0.1", "::1", "localhost")
+
+
 def ask_jev(prompt, questions):
+    """JEV's raw answer object for `prompt` (sent redacted). The endpoint must be https (the token travels with
+    every request), except on the loopback interface; redirects are refused and the answer size is capped; the
+    whole call, DNS lookup included, is bounded by TIMEOUT_S."""
     endpoint = jev_endpoint()
     if not endpoint:
-        raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: trirouter setup --jev-token=...)")
+        raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: trirouter setup --jev-token-stdin)")
     _, url, key, model = endpoint
+    import urllib.parse
     import urllib.request  # lazy: the network stack is only paid for when JEV is actually called
-    body = json.dumps({"state": prompt[:MAX_STATE_CHARS], "model": model, "questions": questions}).encode("utf-8")
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" and parts.hostname not in LOOPBACK:
+        raise RuntimeError("the JEV endpoint must use https")
+    body = json.dumps({"state": secret.redact(prompt[:MAX_STATE_CHARS]), "model": model,
+                       "questions": questions}).encode("utf-8")
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    if KEEPALIVE and not urllib.request.getproxies().get(url.split(":", 1)[0]):  # http.client knows no proxies
-        return json.loads(_post_keepalive(url, body, headers).decode("utf-8"))
+    if KEEPALIVE and not urllib.request.getproxies().get(parts.scheme):  # http.client knows no proxies
+        fetch = lambda: _post_keepalive(url, body, headers)  # noqa: E731
+    else:
+        fetch = lambda: _post_once(url, body, headers)  # noqa: E731
+    return json.loads(_within(TIMEOUT_S, fetch).decode("utf-8"))
+
+
+def _within(seconds, fn):
+    """fn()'s result, or TimeoutError once `seconds` have passed: the socket timeout bounds each operation, not a
+    DNS lookup or a chain of small reads. A late call finishes in its daemon thread, unobserved."""
+    box = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread
+            box["error"] = exc
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if "error" in box:
+        raise box["error"]
+    if "value" not in box:
+        raise TimeoutError(f"JEV did not answer within {seconds} s")
+    return box["value"]
+
+
+def _read_capped(resp):
+    data = resp.read(MAX_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise RuntimeError(f"JEV answered more than {MAX_RESPONSE_BYTES} bytes")
+    return data
+
+
+def _post_once(url, body, headers):
+    """One POST over urllib (a short-lived command hook); a redirect is an error, never followed with the token."""
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args):
+            return None
+
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    with urllib.request.build_opener(NoRedirect).open(req, timeout=TIMEOUT_S) as resp:
+        return _read_capped(resp)
 
 
 # Keep-alive for the long-running hook daemon (daemon.py sets KEEPALIVE): a short-lived command hook pays a new TLS
@@ -644,7 +706,7 @@ def _post_keepalive(url, body, headers):
         try:
             conn.request("POST", path, body=body, headers=headers)
             resp = conn.getresponse()
-            data = resp.read()
+            data = _read_capped(resp)
         except TimeoutError:
             conn.close()
             raise
@@ -652,6 +714,9 @@ def _post_keepalive(url, body, headers):
             conn.close()
             if reused and not attempt:
                 continue  # stale keep-alive connection: reconnect once
+            raise
+        except RuntimeError:  # an oversized answer: the rest of the body would poison the pooled connection
+            conn.close()
             raise
         if resp.will_close:
             conn.close()
@@ -680,65 +745,134 @@ def classify(prompt, skills=None, backend=None, effort=None, models=None, pasted
     candidates = skills or []
     if use_jev(backend):
         state = prompt + (f"\n\n[Pasted by the user, not their own words]\n{pasted}" if pasted else "")
-        answers = _jev_answers(state, candidates, effort, models)
-    else:
-        answers = _mock_answers(prompt, candidates, effort)
-    return _enforce_policy(answers, effort, models)
+        return _jev_answers(state, candidates, effort, models)
+    return _mock_answers(prompt, candidates, effort)
 
 
 def _jev_answers(prompt, candidates, effort, models):
+    """JEV's validated answers, from the cache or the network. A failure (no answer, a malformed one) counts
+    towards the circuit breaker; only a validated answer is cached."""
     questions = build_questions({s["name"]: s["description"] for _, s in candidates}, effort, models)
-    key = _cache_key(prompt, questions)
+    channel, _, _, model = jev_endpoint() or (None, None, None, None)
+    key = _cache_key(channel, model, prompt, questions)
     cached = _cache_get(key)
     if cached is not None:
-        cached["_cached"] = True
-        return cached
-    result = ask_jev(prompt, questions)
-    answers = result["answers"]
+        try:
+            return dict(validate_answers(cached, questions), _backend="jev", _cached=True)
+        except ValueError:
+            pass  # a damaged entry is a miss
+    if _jev_paused():
+        raise RuntimeError(f"JEV paused for {JEV_COOLDOWN_S:.0f} s after {JEV_FAILURES} failures")
+    try:
+        result = ask_jev(prompt, questions)
+        answers = validate_answers(result["answers"] if isinstance(result, dict) else None, questions)
+    except Exception:
+        _jev_failed()
+        raise
+    _jev_recovered()
     answers["_backend"] = "jev"
     answers["_jev_model"] = result.get("model")
     _cache_put(key, answers)
     return answers
 
 
-# Decision cache: the classifier's answers by hash of the exact request (state text + questions), so a repeated
-# prompt costs no network call. Bounded, expiring, atomically written, and never a reason for a hook to fail.
-def _cache_path():
-    return Path(STATE_DIR) / "state" / "answer_cache.json"
+REQUIRED_ANSWERS = ("task", "difficulty", "long_context", "needs_web", "destructive")
 
 
-def _cache_key(prompt, questions):
-    import hashlib
-    blob = json.dumps([prompt[:MAX_STATE_CHARS], questions], sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+def _unit(value):
+    """`value` when it is a number within 0..1, else None."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1 else None
 
 
-def _cache_load():
-    return platforms.read_json(_cache_path(), {}, kind=dict)
-
-
-def _cache_get(key):
-    try:
-        entry = _cache_load().get(key)
-        fresh = isinstance(entry, dict) and time.time() - float(entry.get("ts", 0)) < CACHE_TTL_S
-        if fresh and isinstance(entry.get("answers"), dict):
-            return json.loads(json.dumps(entry["answers"]))
-    except Exception:  # noqa: BLE001 - a cache problem is a cache miss
-        pass
+def _checked_answer(answer, question):
+    """The answer in the shape its question allows: a choice among the criteria, a score within them, noul and
+    confidence within 0..1; None otherwise."""
+    if not isinstance(answer, dict):
+        return None
+    conf = _unit(answer.get("confidence", 0))
+    if question["type"] == "choice":
+        choice = answer.get("choice")
+        if isinstance(choice, str) and choice in question["criteria"] and conf is not None:
+            return {"choice": choice, "confidence": conf}
+    elif question["type"] == "score":
+        score = answer.get("score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool) \
+                and 0 <= score <= len(question["criteria"]) - 1 and conf is not None:
+            return {"score": score, "confidence": conf}
+    else:
+        noul = _unit(answer.get("noul"))
+        if noul is not None:
+            return {"noul": noul}
     return None
 
 
+def _lowered_effort(answer, question):
+    """A banned effort level (ultra) lowered to the highest level offered; the policy stands in code, never
+    trusting the answer alone."""
+    usable = list(question["criteria"])
+    if isinstance(answer, dict) and answer.get("choice") in EFFORT_ORDER and usable:
+        return {"choice": usable[-1], "confidence": _unit(answer.get("confidence", 0)) or 0.5}
+    return None
+
+
+def validate_answers(answers, questions):
+    """JEV's answers checked against the questions they answer. A required answer that is missing or malformed
+    raises ValueError (the local classifier decides instead); a malformed optional one (skill, agents, effort,
+    model) is dropped; nothing outside the questions is kept, so no text of JEV's ever reaches the context verbatim."""
+    if not isinstance(answers, dict):
+        raise ValueError("JEV answers are not an object")
+    out = {}
+    for name, question in questions.items():
+        checked = _checked_answer(answers.get(name), question)
+        if checked is None and name == "effort":
+            checked = _lowered_effort(answers.get(name), question)
+        if checked is not None:
+            out[name] = checked
+        elif name in REQUIRED_ANSWERS:
+            raise ValueError(f"JEV answer missing or malformed: {name}")
+    return out
+
+
+# Decision cache: the classifier's answers by hash of the exact request (channel, model, state text, questions),
+# so a repeated prompt costs no network call. Bounded, expiring, atomically written, and never a reason for a
+# hook to fail.
+ANSWERS = store.Store("answer_cache", ttl=CACHE_TTL_S, limit=CACHE_MAX)
+
+
+def _cache_key(channel, model, prompt, questions):
+    import hashlib
+    blob = json.dumps([channel, model, prompt[:MAX_STATE_CHARS], questions], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def _cache_get(key):
+    entry = ANSWERS.get(STATE_DIR, key)
+    return entry.get("answers") if entry else None
+
+
 def _cache_put(key, answers):
-    try:
-        now = time.time()
-        data = {k: v for k, v in _cache_load().items() if isinstance(v, dict) and now - float(v.get("ts", 0)) < CACHE_TTL_S}
-        data[key] = {"ts": now, "answers": answers}
-        if len(data) > CACHE_MAX:  # drop the oldest
-            for k in sorted(data, key=lambda k: data[k].get("ts", 0))[:len(data) - CACHE_MAX]:
-                del data[k]
-        platforms.atomic_write(_cache_path(), json.dumps(data, ensure_ascii=False))
-    except Exception:  # noqa: BLE001
-        pass
+    ANSWERS.put(STATE_DIR, key, {"answers": answers})
+
+
+# Circuit breaker: after JEV_FAILURES failures in a row (no answer, a malformed one) the prompts of the next
+# JEV_COOLDOWN_S are decided locally at once. Shared by every hook process through one small state file.
+BREAKER = store.Store("jev_breaker")
+
+
+def _jev_paused():
+    entry = BREAKER.get(STATE_DIR, "jev") or {}
+    return isinstance(entry.get("paused_until"), (int, float)) and time.time() < entry["paused_until"]
+
+
+def _jev_failed():
+    failures = int((BREAKER.get(STATE_DIR, "jev") or {}).get("failures") or 0) + 1
+    paused_until = time.time() + JEV_COOLDOWN_S if failures >= JEV_FAILURES else 0
+    BREAKER.put(STATE_DIR, "jev", {"failures": failures, "paused_until": paused_until})
+
+
+def _jev_recovered():
+    if BREAKER.get(STATE_DIR, "jev"):
+        BREAKER.put(STATE_DIR, "jev", None)
 
 
 def _mock_answers(prompt, candidates, effort):
@@ -763,17 +897,6 @@ def _mock_effort(lvl, effort):
         return None
     idx = round(lvl / 2 * (len(usable) - 1) * 0.8) if len(usable) > 1 else 0
     return usable[max(0, min(idx, len(usable) - 1))]
-
-
-def _enforce_policy(answers, effort, models):
-    """Hard policy in code, never trusting the model-based answer alone."""
-    banned = excluded_efforts()
-    if answers.get("effort", {}).get("choice") in banned:
-        usable = [l for l in (effort or {}).get("levels", EFFORT_ORDER) if l not in banned]
-        answers["effort"] = {"choice": usable[-1] if usable else "max", "confidence": answers["effort"].get("confidence", 0.5)}
-    if "model" in answers and (not models or answers["model"].get("choice") not in models):
-        answers.pop("model")
-    return answers
 
 
 def is_cloud():
@@ -1029,12 +1152,14 @@ def render(d, destructive_hit, targets, provider="claude", lang_code="hu", model
                      f"only for genuinely independent parts; split the work, then merge and verify the results.")
     if d.get("verify") in targets.get("verify", {}):
         parts.append(targets["verify"][d["verify"]])
-    if d.get("skill"):
+    # the skill name and path come from catalog.json and the saved last decision, both data: only a plain name and a
+    # path inside a known skill root are ever written into the context
+    if catalog.valid_name(d.get("skill")):
         if base_provider(provider) in d.get("skill_native", [base_provider(provider)]):
             parts.append(f"Relevant skill: `{d['skill']}` - use it.")
-        else:
+        elif catalog.known_path(d.get("skill_path")):
             parts.append(f"Relevant skill: `{d['skill']}` (from another tool) - read and follow "
-                         f"{d.get('skill_path', '')}/SKILL.md before starting.")
+                         f"{d['skill_path']}/SKILL.md before starting.")
     if destructive_hit:
         parts.append("SAFETY: this may be irreversible. List the exact actions and ask for explicit confirmation before executing any of them.")
     if d.get("notes"):
@@ -1045,6 +1170,9 @@ def render(d, destructive_hit, targets, provider="claude", lang_code="hu", model
 
 # Only the start: a real path can contain spaces, so the rest is grown word by word.
 FOREIGN_PATH_START_RE = re.compile(r'[A-Za-z]:[\\/]|(?<![:\w])/(?=\S)')
+# A UNC share (//host/share, \\host\share), an extended (\\?\) or a device (\\.\) path: never touched, because on
+# Windows exists() would contact the host (an SMB round trip with the user's credentials, seconds per probe).
+_REMOTE_PATH_RE = re.compile(r"[\\/]{2}")
 # Bounds that keep a pathological prompt from slowing the hook down.
 FOREIGN_PATH_MAX_CHARS = 200
 FOREIGN_PATH_MAX_WORDS = 12
@@ -1072,9 +1200,9 @@ def _deepest_existing_ancestor(path):
     return None
 
 
-def _longest_existing_prefix(text):
-    """Longest existing path at the start of `text`. Growing word by word handles both trailing
-    prose and path components that contain spaces."""
+def _longest_existing_prefix(text, drive=""):
+    """Longest existing path at the start of `text`, on `drive` (the session's own; "" on POSIX). Growing word by
+    word handles both trailing prose and path components that contain spaces."""
     words = text[:FOREIGN_PATH_MAX_CHARS].split()
     best_len, best = -1, None
     candidate = ""
@@ -1082,8 +1210,9 @@ def _longest_existing_prefix(text):
         candidate = f"{candidate} {word}".strip() if candidate else word
         trimmed = candidate.rstrip(".,;:'\")]}")
         path = Path(trimmed)
-        if not path.anchor:
-            # Not rooted on this OS ("C:\..." on POSIX): its only existing ancestor is the cwd.
+        if not path.anchor or _REMOTE_PATH_RE.match(trimmed) or path.drive.lower() != drive.lower():
+            # Not rooted on this OS ("C:\..." on POSIX: its only existing ancestor is the cwd), a remote path, or
+            # another drive (a mapped network drive is remote too).
             break
         try:
             ancestor = _deepest_existing_ancestor(path)
@@ -1106,7 +1235,7 @@ def foreign_project_note(prompt, cwd):
         for count, match in enumerate(starts):
             if count >= FOREIGN_PATH_MAX_STARTS:
                 break
-            existing = _longest_existing_prefix(prompt[match.start():])
+            existing = _longest_existing_prefix(prompt[match.start():], cwd_path.drive)
             if not existing:
                 continue
             try:
@@ -1134,7 +1263,8 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     effort = effort_levels_for(provider)
     models = models_for(provider)
     own, pasted = split_pasted(prompt)
-    lang_code = language_of(prompt)
+    own = clip(own)
+    lang_code = language_of(own)
     regex_hit = is_destructive(prompt)  # the whole prompt: a pasted command can be the dangerous part
 
     forced = override_for(prompt, targets)

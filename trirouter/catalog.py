@@ -12,7 +12,7 @@ import math
 import os
 import re
 import time
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from . import lang, legacy, platforms as P
 
@@ -21,6 +21,8 @@ HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
 CATALOG = HUB / "catalog.json"
 PROVIDERS = ["claude", "codex", "antigravity"]
 BUNDLED = Path(__file__).resolve().parent / "skills"  # skills shipped with trirouter: never catalog-only
+# A skill name is written into the model's context verbatim: a plain identifier, optionally "<vendor>:<name>".
+NAME_RE = re.compile(r"[\w:.-]{1,80}")
 
 SOURCES = [
     # (root, recursive, native_in, name prefix). The prefixes match Claude's own skill names, so
@@ -124,6 +126,19 @@ def is_skill_dir(path):
     return (Path(path) / SKILL_FILE).is_file()
 
 
+def valid_name(name):
+    return isinstance(name, str) and bool(NAME_RE.fullmatch(name))
+
+
+def known_path(path):
+    """True when `path` lies inside one of the skill roots this catalog indexes: catalog.json is data, so a path
+    from it is only ever quoted to the model when it points where a skill can be."""
+    if not isinstance(path, str) or not path:
+        return False
+    p = PurePath(os.path.normcase(path))
+    return any(p.is_relative_to(PurePath(os.path.normcase(str(root)))) for root, _, _, _ in SOURCES)
+
+
 def _skill_dirs(root, recursive):
     if not root.is_dir():
         return []
@@ -181,8 +196,8 @@ def build_catalog(catalog_only=None):
     for root, recursive, native_in, prefix in SOURCES:
         for d in _skill_dirs(root, recursive):
             name, desc = parse_frontmatter(d / SKILL_FILE)
-            name = _qualified_name(name or d.name, d, root, prefix)
-            if name in seen:
+            name = _qualified_name(name if valid_name(name) else d.name, d, root, prefix)
+            if name in seen or not valid_name(name):
                 continue
             seen.add(name)
             native = list(native_in)
@@ -211,7 +226,7 @@ _INDEX_MEMO = {}   # (key) -> (docs, df) for this process
 
 
 def _index_path():
-    return P.STATE / "catalog-index.json"
+    return legacy.state_dir() / "catalog-index.json"
 
 
 def load_catalog():

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from trirouter import core
+from trirouter import core, store
 
 
 @pytest.fixture(autouse=True)
@@ -245,12 +245,12 @@ def test_decision_cache_answers_a_repeated_prompt_without_the_network(monkeypatc
 
 
 def test_decision_cache_is_bounded_and_expires(monkeypatch, tmp_path):
-    monkeypatch.setattr(core, "CACHE_MAX", 5)
+    monkeypatch.setattr(core, "ANSWERS", store.Store("answer_cache", ttl=core.CACHE_TTL_S, limit=5))
     for i in range(12):
         core._cache_put(f"k{i}", {"task": {"choice": "qa"}})
     data = json.loads((tmp_path / "state" / "answer_cache.json").read_text(encoding="utf-8"))
     assert len(data) == 5 and "k11" in data and "k0" not in data
-    monkeypatch.setattr(core, "CACHE_TTL_S", -1)
+    monkeypatch.setattr(core.ANSWERS, "ttl", -1)
     assert core._cache_get("k11") is None
 
 

@@ -40,7 +40,7 @@ CACHE = STATE / "state" / "skillscan.json"
 CONFIG = STATE / "config.json"
 DEFAULT_DAYS = 3  # quarantine retention; 0 = never purge
 EXE = "skillspector"
-INSTALL_HINT = "uv tool install git+https://github.com/NVIDIA/skillspector.git"
+INSTALL_HINT = "uv tool install git+https://github.com/NVIDIA/skillspector.git@v2.12.0"
 SAFE, CAUTION, BLOCK = "SAFE", "CAUTION", "DO_NOT_INSTALL"
 TIMEOUT_S = {False: 600, True: 1800}  # static / with LLM analysis; large skills take minutes
 WORKERS = max(1, min(8, (os.cpu_count() or 2) // 2))  # parallel scans; each one is a CPU-bound process
@@ -54,7 +54,7 @@ def find_scanner():
 UV_TOOL_HINT = ("SkillSpector's uv tool folder is probably not visible to this Python (a packaged Python on "
                 "Windows virtualizes %APPDATA%). Reinstall it outside AppData: set UV_TOOL_DIR to e.g. "
                 r"%USERPROFILE%\.local\share\uv\tools and run "
-                "`uv tool install --force git+https://github.com/NVIDIA/skillspector.git` "
+                "`uv tool install --force git+https://github.com/NVIDIA/skillspector.git@v2.12.0` "
                 "(`uv tool upgrade` then needs the same UV_TOOL_DIR).")
 
 
@@ -471,3 +471,19 @@ def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, acc
     if apply:
         save_cache(cache)
     return blocked
+
+
+def main(argv=None):
+    """`python -m trirouter.skillscan --purge-expired`: the purge the Claude SessionStart hook starts in a detached
+    process (a large quarantined skill takes seconds to delete). Always 0."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args != ["--purge-expired"]:
+        print("usage: python -m trirouter.skillscan --purge-expired   (by hand: `trirouter quarantine purge`)")
+        return 0
+    P.NO_WINDOW = True
+    purge_expired(apply=True, say=None)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

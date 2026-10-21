@@ -1,3 +1,5 @@
+import pytest
+
 from trirouter import core
 
 
@@ -62,3 +64,25 @@ def test_never_raises_on_garbage_prompt_text(tmp_path, monkeypatch):
 def test_unrooted_candidate_never_resolves_to_the_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(_make_project(tmp_path, "process_cwd"))
     assert core._longest_existing_prefix("relative/dir and more words") is None
+
+
+@pytest.mark.parametrize("remote", [
+    "//attacker.example/share/log.txt", "\\\\attacker.example\\share\\log.txt", "\\\\?\\C:\\Windows\\x",
+    "\\\\.\\PhysicalDrive0",
+])
+def test_remote_and_device_paths_are_never_probed(tmp_path, monkeypatch, remote):
+    """On Windows exists() on a UNC path contacts the host (an SMB round trip with the user's credentials)."""
+    here = _make_project(tmp_path, "here")
+    probed = []
+    monkeypatch.setattr(core.Path, "exists", lambda self: probed.append(str(self)) or False)
+    assert core.foreign_project_note(f"check the logs at {remote} and see", str(here)) is None
+    assert not any(p.startswith(("//", "\\\\")) for p in probed)
+
+
+def test_only_the_sessions_own_drive_is_probed(tmp_path, monkeypatch):
+    here = _make_project(tmp_path, "here")
+    probed = []
+    monkeypatch.setattr(core.Path, "exists", lambda self: probed.append(str(self)) or False)
+    other = "Z:" if core.Path(str(here)).drive.upper() != "Z:" else "Y:"
+    core.foreign_project_note(f"see {other}\\projects\\x\\file.py please", str(here))
+    assert not any(p.upper().startswith(other) for p in probed)

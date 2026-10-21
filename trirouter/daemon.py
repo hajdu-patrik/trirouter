@@ -48,6 +48,7 @@ PROVIDERS = ("claude", "codex", "antigravity")
 EVENT_RE = re.compile(r"^[A-Za-z]{1,64}$")
 HEALTH_TIMEOUT_S = 0.2   # the SessionStart hook's check: a local answer takes a few milliseconds
 LOG_MAX = 512 * 1024     # daemon.log is cut to its newer half beyond this
+RELOAD_WAIT_S = 30.0     # a reload waits this long for the running requests; a stuck one must not freeze the daemon
 
 
 # ---- state: ~/.trirouter/state/daemon.json ------------------------------------------------------------------
@@ -98,29 +99,16 @@ def transport(cfg=None):
     return "http" if (cfg.get("hooks") or {}).get("transport") == "http" else "command"
 
 
-_LOG_LOCK = threading.Lock()
-
-
 def log(message):
     """One line in logs/daemon.log (never a prompt, never the token); bounded, never raises."""
-    try:
-        with _LOG_LOCK:
-            path = log_file()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as f:
-                f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {message}\n")
-            if path.stat().st_size > LOG_MAX:
-                data = path.read_bytes()[-LOG_MAX // 2:]
-                P.atomic_write(path, data[data.find(b"\n") + 1:])
-    except Exception:  # noqa: BLE001 - logging must never stop a request
-        pass
+    P.append_line(log_file(), f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {message}", max_bytes=LOG_MAX)
 
 
 # ---- the server ----------------------------------------------------------------------------------------------
 
 class HookRunner:
-    """Runs hooks.handle with the freshest code. A reload waits until no request is in flight, so one request
-    never sees half-purged modules; requests run in parallel otherwise."""
+    """Runs hooks.handle with the freshest code. A reload waits (up to RELOAD_WAIT_S) until no request is in flight,
+    so one request never sees half-purged modules; requests run in parallel otherwise."""
 
     def __init__(self, keepalive=True):
         self.reloader = HotReloader("trirouter", PKG, "hooks", keep=("hotreload", "daemon"))
@@ -131,9 +119,10 @@ class HookRunner:
     def _acquire(self):
         with self.cond:
             while self.reloader.stale():
-                if self.active:
-                    self.cond.wait()
+                if self.active and self.cond.wait(RELOAD_WAIT_S):
                     continue
+                if self.active:
+                    log(f"reloading with {self.active} request(s) still running after {RELOAD_WAIT_S:.0f} s")
                 hooks = self.reloader.current()  # raises only when the very first load fails
                 if self.reloader.warning:
                     log(self.reloader.warning[:300])
@@ -235,6 +224,8 @@ class Handler(BaseHTTPRequestHandler):
             chunks, total = [], 0
             while True:
                 size = int(self.rfile.readline(1024).split(b";")[0].strip() or b"0", 16)
+                if size < 0:
+                    raise ValueError("negative chunk size")
                 if size == 0:
                     while self.rfile.readline(65536) not in (b"\r\n", b"\n", b""):
                         pass  # trailers

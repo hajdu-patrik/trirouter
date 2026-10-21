@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
 from .hotreload import HotReloader
 
 PROTOCOL = "2025-06-18"
@@ -29,7 +30,7 @@ def _handle(msg, tools):
     if method == "initialize":
         result = {"protocolVersion": params.get("protocolVersion") or PROTOCOL,
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "trirouter", "version": "1.0.0"},
+                  "serverInfo": {"name": "trirouter", "version": __version__},
                   "instructions": "Call route_prompt with the user's request before answering it, then follow its instructions."}
     elif method == "ping":
         result = {}

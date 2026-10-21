@@ -176,7 +176,7 @@ def test_jev_request_goes_to_the_configured_channel(monkeypatch, cfg, env, url, 
         return _Resp(json.dumps({"model": "typesafe/jev-1.13-x", "answers": {}}).encode())
 
     import urllib.request
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)  # core imports it lazily
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", lambda self, req, timeout: fake_urlopen(req, timeout))
     core.ask_jev("state text", {"q": {"type": "noul", "instructions": "x"}})
     assert sent["url"] == url and sent["body"]["model"] == model and sent["auth"] == f"Bearer {key}"
 

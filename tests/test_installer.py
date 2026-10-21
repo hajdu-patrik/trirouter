@@ -177,12 +177,16 @@ def test_codex_mcp_keeps_following_generated_block(tmp_path):
 
 
 def test_queue_drops_cancelled_turn(tmp_path):
+    import os
     import time
-    queue_state.on_submit(tmp_path, "claude", "s", "/w", "old task")
-    assert queue_state.on_submit(tmp_path, "claude", "s", "/w", "next", last_activity=time.time())["ahead"]
+    transcript = tmp_path / "s.jsonl"
+    transcript.write_text("{}\n", encoding="utf-8")
+    queue_state.on_submit(tmp_path, "claude", "s", "/w", "old task", transcript)
+    assert queue_state.on_submit(tmp_path, "claude", "s", "/w", "next", transcript)["ahead"]
     # transcript silent for longer than IDLE_S: the earlier turn was cancelled (no Stop hook on Esc)
-    info = queue_state.on_submit(tmp_path, "claude", "s", "/w", "new", last_activity=time.time() - queue_state.IDLE_S - 5)
-    assert info["ahead"] == []
+    silent = time.time() - queue_state.IDLE_S - 5
+    os.utime(transcript, (silent, silent))
+    assert queue_state.on_submit(tmp_path, "claude", "s", "/w", "new", transcript)["ahead"] == []
 
 
 def test_antigravity_stop_waits_for_fully_idle(monkeypatch, capsys):

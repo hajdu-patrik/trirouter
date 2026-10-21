@@ -6,143 +6,55 @@ unfinished. This module tracks work in flight and adds QUEUE: / CONCURRENCY: con
 after a TTL, or when the session's transcript goes quiet: Claude runs no Stop hook on Esc, and a
 cancelled or crashed turn must never make the next prompt resume old work.
 
-It also keeps the other small per-session hook state, each file bounded, expiring and replaced atomically: the
-last decision (a go-ahead continues it), the model a Claude session runs, and each prompt's subagent budget
-for the PreToolUse agent guard.
+It also keeps the other small per-session hook state (store.Store, each file bounded, expiring and replaced
+atomically): the last decision (a go-ahead continues it), the model a Claude session runs, and each prompt's
+subagent budget for the PreToolUse agent guard.
 """
-import json
 import os
 import time
-from pathlib import Path
 
-from . import platforms as P
+from . import platforms as P, store
+
 
 def _minutes(var, default):
+    return 60 * P.env_number(var, default)
+
+
+TTL_S = _minutes("ROUTER_QUEUE_TTL_MIN", 120)
+IDLE_S = _minutes("ROUTER_QUEUE_IDLE_MIN", 10)
+
+INFLIGHT = store.Store("inflight")  # {key: [entries]}: pruned per entry by on_submit, so no ttl of its own
+
+
+def _fresh_entries(value, now):
+    """The entries of one session still within TTL_S; whatever else sits in the file (a number, a list of strings,
+    an entry with a text stamp) is dropped, so a damaged file heals on the next prompt."""
+    return [e for e in value if store.stamp(e) is not None and now - e["ts"] < TTL_S] if isinstance(value, list) else []
+
+
+def _idle(transcript, now):
+    """True when the session's transcript has been silent for IDLE_S: its turn was cancelled or crashed."""
     try:
-        return 60 * float(os.environ.get(var, default))
-    except ValueError:
-        return 60 * float(default)
+        return bool(transcript) and now - os.stat(transcript).st_mtime > IDLE_S
+    except (OSError, TypeError):
+        return False
 
 
-TTL_S = _minutes("ROUTER_QUEUE_TTL_MIN", "120")
-IDLE_S = _minutes("ROUTER_QUEUE_IDLE_MIN", "10")
-LOCK_WAIT_S = 2.0
+def _prune(data, now, key, transcript):
+    """The sessions still in flight: expired entries and silent sessions (this one by `transcript`, the others by
+    the transcript each recorded) are dropped."""
+    fresh = {}
+    for k, entries in data.items():
+        entries = _fresh_entries(entries, now)
+        if entries and not _idle(transcript if k == key else entries[0].get("transcript"), now):
+            fresh[k] = entries
+    return fresh
 
 
-class _Lock:
-    """O_EXCL lock file; one older than 10 s is considered abandoned."""
-
-    def __init__(self, path):
-        self.path = path
-        self.acquired = False
-
-    def __enter__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        deadline = time.time() + LOCK_WAIT_S
-        while True:
-            try:
-                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-                self.acquired = True
-                return self
-            except FileExistsError:
-                try:
-                    if time.time() - self.path.stat().st_mtime > 10:
-                        self.path.unlink()
-                        continue
-                except OSError:
-                    pass
-                if time.time() > deadline:
-                    return self  # never block a prompt: proceed without the lock
-                time.sleep(0.05)
-
-    def __exit__(self, *exc):
-        if not self.acquired:
-            return  # never remove a lock someone else holds
-        try:
-            self.path.unlink()
-        except OSError:
-            pass
-
-
-def _save(path, data):
-    tmp = path.with_suffix(".tmp")
-    try:
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        pass
-
-
-def _load(path):
-    return P.read_json(path, {}, kind=dict)
-
-
-def _prune(data, now):
-    fresh = {key: [e for e in entries if now - e.get("ts", 0) < TTL_S] for key, entries in data.items()}
-    return {key: entries for key, entries in fresh.items() if entries}
-
-
-class _Store:
-    """One small JSON map in <state>/state/<name>.json, rewritten under its own lock file. Entries carry a "ts" stamp:
-    one older than `ttl` seconds is expired, and with `limit` only the newest entries are kept."""
-
-    def __init__(self, name, ttl=None, limit=None):
-        self.name, self.ttl, self.limit = name, ttl, limit
-
-    def path(self, state_dir):
-        return Path(state_dir) / "state" / f"{self.name}.json"
-
-    def lock(self, path):
-        return _Lock(path.with_suffix(".lock"))
-
-    def _fresh(self, entry, now):
-        return isinstance(entry, dict) and (self.ttl is None or now - entry.get("ts", 0) < self.ttl)
-
-    def get(self, state_dir, key):
-        """The key's entry while it is fresh, else None."""
-        entry = _load(self.path(state_dir)).get(key)
-        return entry if self._fresh(entry, time.time()) else None
-
-    def put(self, state_dir, key, entry):
-        """Stores `entry`, stamped now, under `key` and drops the expired entries; None removes the key instead."""
-        path, now = self.path(state_dir), time.time()
-        with self.lock(path):
-            data = {k: v for k, v in _load(path).items() if self._fresh(v, now)}
-            if entry is not None:
-                data[key] = {**entry, "ts": now}
-            elif data.pop(key, None) is None:
-                return
-            if self.limit:
-                data = dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-self.limit:])
-            _save(path, data)
-
-    def pop(self, state_dir, key):
-        path = self.path(state_dir)
-        with self.lock(path):
-            data = _load(path)
-            if data.pop(key, None) is not None:
-                _save(path, data)
-
-    def update(self, state_dir, key, change):
-        """Runs change(entry) on the key's fresh entry under the lock and saves what it changed in place.
-        -> (change's result, a copy of the entry), or (None, None) when the key is unknown or expired."""
-        path = self.path(state_dir)
-        with self.lock(path):
-            data = _load(path)
-            entry = data.get(key)
-            if not self._fresh(entry, time.time()):
-                return None, None
-            result = change(entry)
-            _save(path, data)
-            return result, dict(entry)
-
-
-INFLIGHT = _Store("inflight")  # {key: [entries]}: pruned per entry by on_submit, so no ttl of its own
-
-
-def on_submit(state_dir, provider, session_id, cwd, summary, last_activity=None):
+def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
     """{"ahead": unfinished entries of this session, "others": other sessions in the same folder}.
-    last_activity: the transcript's mtime; a session silent for IDLE_S had its turn cancelled."""
+    transcript: the session's transcript path, stored with the entry so that later prompts of other sessions can
+    tell a silent session from a working one."""
     if not session_id:
         return {"ahead": [], "others": []}
     path = INFLIGHT.path(state_dir)
@@ -150,13 +62,14 @@ def on_submit(state_dir, provider, session_id, cwd, summary, last_activity=None)
     key = f"{provider}:{session_id}"
     norm_cwd = os.path.normcase(os.path.abspath(cwd)) if cwd else ""
     with INFLIGHT.lock(path):
-        data = _prune(_load(path), now)
-        if last_activity is not None and now - last_activity > IDLE_S:
-            data.pop(key, None)
+        data = _prune(store.load(path), now, key, transcript)
         ahead = list(data.get(key, []))
         others = [e for k, v in data.items() if k != key for e in v[:1] if norm_cwd and e.get("cwd") == norm_cwd]
-        data.setdefault(key, []).append({"ts": now, "cwd": norm_cwd, "summary": summary, "provider": provider})
-        _save(path, data)
+        entry = {"ts": now, "cwd": norm_cwd, "summary": summary, "provider": provider}
+        if transcript:
+            entry["transcript"] = str(transcript)
+        data.setdefault(key, []).append(entry)
+        store.save(path, data)
     return {"ahead": ahead, "others": others}
 
 
@@ -167,7 +80,7 @@ def on_stop(state_dir, provider, session_id):
 
 LAST_KEYS = ("task", "task_conf", "level", "primary", "verify", "skill", "skill_path", "skill_native", "effort",
              "model", "extra_agents", "lang", "target_agent")
-LAST = _Store("last_decision", ttl=_minutes("ROUTER_CONTINUATION_TTL_MIN", "180"))
+LAST = store.Store("last_decision", ttl=_minutes("ROUTER_CONTINUATION_TTL_MIN", 180))
 
 
 def remember(state_dir, provider, session_id, decision):
@@ -188,7 +101,7 @@ def forget(state_dir, provider, session_id):
 # ---- the model a session runs (Claude: SessionStart / PostModelSwitch) --------------------------------------
 
 # a session can stay open for days; a switch re-records it
-MODELS = _Store("session_models", ttl=7 * 24 * 3600, limit=200)
+MODELS = store.Store("session_models", ttl=7 * 24 * 3600, limit=200)
 
 
 def remember_model(state_dir, provider, session_id, model):
@@ -206,7 +119,7 @@ def session_model(state_dir, provider, session_id):
 
 # ---- per-prompt subagent budget (Claude PreToolUse guard) ---------------------------------------------------
 
-PROMPTS = _Store("agent_budget", ttl=12 * 3600, limit=300)
+PROMPTS = store.Store("agent_budget", ttl=12 * 3600, limit=300)
 
 
 def remember_prompt(state_dir, prompt_id, info):
@@ -217,7 +130,7 @@ def remember_prompt(state_dir, prompt_id, info):
 
 
 def update_prompt(state_dir, prompt_id, change):
-    """Runs change(entry) on the prompt's stored entry (see _Store.update). Two hooks racing past the lock's wait
+    """Runs change(entry) on the prompt's stored entry (see store.Store.update). Two hooks racing past the lock's wait
     both proceed: a missed count is acceptable, a blocked tool call is not."""
     return PROMPTS.update(state_dir, prompt_id, change) if prompt_id else (None, None)
 

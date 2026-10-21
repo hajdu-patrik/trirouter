@@ -57,3 +57,9 @@ def test_server_result_carries_the_reload_warning(monkeypatch, pkg):
     bump(pkg / "tools.py")
     text = mcp_server.handle(call)["result"]["content"][0]["text"]
     assert text.startswith("ok") and "warning: trirouter reload failed" in text
+
+
+def test_initialize_reports_the_package_version():
+    from trirouter import __version__, mcp_server
+    reply = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert reply["result"]["serverInfo"] == {"name": "trirouter", "version": __version__}

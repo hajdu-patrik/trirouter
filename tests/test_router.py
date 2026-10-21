@@ -1,6 +1,7 @@
 import io
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +27,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)  # queue state, user config, model overrides
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.setattr(skill_index, "load_catalog", lambda: CATALOG)
+    monkeypatch.setattr(skill_index, "SOURCES", [(Path("C:/x"), False, skill_index.PROVIDERS, None)])  # the catalog's root
     monkeypatch.setattr(core, "BACKEND", "local")
     monkeypatch.delenv("ROUTER_MODE", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
@@ -209,9 +211,10 @@ def test_jev_can_pick_any_family_including_haiku_and_fable():
     assert list(models) == ["haiku", "sonnet", "opus", "fable"]
     criteria = core.build_questions({}, None, models)["model"]["criteria"]
     assert "cheapest" in criteria["haiku"] and "most expensive" in criteria["fable"]
+    questions = core.build_questions({}, None, models)
     for family in ("haiku", "fable"):
-        answers = {"model": {"choice": family, "confidence": 0.9}}
-        assert core._enforce_policy(answers, None, models)["model"]["choice"] == family
+        answers = {**JEV_ANSWERS, "model": {"choice": family, "confidence": 0.9}}
+        assert core.validate_answers(answers, questions)["model"]["choice"] == family
 
 
 WORKFLOW_STEP_PROMPTS = ["Implement the pagination parameter in the quotes endpoint",
@@ -272,10 +275,12 @@ def test_jev_failure_falls_back_to_local(monkeypatch):
     assert "jev down" in err
 
 
+JEV_ANSWERS = {"task": {"choice": "code", "confidence": 0.95}, "difficulty": {"score": 2, "confidence": 0.9},
+               "long_context": {"noul": 0.1}, "needs_web": {"noul": 0.1}, "destructive": {"noul": 0.05}}
+
+
 def test_jev_answers_are_used(monkeypatch):
-    fake = {"answers": {"task": {"choice": "code", "confidence": 0.95}, "difficulty": {"score": 2, "confidence": 0.9},
-                        "long_context": {"noul": 0.1}, "needs_web": {"noul": 0.1}, "destructive": {"noul": 0.05},
-                        "effort": {"choice": "ultra", "confidence": 0.8}}, "model": "jev-1.13.0"}
+    fake = {"answers": {**JEV_ANSWERS, "effort": {"choice": "ultra", "confidence": 0.8}}, "model": "jev-1.13.0"}
     monkeypatch.setattr(core, "ask_jev", lambda p, q: json.loads(json.dumps(fake)))
     d, text, _, _ = core.route("Refactor the payment service so every external call is retried with backoff",
                                "claude", backend="jev")

@@ -169,7 +169,28 @@ def python_cmd():
     return shell_arg(python_exe())
 
 
-# ---- files: JSON reads, atomic writes -----------------------------------------------------------------------
+def env_number(var, default, cast=float):
+    """The environment variable as a number, or `default` when it is unset or not one: a typo in a setting must
+    never stop a hook at import."""
+    try:
+        return cast(os.environ.get(var, default))
+    except (TypeError, ValueError):
+        return cast(default)
+
+
+# ---- files: JSON reads, atomic writes, locked appends ------------------------------------------------------
+
+def ensure_dir(path):
+    """Creates the folder and its missing parents owner-only (0o700): the state, log and shim folders hold prompts,
+    tokens and session data. Existing folders keep their mode."""
+    path = Path(path)
+    missing = []
+    while not path.exists() and path != path.parent:
+        missing.append(path)
+        path = path.parent
+    for folder in reversed(missing):
+        folder.mkdir(mode=0o700, exist_ok=True)
+
 
 def read_json(path, default=None, encoding="utf-8", kind=None):
     """The JSON value in `path`, or `default` when the file is missing, unreadable or not JSON, or (with `kind`, e.g.
@@ -190,7 +211,7 @@ def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
     path = Path(path)
     if path.is_symlink():
         path = Path(os.path.realpath(path))
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_dir(path.parent)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0),
@@ -217,17 +238,20 @@ def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
 
 
 APPEND_LOCK_WAIT_S = 2.0
+# Windows locks a byte range, and another handle cannot even read a locked byte: the lock sits far past the end of
+# any log, so a reader (doctor, the tests) never meets it.
+_LOCK_OFFSET = 1 << 40
 
 
 def _lock_file(f, deadline):
-    """An exclusive OS lock on byte 0 of the open file (Windows msvcrt.locking, POSIX fcntl.flock); True when held.
-    Polls without blocking until `deadline`: a hook must never hang on a lock."""
+    """An exclusive OS lock on the open file (Windows msvcrt.locking on one far byte, POSIX fcntl.flock); True when
+    held. Polls without blocking until `deadline`: a hook must never hang on a lock."""
     while True:
         try:
             if IS_WINDOWS:
                 import msvcrt
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)  # a byte past the end of the file can be locked too
+                f.seek(_LOCK_OFFSET)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 import fcntl
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -242,7 +266,7 @@ def _unlock_file(f):
     try:
         if IS_WINDOWS:
             import msvcrt
-            f.seek(0)
+            f.seek(_LOCK_OFFSET)
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
@@ -251,20 +275,23 @@ def _unlock_file(f):
         pass
 
 
-def append_line(path, text):
+def append_line(path, text, max_bytes=None):
     """Appends `text` plus a newline to `path` in one write under an exclusive OS file lock, so two processes logging
     at once never interleave a line (on Windows an append is a seek plus a write, not one atomic step). Creates the
-    folder; True when written, never raises. A lock still held after APPEND_LOCK_WAIT_S is ignored: the line is
-    written anyway rather than lost."""
+    folder owner-only and the file with mode 0o600; True when written, never raises. A lock still held after
+    APPEND_LOCK_WAIT_S is ignored: the line is written anyway rather than lost. With `max_bytes`, a file grown past
+    it is cut to its newer half (from a line start) under the same lock."""
     try:
         path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = (text.rstrip("\n") + "\n").encode("utf-8")
-        with open(path, "ab") as f:
+        ensure_dir(path.parent)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "r+b") as f:
             locked = _lock_file(f, time.monotonic() + APPEND_LOCK_WAIT_S)
             try:
                 f.seek(0, os.SEEK_END)
-                f.write(data)
+                f.write((text.rstrip("\n") + "\n").encode("utf-8"))
+                if max_bytes and f.tell() > max_bytes:
+                    _keep_newer_half(f, max_bytes)
                 f.flush()
             finally:
                 if locked:
@@ -272,6 +299,14 @@ def append_line(path, text):
         return True
     except Exception:  # noqa: BLE001 - logging must never break the caller (a hook)
         return False
+
+
+def _keep_newer_half(f, max_bytes):
+    f.seek(0)
+    tail = f.read()[-max_bytes // 2:]
+    f.seek(0)
+    f.write(tail[tail.find(b"\n") + 1:])
+    f.truncate()
 
 
 def _copy_mode(path, tmp):

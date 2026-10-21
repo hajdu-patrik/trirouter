@@ -413,7 +413,7 @@ def train(apply=True, log=None, files=None, now=None):
         report["model_bytes"] = len(text.encode("utf-8"))
         report["vocab"] = len(model["features"])
         if apply:
-            platforms.atomic_write(model_file(), text)
+            platforms.atomic_write(model_file(), text, mode=0o600)  # the vocabulary of the user's own prompts
             _cache.clear()
             report["applied"] = True
     return report

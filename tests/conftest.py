@@ -46,8 +46,14 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     # the user's own config.json (e.g. hooks.transport = "http" after `daemon enable`) must not change a test
     from trirouter import core
     monkeypatch.setattr(core, "STATE_DIR", base / "state")
-    # generated agents (the model check regenerates them): never the real ~/.claude, ~/.codex or ~/.gemini
-    from trirouter import hub
+    monkeypatch.setenv("TRIROUTER_HOME", str(base / "state"))  # the modules that look the folder up per call
+    # generated agents and the skill catalog (the daily check refreshes them): never the real ~/.claude, ~/.codex,
+    # ~/.gemini or ~/.skills
+    from trirouter import catalog, hub
     for name in ("CLAUDE_AGENTS", "CODEX_AGENTS", "AGY_AGENTS"):
         monkeypatch.setattr(hub, name, base / name.lower())
     monkeypatch.setattr(hub, "CODEX_CONFIG", base / "codex-config.toml")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(base / "xdg"))
+    monkeypatch.setattr(catalog, "HUB", base / "skills")
+    monkeypatch.setattr(catalog, "CATALOG", base / "skills" / "catalog.json")
+    monkeypatch.setattr(catalog, "SOURCES", [(base / "skills", False, catalog.PROVIDERS, None)])

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Run the Codex or Antigravity CLI headless and print its answer.
 
-Usage:  python ask_cli.py codex       [--model M] [--effort E] < prompt.txt
-        python ask_cli.py antigravity [--model M] [--effort E] < prompt.txt
+Usage:  python ask_cli.py codex       [--model M] [--effort E] [--prompt-file FILE] < prompt.txt
+        python ask_cli.py antigravity [--model M] [--effort E] [--prompt-file FILE] < prompt.txt
+The prompt comes from --prompt-file (deleted once read, so a secret pasted into it does not linger) or stdin.
 Exit codes: 0 success, 2 bad usage / not installed / cloud sandbox, 3 timeout,
             anything else: the tool's own exit code.
 
-Codex runs in its read-only sandbox, Antigravity in plan mode, so neither can edit files.
+Codex runs in its read-only sandbox, Antigravity in plan mode, so neither can edit files. Codex reads the prompt
+from stdin; agy takes it only as the -p argument (its stdin mode is the stream-json protocol). The CLIs run with
+TRIROUTER_NESTED=1, so their own trirouter hooks do not route the prompt a second time.
 """
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,6 +21,7 @@ from pathlib import Path
 
 TIMEOUT_S = int(os.environ.get("CLI_BRIDGE_TIMEOUT", "600"))
 FALLBACK = {"agy": Path(os.environ.get("LOCALAPPDATA", "")) / "agy" / "bin" / "agy.exe"}
+OPTION_RE = re.compile(r"[\w.:/-]+")  # a model or effort name reaches the CLI as an argument: one plain word
 
 
 def find(exe):
@@ -25,6 +30,12 @@ def find(exe):
         return found
     fb = FALLBACK.get(exe)
     return str(fb) if fb and fb.is_file() else None
+
+
+def plain_word(value):
+    if not OPTION_RE.fullmatch(value) or value.startswith("-"):
+        raise argparse.ArgumentTypeError(f"not a model or effort name: {value!r}")
+    return value
 
 
 def build(tool, exe, model, effort, prompt):
@@ -44,11 +55,22 @@ def build(tool, exe, model, effort, prompt):
     return argv + ["-p", prompt], None
 
 
+def read_prompt(prompt_file):
+    """The prompt text: the file's content (the file is removed once read), else stdin."""
+    if prompt_file:
+        data = prompt_file.read_bytes()
+        prompt_file.unlink()
+    else:
+        data = sys.stdin.buffer.read()
+    return data.decode("utf-8-sig", errors="replace").strip()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("tool", choices=["codex", "antigravity"])
-    ap.add_argument("--model")
-    ap.add_argument("--effort")
+    ap.add_argument("--model", type=plain_word)
+    ap.add_argument("--effort", type=plain_word)
+    ap.add_argument("--prompt-file", type=Path)
     a = ap.parse_args()
     if os.environ.get("ROUTER_MODE", "").lower() == "cloud" or os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true":
         print("cli-bridge: not available in a cloud sandbox (no Codex/Antigravity login).", file=sys.stderr)
@@ -58,7 +80,11 @@ def main():
     if not exe:
         print(f"cli-bridge: '{exe_name}' is not installed / not on PATH.", file=sys.stderr)
         return 2
-    prompt = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace").strip()
+    try:
+        prompt = read_prompt(a.prompt_file)
+    except OSError as exc:
+        print(f"cli-bridge: cannot read the prompt file: {exc}", file=sys.stderr)
+        return 2
     if not prompt:
         print("cli-bridge: empty prompt.", file=sys.stderr)
         return 2

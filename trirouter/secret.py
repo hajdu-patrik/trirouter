@@ -11,10 +11,13 @@ file mode: config.json (and its backups) are owner-only, 0600.
 
 `reveal` never raises: whatever cannot be read (a blob copied from another machine or user, a damaged value)
 is "no key", so a hook can never crash on it. Standard library only; the hook path imports this module.
+
+`redact` masks the secrets a prompt may carry before the text is logged or sent to JEV.
 """
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -25,6 +28,25 @@ IS_WINDOWS = sys.platform.startswith("win")
 DPAPI = "dpapi"
 
 PLAIN, PROTECTED, UNREADABLE, NONE = "plaintext", "protected", "unreadable", "none"
+
+# Each pattern keeps its `keep` group (a label, "Bearer", the URL's user) and masks the `secret` after it: a value
+# after a password / api key label, a bearer token, the password of a URL (postgres://user:pass@host), and tokens by
+# their shape (OpenAI / OpenRouter, GitHub, Google, Slack, AWS access keys, JWTs, long mixed-character strings).
+_SECRET_RES = (
+    re.compile(r"(?P<keep>\b(?:password|passwd|pwd|api[_-]?key|secret[_-]?key|access[_-]?key|auth[_-]?token"
+               r"|api[_-]?token)\b\s*[=:]\s*[\"']?)(?P<secret>[^\s\"']{4,})", re.I),
+    re.compile(r"(?P<keep>\bbearer\s+)(?P<secret>[\w.~+/=-]{8,})", re.I),
+    re.compile(r"(?P<keep>://[^\s/:@]+:)(?P<secret>[^\s/@]+)(?=@)"),
+    re.compile(r"(?P<keep>)(?P<secret>sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}"
+               r"|xox[abp]-[\w-]{10,}|\bAKIA[0-9A-Z]{16}\b|\b\d/0A[\w-]{20,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}"
+               r"|\b(?=[\w+=-]*\d)(?=[\w+=-]*[A-Za-z])[\w+=-]{32,}\b)"),
+)
+
+
+def redact(text):
+    for pattern in _SECRET_RES:
+        text = pattern.sub(lambda m: m.group("keep") + "[redacted]", text)
+    return text
 
 
 # ---- Windows DPAPI -------------------------------------------------------------------------------------------

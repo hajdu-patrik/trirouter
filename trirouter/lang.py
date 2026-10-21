@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Hungarian vs English: Hungarian-only letters plus a stopword vote. The unaccented stopwords
 catch accent-less typing ("irj egy fuggvenyt")."""
+import functools
 import re
 import unicodedata
 
@@ -35,8 +36,10 @@ def detect(text):
     return "en" if en > hu else "hu"
 
 
+@functools.lru_cache(maxsize=16)
 def fold(text):
-    """Lowercase without accents ("Írj függvényt" -> "irj fuggvenyt"): the keyword patterns are written that way."""
+    """Lowercase without accents ("Írj függvényt" -> "irj fuggvenyt"): the keyword patterns are written that way.
+    Memoised: one prompt is folded by a dozen checks."""
     t = unicodedata.normalize("NFKD", (text or "").lower())
     return "".join(c for c in t if not unicodedata.combining(c))
 
