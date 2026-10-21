@@ -88,7 +88,7 @@ def _antigravity_prompt(payload):
 
 
 def _first_time(turn_key):
-    seen = P.read_json(SEEN_FILE, [])
+    seen = P.read_json(SEEN_FILE, [], kind=list)
     if turn_key in seen:
         return False
     seen = (seen + [turn_key])[-200:]

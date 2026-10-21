@@ -34,6 +34,8 @@ dates are ISO 8601.
   Claude Code too old for the flag, keeps the old `--name` command. `doctor` recognises both forms.
 
 ### Fixed
+- A `config.json`, `models.local.json`, Claude `settings.json` or Antigravity seen-turns file that holds valid JSON of
+  the wrong type (a list instead of an object) counts as empty, like an unreadable one, instead of failing the hook.
 - The tests wrote to the real home folder: `test_discovery.py` regenerated agents into `~/.claude/agents`,
   `~/.codex/agents` and `~/.codex/config.toml` (and removed real generated agents as stale), and the user's own
   config.json (`hooks.transport = "http"`) made a hook test fail. `conftest.py` now isolates the agent folders,

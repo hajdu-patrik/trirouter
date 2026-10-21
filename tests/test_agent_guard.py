@@ -355,3 +355,17 @@ def test_append_line_writes_through_a_held_lock_after_the_wait(tmp_path, monkeyp
     t0 = time.monotonic()
     assert P.append_line(tmp_path / "a.jsonl", "x") is True
     assert time.monotonic() - t0 < 1 and (tmp_path / "a.jsonl").read_text(encoding="utf-8") == "x\n"
+
+
+def test_wrong_type_json_in_a_state_file_counts_as_empty(isolated, monkeypatch, capsys):
+    """Valid JSON of the wrong type (a list config.json, a dict seen file, a string settings.json) is as harmless as
+    an unreadable file: the hook still routes."""
+    (isolated / "config.json").write_text("[1, 2]", encoding="utf-8")
+    (isolated / "models.local.json").write_text("[]", encoding="utf-8")
+    hooks.SEEN_FILE.write_text('{"turn": 1}', encoding="utf-8")
+    hooks.CLAUDE_SETTINGS.write_text('"opus"', encoding="utf-8")
+    assert P.read_json(isolated / "config.json", 5, kind=list) == [1, 2]
+    assert core.user_config() == {} and core.model_overrides() == {} and hooks._settings_family() is None
+    assert hooks._first_time("t1") and not hooks._first_time("t1")
+    out = run(monkeypatch, capsys, "UserPromptSubmit", {"session_id": "s", "prompt": "Write a function that sums a list"})
+    assert "[router]" in out["hookSpecificOutput"]["additionalContext"]

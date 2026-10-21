@@ -370,7 +370,7 @@ def load_json(name, default):
 
 
 def user_config():
-    return platforms.read_json(STATE_DIR / "config.json", {})
+    return platforms.read_json(STATE_DIR / "config.json", {}, kind=dict)
 
 
 # (channel, environment variable, config.json field), in priority order: a TypeSafe token wins over an OpenRouter key
@@ -407,7 +407,7 @@ def jev_key():
 
 def model_overrides():
     """Per-account model availability written by `models --probe`; models.json is only the catalog."""
-    return platforms.read_json(STATE_DIR / "models.local.json", {})
+    return platforms.read_json(STATE_DIR / "models.local.json", {}, kind=dict)
 
 
 def base_provider(provider):
