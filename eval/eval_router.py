@@ -99,26 +99,26 @@ def report_task(out):
     print(f"Difficulty:           exact {exact:.0%}, within +-1 {near:.0%}")
     uncertain = fmean(o["uncertain"] for o in out)
     print(f"Routing uncertain:    {uncertain:.0%}")
-    return task_acc, uncertain
+    return {"task": task_acc, "uncertain": uncertain}
 
 
 def report_tiers(out):
     acc = fmean(o["tier"] == o["tier_true"] for o in out)
-    tier_counts = Counter(o["tier_true"] for o in out)
-    best_tier, best_n = tier_counts.most_common(1)[0]
+    best_tier, best_n = Counter(o["tier_true"] for o in out).most_common(1)[0]
     print(f"Tier accuracy:        {acc:.0%}  (best fixed tier '{best_tier}': {best_n / len(out):.0%})")
     print("Tiers picked:         " + counts(o["tier"] + (f"+{o['verify']}" if o["verify"] else "") for o in out))
+    return {}
 
 
 def report_delegation(out):
-    """Final outcome per row (inline vs delegated). Returns the share of level-0 'main'-expected
-    prompts that were delegated anyway, or None when the outcome cannot be determined."""
+    """Final outcome per row (inline vs delegated). level0_delegated: the share of level-0 'main'-expected
+    prompts that were delegated anyway, None when the outcome cannot be determined."""
     known = [o for o in out if o["outcome"] != "unknown"]
     if len(known) < len(out):
         print(f"Delegation:           n/a - {len(out) - len(known)} of {len(out)} decisions carry no render "
               "info (target_agent/target_model); is trirouter.core.route/render mid-change?")
         if not known:
-            return None
+            return {"level0_delegated": None}
     deleg = [o for o in known if o["outcome"] == "delegated"]
     print(f"Delegation rate:      {len(deleg) / len(known):.0%} ({len(deleg)} of {len(known)})")
     print("Model families:       " + (counts(o["family"] or "?" for o in deleg) or "none (all inline)"))
@@ -129,7 +129,7 @@ def report_delegation(out):
     print(f"Delegated at level 0: {len(lvl0_deleg)} of {len(lvl0)} level-0 prompts; "
           f"{len(bad)} of them expected inline (counted as failures)")
     print_prompts("DELEGATED@0", bad)
-    return len(bad) / len(known)
+    return {"level0_delegated": len(bad) / len(known)}
 
 
 def report_destructive(out):
@@ -140,14 +140,14 @@ def report_destructive(out):
     print(f"Destructive:          recall {recall:.0%} ({len(pos)} positives), false positives {fp:.0%}")
     print_prompts("MISSED", [o for o in pos if not o["destr_pred"]])
     print_prompts("FALSE+", [o for o in neg if o["destr_pred"]])
-    return recall, fp
+    return {"destr_recall": recall, "destr_fp": fp}
 
 
 def report_lang(out):
     lang_acc = fmean(o["lang"] == o["lang_true"] for o in out)
     print(f"Reply language:       {lang_acc:.0%}")
     print_prompts("LANG", [o for o in out if o["lang"] != o["lang_true"]])
-    return lang_acc
+    return {"lang": lang_acc}
 
 
 def write_results(name, out):
@@ -171,12 +171,9 @@ def evaluate(path):
     with open(path, encoding="utf-8-sig", newline="") as fh:
         out = [route_row(r, lang_expected, routes) for r in csv.DictReader(fh)]
     print(f"\n=== {name}  ({len(out)} prompts, backend: {counts(o['backend'] for o in out)})")
-    measured = {}
-    measured["task"], measured["uncertain"] = report_task(out)
-    report_tiers(out)
-    measured["level0_delegated"] = report_delegation(out)
-    measured["destr_recall"], measured["destr_fp"] = report_destructive(out)
-    measured["lang"] = report_lang(out)
+    measured = {}  # each report prints its section and returns the metrics it measured
+    for report in (report_task, report_tiers, report_delegation, report_destructive, report_lang):
+        measured.update(report(out))
     print("Efforts:              " + counts(o["effort"] for o in out))
     print("Skills picked:        " + (counts(o["skill"] for o in out if o["skill"]) or "none"))
     write_results(name, out)

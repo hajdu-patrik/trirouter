@@ -23,14 +23,13 @@ def row(outcome, diff=0, tier_true="main", family="fable"):
 
 def test_report_delegation_counts_level0_failures(capsys):
     out = [row("inline"), row("delegated"), row("delegated", diff=0, tier_true="fast"), row("inline", diff=2)]
-    share = ev.report_delegation(out)
-    assert share == 1 / 4
+    assert ev.report_delegation(out) == {"level0_delegated": 1 / 4}
     text = capsys.readouterr().out
     assert "Delegation rate:      50%" in text and "fable 2" in text
 
 
 def test_report_delegation_degrades(capsys):
-    assert ev.report_delegation([row("unknown")]) is None
+    assert ev.report_delegation([row("unknown")]) == {"level0_delegated": None}
     assert "n/a" in capsys.readouterr().out
 
 
