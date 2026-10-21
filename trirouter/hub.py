@@ -23,7 +23,6 @@ import json
 import os
 import re
 import shutil
-import sys
 from pathlib import Path
 
 from . import catalog, legacy, platforms as P, skillscan
@@ -66,10 +65,6 @@ def act(msg, fn=None):
         fn()
 
 
-def is_junction(p):
-    return P.is_link(p)
-
-
 def target_of(p):
     try:
         return Path(os.path.realpath(p))
@@ -77,17 +72,9 @@ def target_of(p):
         return None
 
 
-def mk_junction(link, target):
-    P.link_dir(link, target)
-
-
-def rm_junction(link):
-    P.unlink_dir(link)
-
-
 def owned(link):
     """A junction we created: it points into the hub or into the repo's skills/."""
-    if not is_junction(link):
+    if not P.is_link(link):
         return False
     t = target_of(link)
     if t is None:
@@ -119,18 +106,18 @@ def _bundled_in_other_checkout(t):
 
 
 def ensure_link(link, target, label):
-    if is_junction(link):
+    if P.is_link(link):
         if target_of(link) == target_of(target):
             return
         if owned(link) or not link.exists():
-            act(f"{label}: re-point {link} -> {target}", lambda: (rm_junction(link), mk_junction(link, target)))
+            act(f"{label}: re-point {link} -> {target}", lambda: (P.unlink_dir(link), P.link_dir(link, target)))
         else:
             print(f"[SKIP] {label}: {link} is a foreign link -> {target_of(link)}")
         return
     if link.exists():
         print(f"[SKIP] {label}: {link} is a real folder (name collision with the hub) - resolve manually")
         return
-    act(f"{label}: link {link} -> {target}", lambda: mk_junction(link, target))
+    act(f"{label}: link {link} -> {target}", lambda: P.link_dir(link, target))
 
 
 def hub_skills():
@@ -154,7 +141,7 @@ def cmd_migrate():
         print("nothing to migrate")
         return
     for d in candidates:
-        if d.name in APP_MANAGED or d.name.startswith(".") or is_junction(d) or not d.is_dir():
+        if d.name in APP_MANAGED or d.name.startswith(".") or P.is_link(d) or not d.is_dir():
             continue
         if not catalog.is_skill_dir(d):
             print(f"[SKIP] {d.name}: no SKILL.md")
@@ -167,7 +154,7 @@ def cmd_migrate():
         def move(d=d, dest=dest):
             HUB.mkdir(parents=True, exist_ok=True)
             shutil.move(str(d), str(dest))
-            mk_junction(d, dest)
+            P.link_dir(d, dest)
         act(f"move {d} -> {dest} (+ junction back)", move)
         moved += 1
     print(f"migrate: {moved} skill folder(s) {'moved' if APPLY else 'would be moved'}")
@@ -230,7 +217,7 @@ def _drop_stale_links(names):
         links = base.iterdir() if base.is_dir() else []
         for link in links:
             if owned(link) and (base == LEGACY_CODEX_SKILLS or link.name not in names or not link.exists()):
-                act(f"remove stale/legacy link {link}", lambda l=link: rm_junction(l))
+                act(f"remove stale/legacy link {link}", lambda l=link: P.unlink_dir(l))
 
 
 def _register_hub_with_antigravity():
@@ -268,9 +255,11 @@ def _split_template(path):
     return fm, (text[m.end():] if m else text).strip()
 
 
-def _template(name):
+def _template(name, model):
+    """(description without its final period, body) of a worker template."""
     tpl = AGENT_TEMPLATES / f"{name}.md"
-    return _split_template(tpl) if tpl.exists() else ({}, "Do the delegated task carefully.")
+    fm, body = _split_template(tpl) if tpl.exists() else ({}, "Do the delegated task carefully.")
+    return (fm.get("description") or f"{model} worker").rstrip("."), body
 
 
 def _role_template(mdef):
@@ -309,8 +298,7 @@ def planned_agents():
             if (provider, name) in seen:
                 continue
             seen.add((provider, name))
-            fm, body = _template(tpl_name)
-            desc = (fm.get("description") or f"{model} worker").rstrip(".")
+            desc, body = _template(tpl_name, model)
             out.append((provider, name, model, effort,
                         f"{desc}. Fixed model {model}, reasoning effort {effort}. Use when the [router] context names {name}.", body))
     return out
@@ -329,8 +317,7 @@ def _antigravity_agents(targets):
         if name in seen:
             continue
         seen.add(name)
-        fm, body = _template(_role_template(mdef))
-        desc = (fm.get("description") or f"{model} worker").rstrip(".")
+        desc, body = _template(_role_template(mdef), model)
         out.append(("antigravity", name, mdef["agent_tier"], None,
                     f"{desc}. Model tier {mdef['agent_tier']} ({model}); Antigravity sets the reasoning effort. "
                     f"Use when the [router] context names {name}.", body))
@@ -436,7 +423,7 @@ def _check_skill_folder(base):
     for p in base.iterdir():
         if p.name in APP_MANAGED or p.is_file():
             continue
-        if is_junction(p) and not p.exists():
+        if P.is_link(p) and not p.exists():
             print(f"[FAIL] broken link: {p}")
             problems += 1
         elif p.is_dir() and not catalog.is_skill_dir(p):
