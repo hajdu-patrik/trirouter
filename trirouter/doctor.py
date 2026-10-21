@@ -271,16 +271,8 @@ def report_remote(cfg):
 
 
 def last_prompts(log):
-    last = {}
-    if not log.exists():
-        return last
-    for raw in log.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]:
-        try:
-            e = json.loads(raw)
-        except ValueError:
-            continue
-        last[e.get("provider")] = e.get("ts")
-    return last
+    """{provider: time of its newest routed prompt} over the log's last 500 lines."""
+    return {e.get("provider"): e.get("ts") for e in _jsonl(log, 500)}
 
 
 def _jsonl(path, limit):
