@@ -397,7 +397,7 @@ def test_scheduled_run_logs_an_unexpected_error_and_exits_zero(fake, monkeypatch
 # ---- hooks never fail -----------------------------------------------------------------------------------------
 
 def test_session_start_shows_the_note_once_and_never_raises(spawned, capsys):
-    D._write_atomic(D.note_file(), "[trirouter] Model list updated - new model available: Codex gpt-new.\n")
+    P.atomic_write(D.note_file(), "[trirouter] Model list updated - new model available: Codex gpt-new.\n")
     hooks.on_session_start("claude", b"{}")
     out = json.loads(capsys.readouterr().out)
     assert "gpt-new" in out["hookSpecificOutput"]["additionalContext"]

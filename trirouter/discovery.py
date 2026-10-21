@@ -79,16 +79,12 @@ def log_file():
     return core.STATE_DIR / "logs" / "model_discovery.log"
 
 
-def _write_atomic(path, text):
-    P.atomic_write(path, text)
-
-
 def read_state():
     return P.read_json(state_file(), {}, kind=dict)
 
 
 def write_state(state):
-    _write_atomic(state_file(), json.dumps(state, indent=2))
+    P.atomic_write(state_file(), json.dumps(state, indent=2))
 
 
 def load_local():
@@ -106,7 +102,7 @@ def load_local():
 
 
 def save_local(data):
-    _write_atomic(local_file(), json.dumps(data, indent=2) + "\n")
+    P.atomic_write(local_file(), json.dumps(data, indent=2) + "\n")
 
 
 def auto_enabled(cfg=None):
@@ -391,8 +387,7 @@ def _word(ok):
 
 def check_provider(provider, exe, catalog, local, mode, today, say):
     """Updates local[provider] in place; returns the result. Raises Unchecked when nothing could be learnt."""
-    res = {"provider": provider, "status": "checked", "reason": "", "added": [], "removed": [], "restored": [],
-           "found_unavailable": [], "hidden": [], "rejected": [], "pending": []}
+    res = unchecked(provider, status="checked")
     banned = set(catalog.get("policy", {}).get("excluded_efforts", ["ultra"]))
     if provider == "claude":
         listing, res["rejected"] = list_claude(exe, catalog)
@@ -473,9 +468,14 @@ def _set(loc, model_id, selectable, listed, today):
 
 # ---- the whole check ----------------------------------------------------------------------------------------
 
-def unchecked(provider, reason):
-    return {"provider": provider, "status": "unchecked", "reason": reason, "added": [], "removed": [], "restored": [],
-            "found_unavailable": [], "hidden": [], "rejected": [], "pending": []}
+# result list -> its label in the summary, in summary order; "rejected" holds (name, reason) pairs
+SUMMARY = {"added": "new", "restored": "back", "removed": "removed", "found_unavailable": "found but not available",
+           "hidden": "new hidden (not selected)", "rejected": "policy rejected", "pending": "retry next time"}
+
+
+def unchecked(provider, reason="", status="unchecked"):
+    """A provider's result with empty lists ("checked" fills them in)."""
+    return {"provider": provider, "status": status, "reason": reason, **{key: [] for key in SUMMARY}}
 
 
 def run(mode="discover", apply=False, say=print, providers=ALL):
@@ -534,14 +534,9 @@ def summary_lines(results):
         if r["status"] != "checked":
             out.append(f"{label} could not check: {r['reason']} (nothing changed)")
             continue
-        parts = [f"new: {', '.join(r['added'])}" if r["added"] else "",
-                 f"back: {', '.join(r['restored'])}" if r["restored"] else "",
-                 f"removed: {', '.join(r['removed'])}" if r["removed"] else "",
-                 f"found but not available: {', '.join(r['found_unavailable'])}" if r["found_unavailable"] else "",
-                 f"new hidden (not selected): {', '.join(r['hidden'])}" if r["hidden"] else "",
-                 f"policy rejected: {', '.join(n for n, _ in r['rejected'])}" if r["rejected"] else "",
-                 f"retry next time: {', '.join(r['pending'])}" if r["pending"] else ""]
-        out.append(f"{label} " + ("; ".join(p for p in parts if p) or "no change"))
+        parts = [f"{text}: {', '.join(n if key != 'rejected' else n[0] for n in r[key])}"
+                 for key, text in SUMMARY.items() if r[key]]
+        out.append(f"{label} " + ("; ".join(parts) or "no change"))
     return out
 
 
@@ -567,7 +562,7 @@ def record(results, changed, mode):
     _log(f"{state['last_run']} {mode}: " + " | ".join(" ".join(l.split()) for l in summary_lines(results)))
     note = note_text(results)
     if note:
-        _write_atomic(note_file(), note + "\n")
+        P.atomic_write(note_file(), note + "\n")
 
 
 def _log(line):
