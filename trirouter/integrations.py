@@ -20,7 +20,6 @@ import json
 import ntpath
 import os
 import re
-import sys
 from pathlib import Path
 
 from . import legacy, platforms as P
@@ -65,6 +64,9 @@ class Writer:
             if old is not None and not bak.exists():  # keep the original, pre-trirouter version
                 P.atomic_write(bak, old)
             P.atomic_write(path, content)
+
+    def write_json(self, path, cfg, label):
+        self.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", label)
 
 
 def fwd(p):
@@ -155,22 +157,25 @@ def hook_entry(provider, event, transport="command", token=None):
     return {"type": "command", "command": hook_cmd(provider, event), "timeout": 10}
 
 
+def _router_hooks(cfg):
+    """Every hook entry of ours in a parsed settings.json / hooks.json."""
+    return (h for groups in (cfg.get("hooks") or {}).values() if isinstance(groups, list)
+            for g in groups if isinstance(g, dict) for h in g.get("hooks", []) if is_router_hook(h))
+
+
 def http_hook_tokens(cfg):
     """The tokens our http hooks in a parsed settings.json send (for doctor: do they match the daemon's?)."""
     from . import daemon
-    return {h.get("headers", {}).get(daemon.TOKEN_HEADER) for groups in (cfg.get("hooks") or {}).values()
-            if isinstance(groups, list) for g in groups if isinstance(g, dict) for h in g.get("hooks", [])
-            if is_router_hook(h) and h.get("type") == "http" and isinstance(h.get("headers"), dict)} - {None}
+    return {h.get("headers", {}).get(daemon.TOKEN_HEADER) for h in _router_hooks(cfg)
+            if h.get("type") == "http" and isinstance(h.get("headers"), dict)} - {None}
 
 
 def has_router_hooks(path):
     """The config file holds at least one router hook (command or http)."""
     try:
-        cfg = load(path)
+        return any(_router_hooks(load(path)))
     except BadConfig:
         return False
-    return any(is_router_hook(h) for groups in (cfg.get("hooks") or {}).values() if isinstance(groups, list)
-               for g in groups if isinstance(g, dict) for h in g.get("hooks", []))
 
 
 def _strip_router(groups):
@@ -229,7 +234,7 @@ def claude_codex_hooks(path, provider, w, uninstall=False, claude_models=None, t
         cfg.pop("hooks", None)
     if provider == "claude" and claude_models:
         (_forget_claude_models if uninstall else _reapply_claude_models)(cfg, claude_models)
-    w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", f"{provider} hooks")
+    w.write_json(path, cfg, f"{provider} hooks")
 
 
 # ---- Claude model defaults (settings.json `model` and env.CLAUDE_CODE_SUBAGENT_MODEL) --------------------------
@@ -282,7 +287,7 @@ def claude_model_settings(w, main_model=None, subagent_model=None, path=None):
     None (leave it). ValueError for an unknown family, BadConfig for a settings.json that is not a JSON object."""
     path = Path(path or P.PATHS["claude_settings"])
     cfg = apply_claude_models(load(path), main_model, subagent_model)
-    w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", "claude model defaults")
+    w.write_json(path, cfg, "claude model defaults")
 
 
 def remembered_claude_models(cfg=None):
@@ -340,7 +345,7 @@ def antigravity_hooks(path, w, uninstall=False):
     if not uninstall:
         cfg["router"] = {e: [{"type": "command", "command": hook_cmd("antigravity", e), "timeout": 10}]
                          for e in ("PreInvocation", "Stop")}
-    w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", "antigravity hooks")
+    w.write_json(path, cfg, "antigravity hooks")
 
 
 def json_mcp(path, label, w, uninstall=False):
@@ -352,7 +357,7 @@ def json_mcp(path, label, w, uninstall=False):
     else:
         # MCP clients exec "command" directly, without a shell: never shell-quoted
         servers[MCP_NAME] = {"command": fwd(P.python_exe_windowless()), "args": [fwd(SHIM_MCP)]}
-    w.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", label)
+    w.write_json(path, cfg, label)
 
 
 def codex_mcp(path, w, uninstall=False):
@@ -464,7 +469,6 @@ def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_m
         except BadConfig as exc:  # one broken file must not stop the others
             print(f"[FAIL] {exc}")
     return w.changes
-
 
 
 # ---- the `trirouter` command -------------------------------------------------------------------------
