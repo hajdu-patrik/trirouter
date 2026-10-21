@@ -122,10 +122,6 @@ def render(text, hook_event_name, provider):
     return json.dumps({"hookSpecificOutput": {"hookEventName": hook_event_name, "additionalContext": text}})
 
 
-def emit(text, hook_event_name, provider):
-    print(render(text, hook_event_name, provider))
-
-
 def _print(out):
     if out:
         print(out)
@@ -164,10 +160,6 @@ def stop_output(provider, hook_event_name, raw):
     return "{}" if provider == "antigravity" else ""  # Antigravity expects a JSON object; no "decision" allows the stop
 
 
-def on_stop(provider, hook_event_name, raw):
-    _print(stop_output(provider, hook_event_name, raw))
-
-
 def subagent_start_output(provider, raw):
     """Logs which worker the model actually delegated to; `doctor` compares it with the advice."""
     payload = _json_object(raw)
@@ -176,10 +168,6 @@ def subagent_start_output(provider, raw):
     log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "provider": provider, "session": _short_hash(_session_id(payload)),
          "prompt_id": payload.get("prompt_id"), "agent_type": payload["agent_type"]}, SUBAGENT_LOG)
     return ""
-
-
-def on_subagent_start(provider, raw):
-    _print(subagent_start_output(provider, raw))
 
 
 def start_model_discovery():
@@ -326,14 +314,10 @@ def handle(provider, hook_event_name, raw):
     """The hook's output for one event (raw: the host's JSON input as bytes): a JSON string, or "" for none."""
     if hook_event_name in STOP_EVENTS:
         return stop_output(provider, hook_event_name, raw)
-    if hook_event_name == "SubagentStart":
-        return subagent_start_output(provider, raw)
-    if hook_event_name == "SessionStart":
-        return session_start_output(provider, raw)
-    if hook_event_name == "PostModelSwitch":
-        return model_switch_output(provider, raw)
-    if hook_event_name == "PreToolUse":
-        return pre_tool_use_output(provider, raw)
+    by_event = {"SubagentStart": subagent_start_output, "SessionStart": session_start_output,
+                "PostModelSwitch": model_switch_output, "PreToolUse": pre_tool_use_output}
+    if hook_event_name in by_event:
+        return by_event[hook_event_name](provider, raw)
     return prompt_output(provider, hook_event_name, raw)
 
 
@@ -400,10 +384,6 @@ def model_switch_output(provider, raw):
     if provider == "claude":
         record_session_model(_json_object(raw), "to_model")
     return ""
-
-
-def on_model_switch(provider, raw):
-    _print(model_switch_output(provider, raw))
 
 
 def agent_budget(d):
@@ -483,10 +463,6 @@ def agent_guard(payload):
 def pre_tool_use_output(provider, raw):
     out = agent_guard(_json_object(raw)) if provider == "claude" else None
     return json.dumps(out) if out else ""
-
-
-def on_pre_tool_use(provider, raw):
-    _print(pre_tool_use_output(provider, raw))
 
 
 def main(argv=None):
