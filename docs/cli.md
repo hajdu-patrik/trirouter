@@ -89,7 +89,7 @@ behave like `trirouter <command>`.
 | Turn the daily model check off | `trirouter models --auto=off` |
 | Print the version | `trirouter --version` |
 | Reach this computer from a phone | `trirouter remote --name "My PC"` |
-| Update tab completion, agents and docs after a pull or a change | `trirouter sync` |
+| Update tab completion, agents, the skill catalog and docs after a pull or a change | `trirouter sync` |
 | Remove everything the installer added | `trirouter uninstall` |
 
 ## setup
@@ -97,7 +97,7 @@ behave like `trirouter <command>`.
 Detect the AI tools, connect hooks and MCP, link and scan skills.
 
 ```
-trirouter setup [-y] [-n] [--providers=LIST] [--jev-token=TOKEN] [--remote[=NAME]] [options]
+trirouter setup [-y] [-n] [--providers=LIST] [--jev-token-stdin] [--remote[=NAME]] [options]
 ```
 
 Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; (2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); (3) hooks and the MCP server for every logged-in tool, the `trirouter` command itself and its tab completion in your shell profile (PowerShell, bash, zsh or fish; skip it with --no-completion); (4) the shared skill folder ~/.skills: existing skills are moved there, scanned with SkillSpector when it is installed, linked into every tool, and expired quarantine entries are purged; worker agents are generated; (5) optional remote access and speech-to-text.
@@ -111,8 +111,9 @@ An install from before the rename (state folder ~/.jev-router) is migrated first
 | `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--providers` | `LIST` | every installed, logged-in tool | no | Comma-separated tools to connect: claude, codex, antigravity. |
-| `--jev-token` | `TOKEN` | none | yes (typesafe_api_key or openrouter_api_key) | A TypeSafe token, or an OpenRouter key (sk-or-...). Saved protected: encrypted with Windows DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key. |
-| `--openrouter-key` | `KEY` | none | yes (openrouter_api_key) | An OpenRouter key; same as --jev-token=sk-or-... |
+| `--jev-token-stdin` | - | off | yes (typesafe_api_key or openrouter_api_key) | Read a TypeSafe token, or an OpenRouter key (sk-or-...), from the first line of standard input, so it never shows in process listings or shell history. Saved protected: encrypted with Windows DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key. |
+| `--jev-token` | `TOKEN` | none | yes (typesafe_api_key or openrouter_api_key) | Deprecated: the key is visible in process listings and shell history; prefer --jev-token-stdin or the environment variables TYPESAFE_API_KEY / JEV_OPENROUTER_API_KEY, which already win over the saved key. A TypeSafe token, or an OpenRouter key (sk-or-...), saved the same way. |
+| `--openrouter-key` | `KEY` | none | yes (openrouter_api_key) | Deprecated: the key is visible in process listings and shell history; prefer --jev-token-stdin or the environment variables TYPESAFE_API_KEY / JEV_OPENROUTER_API_KEY, which already win over the saved key. An OpenRouter key; same as --jev-token=sk-or-... |
 | `--remote` | `NAME` (optional) | ask | yes (remote_name) | Also set up remote access, under NAME (default: the saved name or the hostname). |
 | `--workdir` | `DIR` | the checkout | yes (remote_workdir) | Folder remote Claude sessions start in. Only used together with remote access. |
 | `--no-migrate` | - | off | no | Do not move the skills of other tools into ~/.skills. |
@@ -132,7 +133,7 @@ Examples:
 trirouter setup    # interactive setup (python install.py alone does the same)
 trirouter setup --dry-run    # show every change, write nothing
 trirouter setup --yes --providers=claude,codex    # unattended, only these two tools
-trirouter setup --jev-token=sk-or-...    # add an OpenRouter key and keep the rest
+cat key.txt | trirouter setup --jev-token-stdin    # add a TypeSafe token or OpenRouter key from a file and keep the rest
 trirouter setup --yes --remote="My PC"    # also set up remote access
 ```
 
@@ -150,7 +151,7 @@ trirouter keys [-a] [-n]
 
 Older versions kept the TypeSafe token or OpenRouter key as plain text in ~/.trirouter/config.json. This command re-writes it protected: on Windows encrypted with the Data Protection API (DPAPI), so the value opens only for your user account on this machine (a copy of config.json on another machine or account holds an unusable blob and the router falls back to the built-in local model); on macOS and Linux the standard library has no keystore, so the key stays a string and the file is limited to its owner (mode 0600). Plain-text values stay readable until they are migrated; the environment variables always win.
 
-No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, and the key is also removed from older backups next to it (config.json.*). Without --apply the command only previews; `trirouter doctor` reports the state. A key saved with `setup --jev-token` is stored protected right away, `setup` also removes plaintext keys from old backups.
+No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, and the key is also removed from older backups next to it (config.json.*). Without --apply the command only previews; `trirouter doctor` reports the state. A key saved with `setup` is stored protected right away, and `setup` also removes plaintext keys from old backups.
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
@@ -182,7 +183,7 @@ trirouter models --auto=on|off
 trirouter models --main=FAMILY|off [--subagent-model=FAMILY|off] [-n]
 ```
 
-Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
+Compares what each tool offers today with the models the router knows. Codex: `codex debug models`; Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it answers; a Codex or Antigravity model that is no longer offered is taken out of the selection (Claude's help names aliases as examples only, so a Claude alias it does not name stays). A check that cannot run -- tool missing, not logged in, network error -- changes nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are always dropped.
 
 Without --discover the command also sends the one-word prompt to every known Codex model, the full account check. --discover runs only the cheap daily check, which also runs by itself in the background at most once every 24 hours, started by a Claude Code session start or a Codex / Antigravity prompt; the outcome is logged to ~/.trirouter/logs/model_discovery.log, the next Claude Code session is told once what changed, and `trirouter doctor` shows the last check. --auto=off switches the background check off.
 
@@ -420,7 +421,7 @@ trirouter sync [--check | -n]
 trirouter sync --pre-commit
 ```
 
-One step after every development round or `git pull`, so new commands, flags and models work everywhere: rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), regenerates the worker agents of the tools that already have generated ones (from templates/agents, targets.json and models.json) and, in a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to .githooks (never over another hooks folder or your own .git/hooks). The daily background check refreshes the completion scripts and agents by itself.
+One step after every development round or `git pull`, so new commands, flags, models and skills work everywhere: rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), regenerates the worker agents of the tools that already have generated ones (from templates/agents, targets.json and models.json), rebuilds the skill catalog (~/.skills/catalog.json, the list the router reads) when a skill was added, removed or changed since it was written (only once ~/.skills exists) and, in a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to .githooks (never over another hooks folder or your own .git/hooks). The daily background check refreshes the completion scripts, agents and skill catalog by itself.
 
 The checkout's git pre-commit hook runs `trirouter sync --pre-commit`: the sync, `git add docs/cli.md` when it was regenerated, a reminder when user-visible files are staged without CHANGELOG.md, the tests and, when routing code is staged (core, lang, distill, config, eval), the routing evaluation. A failure stops the commit; `git commit --no-verify` skips the hook once.
 

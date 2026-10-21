@@ -403,14 +403,14 @@ def _with_agents_block(cfg, new_block):
     return new_cfg.rstrip("\n") + "\n\n" + foreign + "\n" if foreign else new_cfg
 
 
-def _catalog_only_setting():
+def catalog_only_setting():
     """The patterns the installer passed in; without any, the saved config.json setting (the catalog is also
     rebuilt by paths that never configure LINK). None makes the catalog builder read config.json itself."""
     return list(LINK.get("catalog_only") or ()) or None
 
 
 def cmd_catalog():
-    items = catalog.write_catalog(catalog_only=_catalog_only_setting())
+    items = catalog.write_catalog(catalog_only=catalog_only_setting())
     by = {}
     for s in items:
         for p in s["native_in"]:
@@ -439,12 +439,12 @@ def cmd_doctor():
         else:
             print(f"[WARN] missing: {base}")
     names = {}
-    for s in catalog.build_catalog(_catalog_only_setting()):
+    for s in catalog.build_catalog(catalog_only_setting()):
         names.setdefault(s["name"].split(":")[-1], []).append(s["name"])
     for full in names.values():
         if len(full) > 1:
             print(f"[INFO] same skill name from several sources: {', '.join(full)}")
-    only = catalog_only_matches(_catalog_only_setting() or catalog.catalog_only_patterns())
+    only = catalog_only_matches(catalog_only_setting() or catalog.catalog_only_patterns())
     if only:
         print(f"[INFO] {len(only)} of {len(hub_skills())} hub skill(s) are catalog-only: not linked into Claude/Codex, "
               f"served by the router and the MCP get_skill tool (Antigravity still lists them)")

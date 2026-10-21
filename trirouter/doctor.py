@@ -192,7 +192,7 @@ def report_config():
     print("\n== Configuration (~/.trirouter/config.json)")
     cfg = jload(STATE / "config.json") or {}
     line(True, "Decision backend", core.JEV_LABELS.get(core.jev_access(cfg)[0])
-         or f"built-in local model ({P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')})")
+         or f"built-in local model ({P.command_hint('setup --jev-token-stdin')})")
     report_keys(cfg)
     line(True, "Remote access name", cfg.get("remote_name") or f"not set up ({P.command_hint('remote')})")
     line(True, "Per-account model overrides", "yes" if (STATE / "models.local.json").exists()
@@ -213,7 +213,7 @@ def report_keys(cfg):
                 line(True, label, "protected (Windows DPAPI, this account only)")
             elif state == secret.UNREADABLE:
                 line(False, label, "cannot be decrypted on this account - set it again with "
-                     f"{P.command_hint('setup --jev-token=<TypeSafe token or OpenRouter key>')}")
+                     f"{P.command_hint('setup --jev-token-stdin')}")
             elif secret.protection_available():
                 line(False, label, f"plaintext in config.json - protect it with {P.command_hint('keys --apply')}")
             else:
@@ -257,7 +257,8 @@ def report_interpreters(claude_settings, cfg_toml):
 def report_sync():
     """Generated files that no longer match the sources (read-only: sync.items with apply=False)."""
     from . import sync
-    print("\n== Generated files (tab completion, agents" + (", docs/cli.md, pre-commit hook)" if sync.is_checkout() else ")"))
+    print("\n== Generated files (tab completion, agents, skill catalog"
+          + (", docs/cli.md, pre-commit hook)" if sync.is_checkout() else ")"))
     for label, stale, detail in sync.items(apply=False):
         line(not stale, label, detail + (f" - run: {P.command_hint('sync')}" if stale else ""))
 

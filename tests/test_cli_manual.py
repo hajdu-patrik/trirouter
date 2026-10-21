@@ -3,6 +3,7 @@
 Nothing here runs a command that changes the machine, and the launcher tests never touch the real PATH or
 registry (the PATH-editing functions are replaced by fakes).
 """
+import io
 import os
 import sys
 from pathlib import Path
@@ -138,6 +139,8 @@ def test_value_flag_without_value_and_boolean_with_value_are_errors(capsys):
     assert "invalid value" in run(capsys, "skills", "--quarantine-days=abc")[2]
     assert "invalid value" in run(capsys, "skills", "--quarantine-days=-1")[2]
     assert "expected on or off" in run(capsys, "skills", "--scan-llm=maybe")[2]
+    err = run(capsys, "setup", "--jev-token-stdin=sk-or-v1-key")[2]
+    assert "does not take a value" in err and "sk-or-v1-key" not in err  # a key typed after the flag is never echoed
 
 
 def test_short_flags_and_clusters():
@@ -168,6 +171,29 @@ def test_value_forms_and_the_optional_remote_value():
     assert cliparse.resolve(["setup", "--remote=My PC"], "trirouter", False).flags["--remote"] == "My PC"
     assert cliparse.resolve(["setup", "--remote", "My PC", "-y"], "trirouter", False).flags["--remote"] == "My PC"
     assert cliparse.resolve(["remote", "--name", "Box"], "trirouter", False).flags["--name"] == "Box"
+
+
+def test_jev_token_stdin_stores_the_first_line_like_a_command_line_key(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "YES", True)
+    for name in ("TYPESAFE_API_KEY", "JEV_OPENROUTER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+    def configured(flags, stdin=""):
+        monkeypatch.setattr(cli, "FLAGS", flags)
+        monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+        cfg = {}
+        cli.configure_jev(cfg)
+        return cfg, capsys.readouterr().out
+
+    cfg, out = configured({"--jev-token-stdin": True}, "ts-secret\nignored\n")
+    assert cfg == {"typesafe_api_key": "ts-secret"} and "ts-secret" not in out and "process listings" not in out
+    assert configured({"--jev-token-stdin": True}, "  sk-or-v1-abc \r\n")[0] == {"openrouter_api_key": "sk-or-v1-abc"}
+    cfg, out = configured({"--jev-token-stdin": True})
+    assert cfg == {} and "no key on standard input" in out
+    for flag, key, field in (("--jev-token", "ts-cli", "typesafe_api_key"),
+                             ("--openrouter-key", "sk-or-cli", "openrouter_api_key")):
+        cfg, out = configured({flag: key}, "ts-stdin\n")
+        assert cfg == {field: key} and out.count("process listings") == 1  # the command line wins, with one note
 
 
 def test_quarantine_subcommands():

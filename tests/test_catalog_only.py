@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from trirouter import catalog, core, hub, legacy, platforms as P, skillscan
+from trirouter import catalog, core, hub, legacy, platforms as P, skillscan, sync
 
 GOOGLE = ("gke-basics", "google-cloud-waf-security", "cloud-run-basics")
 OTHERS = ("pdf", "finding-google-skills")
@@ -11,7 +11,7 @@ ALL_TOOLS = ["claude", "codex", "antigravity"]
 
 
 def make_skill(root, name, description="test"):
-    (root / name).mkdir(parents=True)
+    (root / name).mkdir(parents=True, exist_ok=True)
     (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n", encoding="utf-8")
     return root / name
 
@@ -119,6 +119,17 @@ def test_hub_catalog_prefers_the_installer_patterns_over_config(machine, monkeyp
     hub.cmd_catalog()
     saved = native_in(json.loads(catalog.CATALOG.read_text(encoding="utf-8"))["skills"])
     assert saved["pdf"] == ALL_TOOLS and saved["gke-basics"] == ["antigravity"]
+
+
+def test_sync_builds_the_catalog_with_the_saved_patterns(machine, monkeypatch):
+    cfg = machine / "state" / "config.json"
+    cfg.write_text(json.dumps({"skills": {"catalog_only": ["gke-*"]}}), encoding="utf-8")
+    monkeypatch.setitem(hub.LINK, "catalog_only", ("gke-*",))
+    hub.cmd_catalog()
+    monkeypatch.setitem(hub.LINK, "catalog_only", ())  # the daily check is a process of its own: only config.json is left
+    assert not sync._skill_catalog(apply=False)[0][1]  # (label, stale, detail)
+    cfg.write_text("{}", encoding="utf-8")
+    assert sync._skill_catalog(apply=False)[0][1]
 
 
 def test_router_can_pick_a_catalog_only_skill_and_points_claude_at_its_file(machine, monkeypatch, tmp_path):

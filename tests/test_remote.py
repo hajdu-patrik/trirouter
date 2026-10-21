@@ -1,8 +1,11 @@
 """Remote access (trirouter/remote.py): Claude's Remote Control server only holds the connection at logon (no
 pre-created session) unless --start-session=on, on every OS; old Claude Code versions keep the classic `--name`.
 Nothing here registers a real task or service: _ps and the help text are fakes."""
+import contextlib
 import json
 import plistlib
+import sys
+import types
 
 import pytest
 
@@ -108,3 +111,43 @@ def test_server_status_tells_claude_from_antigravity():
     for cmd in ('claude.exe|"c:\\claude.exe" remote-control --no-create-session-in-dir',
                 'claude.exe|"c:\\claude.exe" remote-control --name "box"'):
         assert remote._server_status(tasks, agy_only + "\n" + cmd)[0][1] is True
+
+
+@pytest.mark.parametrize("entry, serving, ok, detail", [
+    (r'"C:\Windows\System32\conhost.exe" --headless "C:\agy\agy.exe" remote-control serve', True, True,
+     "daemon running, autostart hidden"),
+    (r'"C:\agy\agy.exe" remote-control serve', True, False, "daemon running, autostart opens a window"),
+    ("", False, False, "daemon NOT running, autostart not registered"),
+])
+def test_windows_status_reads_the_autostart_entry_without_a_scheduled_task(monkeypatch, entry, serving, ok, detail):
+    procs = "agy.exe|agy remote-control serve --name box" if serving else ""
+    monkeypatch.setattr(P, "IS_WINDOWS", True)
+    monkeypatch.setattr(P, "find_exe", lambda name: r"C:\agy\agy.exe" if name == "agy" else None)
+    monkeypatch.setattr(remote, "_ps", lambda script: (0, procs if "Get-CimInstance" in script else ""))
+    monkeypatch.setattr(remote, "_agy_autostart_entry", lambda: entry)
+    monkeypatch.setattr(remote, "_run_once", lambda *a, **k: pytest.fail("status() registered a scheduled task"))
+    assert ("antigravity", ok, detail) in remote.status()
+
+
+def test_the_autostart_entry_is_read_from_the_current_users_run_key(monkeypatch):
+    entry = '"agy.exe" --headless remote-control serve'
+    run_key = ("HKCU", r"Software\Microsoft\Windows\CurrentVersion\Run")
+    registry = {run_key: {"AntigravityCliDaemon": (entry, 1)}}
+
+    def open_key(root, subkey):
+        if (root, subkey) not in registry:
+            raise FileNotFoundError(subkey)
+        return contextlib.nullcontext(registry[root, subkey])
+
+    def query_value(key, name):
+        if name not in key:
+            raise FileNotFoundError(name)
+        return key[name]
+
+    monkeypatch.setitem(sys.modules, "winreg", types.SimpleNamespace(
+        HKEY_CURRENT_USER="HKCU", OpenKey=open_key, QueryValueEx=query_value))
+    assert remote._agy_autostart_entry() == entry
+    registry[run_key].clear()  # the key without the value
+    assert remote._agy_autostart_entry() == ""
+    registry.clear()  # no key at all
+    assert remote._agy_autostart_entry() == ""

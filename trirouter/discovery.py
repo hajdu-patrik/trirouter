@@ -13,15 +13,15 @@ Sources:
     Antigravity  `agy models`: one slug per model and effort; the list is what the account may use.
     Claude Code  the aliases `claude --help` names for --model. Only generic family aliases count
                  (core.claude_alias_allowed: never a dated ID or a mode alias). The help names its
-                 aliases as examples, so an alias is tried with a one-word prompt before it is added, and
-                 before one that is no longer named is removed.
+                 aliases as examples only, so an alias is tried with a one-word prompt before it is added,
+                 and one the help does not name is left alone: never tried, never removed.
 
 Results go to ~/.trirouter/models.local.json only, never to the repository's models.json: a new model gets a
-full entry (levels, role, description, ...), a model that is no longer offered gets "selectable": false and
-"listed": false (it comes back by itself when it is offered again). A check that could not run -- CLI
-missing, not logged in, network or auth error, unreadable output, a list that names none of the known
-models -- changes nothing. Effort levels outside the policy (models.json policy.excluded_efforts) are
-stripped from every discovered model.
+full entry (levels, role, description, ...), a Codex or Antigravity model that is no longer offered gets
+"selectable": false and "listed": false (it comes back by itself when it is offered again). A check that
+could not run -- CLI missing, not logged in, network or auth error, unreadable output, a list that names none
+of the known models -- changes nothing. Effort levels outside the policy (models.json
+policy.excluded_efforts) are stripped from every discovered model.
 """
 import copy
 import json
@@ -31,7 +31,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import core, platforms as P
+from . import core, platforms as P, store
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -46,11 +46,13 @@ LOCK_WAIT_S = 10              # the background process waits this long for the h
 PROBE_PROMPT = "#norouter Reply with exactly: OK"
 PROBE_TIMEOUT_S = 180
 CHILD_ENV = "TRIROUTER_DISCOVERY_CHILD"
-LOG_LINES = 200
+LOG_MAX = 64 * 1024          # model_discovery.log is cut to its newer half beyond this
 # A model the service refuses (as opposed to a call that failed for another reason: auth, network, quota).
 REJECT_MARKERS = ("not supported", "does not exist", "model_not_found", "not_found_error", "no such model",
                   "unknown model", "invalid model", "may not exist", "issue with the selected model",
                   '"status":404', "status 404", "404 not found")
+# A model id reaches a CLI as `-m <id>` / `--model <id>`: one plain word, never an option, a space or a shell character.
+_MODEL_ID = re.compile(r"(?!-)[\w.:/-]+")
 
 
 class Unchecked(Exception):
@@ -113,37 +115,23 @@ def auto_enabled(cfg=None):
 
 # ---- lock and schedule -------------------------------------------------------------------------------------
 
+_held = None  # the lock this process holds, while it does
+
+
 def acquire_lock():
     """True when this process now holds the lock; a lock older than LOCK_STALE_S is taken over."""
-    path = lock_file()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return False
-    for _ in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
-            try:
-                if time.time() - path.stat().st_mtime > LOCK_STALE_S:
-                    path.unlink()
-                    continue
-            except OSError:
-                pass
-            return False
-        except OSError:
-            return False
-        with os.fdopen(fd, "w") as f:
-            f.write(f"{os.getpid()} {time.time():.0f}\n")
-        return True
-    return False
+    global _held
+    lock = store.FileLock(lock_file(), LOCK_STALE_S, content=f"{os.getpid()} {time.time():.0f}\n")
+    if lock.acquire():
+        _held = lock
+    return _held is lock
 
 
 def release_lock():
-    try:
-        lock_file().unlink()
-    except OSError:
-        pass
+    global _held
+    if _held:
+        _held.release()
+        _held = None
 
 
 def wait_lock(seconds=LOCK_WAIT_S):
@@ -232,7 +220,7 @@ def list_codex(exe):
     found = {}
     for m in (data.get("models") if isinstance(data, dict) else None) or []:
         slug = m.get("slug") if isinstance(m, dict) else None
-        if not isinstance(slug, str) or not slug.strip():
+        if not isinstance(slug, str) or not _MODEL_ID.fullmatch(slug):
             continue
         levels = [l.get("effort") for l in m.get("supported_reasoning_levels") or [] if isinstance(l, dict)]
         name, desc = m.get("display_name") or slug, (m.get("description") or "").strip().rstrip(".")
@@ -322,13 +310,20 @@ def verdict(code, out):
     return True if code == 0 else None
 
 
+def _try_model(model_id, argv):
+    """verdict() of the probe call `argv` (it carries model_id); False, without any call, for an unsafe id."""
+    if not _MODEL_ID.fullmatch(model_id):
+        return False
+    return verdict(*P.run(argv, timeout=PROBE_TIMEOUT_S, env=child_env()))
+
+
 def probe_codex(exe, model_id):
-    return verdict(*P.run([exe, "exec", "--skip-git-repo-check", "-m", model_id, "-c", "model_reasoning_effort=low",
-                           PROBE_PROMPT], timeout=PROBE_TIMEOUT_S, env=child_env()))
+    return _try_model(model_id, [exe, "exec", "--skip-git-repo-check", "-m", model_id, "-c",
+                                 "model_reasoning_effort=low", PROBE_PROMPT])
 
 
 def probe_claude(exe, alias):
-    return verdict(*P.run([exe, "-p", "--model", alias, PROBE_PROMPT], timeout=PROBE_TIMEOUT_S, env=child_env()))
+    return _try_model(alias, [exe, "-p", "--model", alias, PROBE_PROMPT])
 
 
 PROBES = {"codex": probe_codex, "claude": probe_claude, "antigravity": lambda exe, model_id: True}
@@ -401,6 +396,7 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
         raise Unchecked("the list names none of the models in use; not trusted")
     probe = PROBES[provider]
     full = mode == "probe" and provider == "codex"
+    retires = provider != "claude"  # Claude's help names examples only, so an alias it leaves out is not retired
 
     for model_id, info in listing.items():  # new models
         if model_id in known or model_id in loc:
@@ -443,14 +439,10 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
                 _set(loc, model_id, selectable=ok, listed=True, today=today)
                 if ok:
                     res["restored"].append(model_id)
-        elif not listed and was:  # no longer offered
-            ok = probe(exe, model_id) if provider == "claude" else False  # Claude's help names examples only
-            if ok is False:
-                _set(loc, model_id, selectable=False, listed=False, today=today)
-                res["removed"].append(model_id)
-                say(f"  {model_id:<28} no longer offered: removed from the selection")
-            elif ok is None:
-                res["pending"].append(model_id)
+        elif not listed and was and retires:  # no longer offered
+            _set(loc, model_id, selectable=False, listed=False, today=today)
+            res["removed"].append(model_id)
+            say(f"  {model_id:<28} no longer offered: removed from the selection")
     if not loc:
         local.pop(provider, None)
     return res
@@ -566,13 +558,7 @@ def record(results, changed, mode):
 
 
 def _log(line):
-    path = log_file()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        old = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-        path.write_text("\n".join((old + [line])[-LOG_LINES:]) + "\n", encoding="utf-8")
-    except OSError:
-        pass
+    P.append_line(log_file(), line, max_bytes=LOG_MAX)
 
 
 def last_check():
@@ -595,7 +581,7 @@ def run_scheduled():
         finally:
             learn_routing()
             from . import sync
-            sync.user_side()  # tab completion and agents follow a pulled or changed checkout
+            sync.user_side()  # tab completion, agents and the skill catalog follow a pulled checkout and changed skills
     finally:
         release_lock()
 

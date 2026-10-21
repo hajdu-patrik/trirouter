@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from trirouter import cli, core, discovery as D, doctor, hooks, platforms as P
+from trirouter import cli, core, discovery as D, doctor, hooks, platforms as P, sync
 
 SPAWN = P.spawn_detached  # the real one: conftest replaces it with a no-op for every test
 
@@ -100,6 +100,7 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "find_exe", f.find_exe)
     monkeypatch.setattr(P, "run", f.run)
     monkeypatch.setattr(D, "regenerate_agents", lambda say: f.calls.append(["regenerate"]))
+    monkeypatch.setattr(sync, "user_side", lambda: f.calls.append(["sync"]))  # never the real completion scripts
     return f
 
 
@@ -144,6 +145,13 @@ def test_new_hidden_codex_model_is_recorded_not_selected_and_not_probed(fake):
     out = D.run("discover", apply=True, say=None)
     assert result(out, "codex")["hidden"] == ["gpt-x"] and not fake.probes("codex")
     assert local()["codex"]["gpt-x"] == dict(local()["codex"]["gpt-x"], selectable=False, hidden=True)
+
+
+@pytest.mark.parametrize("slug", ["--bad", "a b", "gpt;x", "gpt-a\n"])
+def test_a_codex_slug_that_is_not_one_plain_word_is_skipped(fake, slug):
+    fake.codex_list = (0, codex_json(("gpt-a", ["low"], "list"), ("gpt-b", ["low"], "list"), (slug, ["low"], "list")))
+    out = D.run("discover", apply=True, say=None)
+    assert result(out, "codex")["added"] == [] and not fake.probes("codex") and not out["changed"]
 
 
 def test_new_antigravity_model_takes_its_levels_from_the_slugs(fake):
@@ -191,6 +199,18 @@ def test_full_probe_mode_tries_every_known_codex_model(fake):
     r = result(out, "codex")
     assert r["removed"] == ["gpt-b"] and r["restored"] == ["gpt-old"]
     assert set(core.models_for("codex")) == {"gpt-a", "gpt-old"}
+
+
+def test_a_model_id_that_is_not_one_plain_word_is_never_probed(fake):
+    for bad in ("--bad", "a b", "gpt;x", "gpt-a\n"):
+        assert D.probe_codex("codex", bad) is False and D.probe_claude("claude", bad) is False
+    assert not fake.calls
+    hand_edited = {"selectable": True, "levels": ["low"]}
+    D.save_local({"codex": {"--bad": hand_edited, "a b": hand_edited}})
+    out = D.run("probe", apply=True, say=None)  # the full probe tries every id of models.local.json
+    assert sorted(c[c.index("-m") + 1] for c in fake.probes("codex")) == ["gpt-a", "gpt-b", "gpt-old"]
+    assert result(out, "codex")["removed"] == ["--bad", "a b"]
+    assert set(core.models_for("codex")) == {"gpt-a", "gpt-b", "gpt-old"}
 
 
 # ---- checks that cannot run change nothing --------------------------------------------------------------------
@@ -283,15 +303,29 @@ def test_a_hand_written_dated_entry_is_never_selectable_but_haiku_is(fake):
     assert set(core.models_for("claude")) == {"sonnet", "opus", "haiku"}
 
 
-def test_claude_alias_missing_from_help_is_removed_only_when_a_prompt_confirms(fake):
-    fake.claude_help = (0, CLAUDE_HELP.format(aliases="'sonnet'"))
-    fake.claude_probe["opus"] = (1, "API Error: 500 overloaded")
-    D.run("discover", apply=True, say=None)
-    assert "opus" in core.models_for("claude")  # could not check: kept
-    fake.claude_probe["opus"] = (1, "There's an issue with the selected model (opus). It may not exist or you may "
-                                    "not have access to it.")
+def test_claude_alias_missing_from_help_is_neither_probed_nor_removed(fake):
+    D.save_local({"claude": {"haiku": {"selectable": True, "listed": True, "levels": ["low"]}}})  # found earlier
+    fake.claude_help = (0, CLAUDE_HELP.format(aliases="'sonnet'"))  # the help names examples only
+    refusal = (1, "There's an issue with the selected model. It may not exist or you may not have access to it.")
+    fake.claude_probe.update(opus=refusal, haiku=refusal)  # would remove them, were they asked
+    for _ in range(2):  # two daily runs
+        out = D.run("discover", apply=True, say=None)
+        r = result(out, "claude")
+        assert r["status"] == "checked" and r["removed"] == [] and r["pending"] == [] and not out["changed"]
+        assert set(core.models_for("claude")) == {"sonnet", "opus", "haiku"}
+        assert not fake.probes("claude")  # not one paid prompt
+
+
+def test_claude_alias_recorded_as_unlisted_is_tried_once_when_the_help_names_it_again(fake):
+    # what an older version recorded for an alias it had removed after a refused prompt
+    unlisted = {"selectable": False, "listed": False, "removed": "2026-10-01", "levels": ["low"]}
+    D.save_local({"claude": {"haiku": unlisted}})
+    fake.claude_help = (0, CLAUDE_HELP.format(aliases="'opus', 'sonnet', or 'haiku'"))
     out = D.run("discover", apply=True, say=None)
-    assert result(out, "claude")["removed"] == ["opus"] and "opus" not in core.models_for("claude")
+    assert result(out, "claude")["restored"] == ["haiku"] and "haiku" in core.models_for("claude")
+    assert local()["claude"]["haiku"]["listed"] is True and "removed" not in local()["claude"]["haiku"]
+    D.run("discover", apply=True, say=None)
+    assert [c[c.index("--model") + 1] for c in fake.probes("claude")] == ["haiku"]  # once, not every day
 
 
 def test_routable_false_beats_a_recorded_probe(fake):
@@ -401,7 +435,8 @@ def test_session_start_shows_the_note_once_and_never_raises(spawned, capsys):
     hooks.on_session_start("claude", b"{}")
     out = json.loads(capsys.readouterr().out)
     assert "gpt-new" in out["hookSpecificOutput"]["additionalContext"]
-    assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart" and len(spawned) == 1
+    assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    assert [argv[1:] for argv, _ in spawned if "trirouter.discovery" in argv] == [["-m", "trirouter.discovery", "--scheduled"]]
     hooks.on_session_start("claude", b"{}")
     assert capsys.readouterr().out == ""
 

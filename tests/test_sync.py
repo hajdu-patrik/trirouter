@@ -1,13 +1,15 @@
-"""`trirouter sync` (trirouter/sync.py): docs/cli.md, the git pre-commit hook setting, the installed tab completion
-and the generated agents follow the sources; --check changes nothing; --pre-commit stages the regenerated reference
-and stops on failure. Every test works on a temporary checkout and home; nothing touches the real ones."""
+"""`trirouter sync` (trirouter/sync.py): docs/cli.md, the git pre-commit hook setting, the installed tab completion,
+the generated agents and the skill catalog follow the sources; --check changes nothing; --pre-commit stages the
+regenerated reference and stops on failure. Every test works on a temporary checkout and home; nothing touches the
+real ones."""
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from test_catalog_only import make_skill
 
-from trirouter import cli, cliparse, completion as C, hub, manual, platforms as P, sync
+from trirouter import catalog, cli, cliparse, completion as C, hub, manual, platforms as P, sync
 
 ROOT = Path(__file__).resolve().parent.parent
 HAS_GIT = shutil.which("git") is not None
@@ -39,18 +41,29 @@ def checkout(tmp_path, monkeypatch):
 
 @pytest.fixture
 def user_home(tmp_path, monkeypatch):
-    """No completion and no agents installed, unless a test adds them."""
+    """No completion, no agents and no skill hub installed, unless a test adds them."""
     home = tmp_path / "home"
     monkeypatch.setattr(P, "HOME", home)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     for name in ("CLAUDE_AGENTS", "CODEX_AGENTS", "AGY_AGENTS"):
         monkeypatch.setattr(hub, name, home / name.lower())
     monkeypatch.setattr(hub, "CODEX_CONFIG", home / "codex-config.toml")
+    monkeypatch.setattr(catalog, "HUB", home / ".skills")
+    monkeypatch.setattr(catalog, "CATALOG", home / ".skills" / "catalog.json")
+    monkeypatch.setattr(catalog, "SOURCES", [(home / ".skills", False, catalog.PROVIDERS, None)])
     return home
 
 
 def by_label(lines):
     return {label: (stale, detail) for label, stale, detail in lines}
+
+
+def catalog_item(apply=False):
+    return by_label(sync.items(apply=apply, repo=False))["skill catalog"]
+
+
+def listed():
+    return [s["name"] for s in catalog.load_catalog()]
 
 
 def test_check_reports_and_changes_nothing(checkout, user_home, capsys):
@@ -90,7 +103,7 @@ def test_another_hooks_setup_is_left_alone(checkout, user_home):
 
 def test_outside_a_checkout_only_the_user_side_runs(user_home, monkeypatch, tmp_path):
     monkeypatch.setattr(sync, "REPO", tmp_path / "site-packages")
-    assert set(by_label(sync.items(apply=False))) == {"tab completion", "worker agents"}
+    assert set(by_label(sync.items(apply=False))) == {"tab completion", "worker agents", "skill catalog"}
 
 
 def test_completion_scripts_are_refreshed_profiles_untouched(user_home):
@@ -123,6 +136,40 @@ def test_agents_are_kept_current_only_where_generated(user_home):
     assert not (user_home / "codex_agents").exists()  # no agents created for another tool
     assert not by_label(sync.items(apply=False, repo=False))["worker agents"][0]
     assert (hub.APPLY, hub.PROVIDERS) == before  # globals restored
+
+
+def test_no_skill_hub_is_not_out_of_date(user_home):
+    """CI and a fresh machine: nothing to catalog, so --check passes and nothing is created."""
+    stale, detail = catalog_item(apply=True)
+    assert not stale and "no skill hub yet" in detail
+    assert not catalog.HUB.exists()
+
+
+def test_the_skill_catalog_follows_the_hub(user_home):
+    make_skill(catalog.HUB, "alpha")
+    stale, detail = catalog_item()
+    assert stale and "out of date" in detail and not catalog.CATALOG.exists()  # a check writes nothing
+    stale, detail = catalog_item(apply=True)
+    assert stale and "rewritten" in detail and listed() == ["alpha"]
+    stale, detail = catalog_item()
+    assert not stale and "up to date" in detail
+    make_skill(catalog.HUB, "beta")
+    assert catalog_item()[0]  # a skill added by hand
+    catalog_item(apply=True)
+    assert listed() == ["alpha", "beta"] and not catalog_item()[0]
+    make_skill(catalog.HUB, "beta", "now described")
+    assert catalog_item()[0]  # a skill re-described
+    catalog_item(apply=True)
+    shutil.rmtree(catalog.HUB / "alpha")
+    assert catalog_item()[0]  # a skill removed
+    catalog_item(apply=True)
+    assert listed() == ["beta"] and not catalog_item()[0]
+
+
+def test_the_daily_check_writes_the_skill_catalog(user_home):
+    make_skill(catalog.HUB, "alpha")
+    sync.user_side()
+    assert listed() == ["alpha"]
 
 
 def test_a_failing_item_is_reported_not_raised(user_home, monkeypatch):

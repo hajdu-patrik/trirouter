@@ -54,7 +54,8 @@ The installer walks you through five steps:
 
 1. **Detect** which of Claude Code, Codex and Antigravity are installed and logged in, and tell you
    how to log in to the ones that are not.
-2. **JEV access** – paste a TypeSafe token or an OpenRouter key (`sk-or-…`), or press Enter to use the
+2. **JEV access** – paste a TypeSafe token or an OpenRouter key (`sk-or-…`; the input is hidden, and
+   `--jev-token-stdin` reads it from standard input for unattended runs), or press Enter to use the
    built-in local classifier.
 3. **Hooks + MCP server** for every logged-in tool, and the `trirouter` command.
 4. **Shared skill folder** `~/.skills` – existing skills of every tool are moved there, scanned with
@@ -68,14 +69,14 @@ Preview without changing anything: `python install.py --dry-run` (later: `trirou
 
 | Command | Purpose |
 | --- | --- |
-| `trirouter setup [--dry-run]` | the interactive setup (what `python install.py` runs) |
+| `trirouter setup [--dry-run] [--jev-token-stdin]` | the interactive setup (what `python install.py` runs); `--jev-token-stdin` reads the JEV key from standard input |
 | `trirouter keys [--apply]` | protect the saved API key (Windows DPAPI; owner-only file elsewhere), keep no plaintext backup; preview without `--apply` |
 | `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
 | `trirouter models --main=<family> [--subagent-model=<family>]` | Claude Code's default session model and the model of subagents that name none ([cost](#-cost-and-speed)) |
 | `trirouter daemon [status\|enable\|disable\|start\|stop]` | Claude Code hooks over HTTP to a resident router: no Python start per prompt ([speed](#-cost-and-speed)) |
 | `trirouter learn [--dry-run]` | train the local routing model on JEV's past decisions; it skips JEV when it is sure |
 | `trirouter remote --name "My PC" [--workdir <folder>] [--start-session=on\|off]` | remote access from other devices: at logon only the connection opens, sessions start when you open one ([guide](docs/remote-access.md)) |
-| `trirouter sync [--check]` | after a pull or a change: refresh tab completion, worker agents and (in the checkout) docs/cli.md + the pre-commit hook |
+| `trirouter sync [--check]` | after a pull or a change: refresh tab completion, worker agents, the skill catalog and (in the checkout) docs/cli.md + the pre-commit hook |
 | `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
 | `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N] [--catalog-only=<pattern>,...]` | scan + re-link skills, regenerate workers, rebuild the catalog |
 | `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
@@ -174,7 +175,8 @@ background by a Claude Code session start or a Codex / Antigravity prompt; the h
 once) trirouter compares what each tool offers with what it knows: `codex debug models`, `agy models`, and the
 model aliases `claude --help` names. A model seen for the first time is tried with a one-word prompt and
 becomes selectable when it answers – Claude only as a generic family alias, never a dated ID or a mode alias; a
-model no longer offered leaves the selection. Results go to `~/.trirouter/models.local.json` (never into the
+Codex or Antigravity model no longer offered leaves the selection (`claude --help` names its aliases as examples
+only, so a Claude alias it does not name stays). Results go to `~/.trirouter/models.local.json` (never into the
 repository), the worker agents are regenerated, the next Claude Code session gets a one-line note, and
 `trirouter doctor` shows the last check. A check that cannot run (tool missing, logged out, offline) changes
 nothing. Run it by hand with `trirouter models --discover [--dry-run]`; switch it off with
@@ -243,6 +245,10 @@ biggest cost lever, and the hook's own start-up was most of its latency. trirout
 (junctions on Windows, symlinks elsewhere); Antigravity through its `skills.json`. Skills that tools
 manage themselves (Claude desktop's synced skills, plugins, Codex built-ins) stay in place but are
 indexed too, so the router can hand a skill of one tool to another ("read and follow `<path>/SKILL.md`").
+The catalog the router reads (`~/.skills/catalog.json`) is rebuilt by `setup` and `skills --apply`; `trirouter sync`
+and the daily background check refresh it when a skill was added, removed or re-described by hand or by another
+tool (linking a new skill into Claude Code and Codex still needs `skills --apply`). A skill name is quoted to the
+model only when it is a plain identifier, and a path only when it lies inside one of the indexed skill roots.
 
 ### Skill security scan (SkillSpector)
 
@@ -362,7 +368,7 @@ See **[docs/remote-access.md](docs/remote-access.md)**.
 
 | Setting | Where |
 | --- | --- |
-| JEV access | `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`, or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
+| JEV access | `trirouter setup --jev-token-stdin` (reads the key from the first line of standard input, e.g. `cat key.txt \| trirouter setup --jev-token-stdin`), or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. `--jev-token=<key>` and `--openrouter-key=<key>` still work but are deprecated: a key on the command line shows in process listings and shell history. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
 | Key storage | The saved TypeSafe token / OpenRouter key is **not** kept as plain text: on Windows it is encrypted with DPAPI (`{"dpapi": "..."}` in `config.json`; it opens only for your account on this machine, a copied `config.json` falls back to the built-in local model and `trirouter doctor` says so). macOS and Linux have no keystore in the standard library, so the key stays a string and `config.json` and its backups are owner-only (mode 0600). An older plaintext key is migrated by `trirouter keys --apply` (preview without `--apply`; `setup` re-saves it protected too); the backup copy `config.json.bak` is written without the key, and `doctor` warns about any backup that still holds one. Environment variables win over the saved key. |
 | Per-user state | `~/.trirouter/` – `config.json`, `models.local.json` (per-account availability and discovered models), `logs/` (incl. `model_discovery.log`), `state/`, `quarantine/` (skills you quarantined), `completion/` (tab-completion scripts), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
 | Daily model check | `config.json` → `model_discovery.auto` (default on); set with `trirouter models --auto=on\|off` |
@@ -375,10 +381,10 @@ See **[docs/remote-access.md](docs/remote-access.md)**.
 | `ROUTER_CONTINUATION_TTL_MIN` | `180` | how long a go-ahead can continue the session's previous decision |
 | `ROUTER_MIN_CONFIDENCE` | `0.6` | below it the task falls back to the default tier |
 | `ROUTER_MAX_EXTRA_AGENTS` | `4` | hard cap for parallel agents |
-| `ROUTER_QUEUE_TTL_MIN` | `120` | minutes after which an unfinished queue entry is ignored |
+| `ROUTER_QUEUE_TTL_MIN` | `120` | minutes after which an unfinished queue entry is ignored (a session whose transcript has been silent for 10 minutes is dropped earlier, also when it is another session in the same folder) |
 | `ROUTER_SKILL_CANDIDATES` | `5` | skills offered to JEV per request |
-| `ROUTER_LOG_PROMPTS` | unset | `1` = log full prompts (default: first 200 characters, secrets redacted) |
-| `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | –, –, `1.8` | JEV endpoint, pinned model version, timeout in seconds (on timeout the local classifier decides) |
+| `ROUTER_LOG_PROMPTS` | unset | `1` = log full prompts (default: first 200 characters; secrets are redacted in the log, in the queue context and in what is sent to JEV: API keys and tokens by shape, values after a password / api key label, URL passwords, bearer tokens) |
+| `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | –, –, `1.8` | JEV endpoint (https only, except on the loopback interface; redirects are refused), pinned model version, the whole call's time budget in seconds (on timeout the local classifier decides; after 2 failures in a row JEV is paused for 60 s). A setting that is not a number falls back to its default |
 | `JEV_OPENROUTER_URL`, `JEV_OPENROUTER_MODEL` | OpenRouter System One, `jev-1.13` | the same through OpenRouter |
 
 ---
@@ -390,7 +396,8 @@ install.py                 entry point: `python install.py [command]` (same as `
 pyproject.toml             package metadata, console script `trirouter`, pytest settings
 trirouter/                 the package
 ├── cli.py                 the commands (setup, models, skills, quarantine, remote, sync, doctor, route, uninstall)
-├── sync.py                `trirouter sync`: regenerates docs/cli.md, completion and agents; the pre-commit checks
+├── sync.py                `trirouter sync`: regenerates docs/cli.md, completion, agents and the skill catalog; the pre-commit checks
+├── store.py               O_EXCL lock file and expiring JSON map store under ~/.trirouter/state (hook state, answer cache)
 ├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
 ├── cliparse.py            argument validation against manual.py
 ├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
@@ -426,7 +433,7 @@ docs/                      cli.md (command reference, generated), speech-to-text
 pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
 python -m pytest tests -q          # unit tests incl. the model-policy check
 python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
-python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, pre-commit hook
+python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, skill catalog, pre-commit hook
 ```
 
 The first `sync` in the checkout sets `core.hooksPath` to `.githooks`. Its `pre-commit` hook runs

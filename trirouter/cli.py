@@ -182,13 +182,19 @@ def store_jev_key(cfg, key):
 
 def jev_backend_label(cfg):
     return core.JEV_LABELS.get(core.jev_access(cfg)[0]) or \
-        "built-in local model (add JEV later with `trirouter setup --jev-token=<TypeSafe token or OpenRouter key>`)"
+        "built-in local model (add JEV later: pipe a TypeSafe token or OpenRouter key into `trirouter setup --jev-token-stdin`)"
 
 
 def configure_jev(cfg):
     say("\n== 2/5  JEV / TypeSafe (the routing decision engine)")
     token = FLAGS.get("--openrouter-key") or FLAGS.get("--jev-token")
-    if isinstance(token, str) and token:
+    if token:
+        say("  Note: a key on the command line shows in process listings and shell history; prefer --jev-token-stdin.")
+    elif "--jev-token-stdin" in FLAGS:
+        token = read_stdin().partition("\n")[0].strip()
+        if not token:
+            say("  --jev-token-stdin: no key on standard input.")
+    if token:
         store_jev_key(cfg, token)
     elif os.environ.get("TYPESAFE_API_KEY") or os.environ.get("JEV_OPENROUTER_API_KEY"):
         say("  Using the JEV key from the environment.")
@@ -196,7 +202,7 @@ def configure_jev(cfg):
         say("  A JEV key is already configured.")
     elif secret.UNREADABLE in (secret.status(cfg.get(k)) for k in secret.KEY_FIELDS):
         say("  The stored JEV key cannot be decrypted on this account (copied from another machine or user?): "
-            "give it again with --jev-token.")
+            "give it again with --jev-token-stdin.")
     elif not YES and interactive():
         token = interrupt.ask_secret("  TypeSafe token or OpenRouter key (input hidden; Enter = built-in local model): ").strip()
         if token:

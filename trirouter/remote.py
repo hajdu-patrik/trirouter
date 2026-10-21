@@ -25,7 +25,8 @@ from . import legacy, platforms as P
 
 STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (cli.prepare_state)
 BIN = STATE / "bin"
-RUN_KEY = r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_KEY = "HKCU:\\" + RUN_SUBKEY  # the same key as PowerShell names it
 AGY_RUN_VALUE = "AntigravityCliDaemon"
 CONFIG = STATE / "config.json"
 # Windows: the scheduled tasks live in this Task Scheduler folder as "Trirouter - <what>", each with a Description
@@ -126,8 +127,8 @@ def _hidden_ps(script):
 
 def _run_once(script, wait_s=30):
     """Last output line of a PowerShell script run by the Task Scheduler ("" on timeout). Needed for
-    HKCU: a process inside a packaged (MSIX) app, such as the Claude desktop app, only sees a private
-    copy of HKCU, so a Run entry written from there never takes effect. The result goes through a
+    HKCU writes: a process inside a packaged (MSIX) app, such as the Claude desktop app, writes only to a
+    private copy of HKCU, so a Run entry written from there never takes effect. The result goes through a
     file because conhost does not pass the exit code on."""
     result = STATE / "state" / "setup-task.txt"
     result.parent.mkdir(parents=True, exist_ok=True)
@@ -503,8 +504,19 @@ def _autostart_state(entry):
     return "hidden" if "--headless" in entry else "opens a window"
 
 
+def _agy_autostart_entry():
+    """agy's autostart entry (its HKCU Run value), "" when there is none. A read needs no scheduled task: the private
+    HKCU copy of a packaged app only matters for writes that must take effect system-wide (see _run_once)."""
+    import winreg  # Windows only
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_SUBKEY) as key:
+            return winreg.QueryValueEx(key, AGY_RUN_VALUE)[0]
+    except OSError:
+        return ""
+
+
 def _agy_status(procs):
-    entry = _run_once(f"(Get-ItemProperty {_psq(RUN_KEY)} -ErrorAction SilentlyContinue).{AGY_RUN_VALUE}")
+    entry = _agy_autostart_entry()
     serve = "remote-control serve" in procs
     return ("antigravity", bool(entry) and "--headless" in entry and serve,
             f"daemon {'running' if serve else 'NOT running'}, autostart {_autostart_state(entry)}")

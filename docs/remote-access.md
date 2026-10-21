@@ -57,8 +57,9 @@ autostart entry after an agy update rewrote it, and restarts a daemon or remote 
 running.
 
 **Packaged apps (Windows).** A terminal inside a packaged app – for example the Claude desktop app's
-Code tab – only sees the app's private copy of the registry. The installer therefore makes registry
-changes and registers Antigravity in a short-lived scheduled task, which runs outside the app.
+Code tab – writes registry changes only to the app's private copy. The installer therefore makes registry
+changes and registers Antigravity in a short-lived scheduled task, which runs outside the app; `trirouter doctor`
+only reads the registry and needs no task.
 
 ### One-time pairing for Codex
 

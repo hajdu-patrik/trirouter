@@ -21,6 +21,22 @@ dates are ISO 8601.
   user-visible files, the tests and – when routing code is staged – the routing evaluation. A failure stops the
   commit; `git commit --no-verify` skips it once.
 - `trirouter remote --start-session=on|off` (remembered as `remote_start_session`, default off).
+- **`trirouter sync` keeps the skill catalog current** (new item `skill catalog`). `~/.skills/catalog.json`, the skill
+  list the router and the MCP tools read, was rebuilt only by `setup` and `skills --apply`, so a skill added, removed
+  or re-described by hand or by another tool stayed invisible until then. `sync`, `sync --check` and `doctor` now
+  compare the saved list with what the skills on the machine give and rewrite it when they differ; the daily
+  background check does the same by itself. Without a `~/.skills` folder (CI, a fresh machine) the item only says
+  "no skill hub yet" and is never out of date.
+- `trirouter setup --jev-token-stdin`: reads the TypeSafe token or OpenRouter key from the first line of standard
+  input (stored exactly like `--jev-token`), so the secret stays out of process listings and the shell history.
+- `cli-bridge`: `ask_cli.py --prompt-file FILE` reads the prompt from a file of the caller's choosing and deletes it
+  once read; the skill now writes a uniquely named file instead of the shared `~/.trirouter/tmp/cli_prompt.txt`.
+  `--model` and `--effort` must be plain names (letters, digits, `_ . : / -`, no leading `-`).
+- A JEV circuit breaker: after 2 failures in a row (no answer, a malformed one) every prompt of the next 60 s is
+  decided locally at once instead of each paying the timeout; the state is shared by all hook processes
+  (`state/jev_breaker.json`) and reset by the next successful answer.
+- New module `trirouter/store.py`: the O_EXCL lock file and the expiring JSON map store that the hook state, the
+  answer cache, the breaker and the daily model check share (one implementation instead of three).
 
 ### Changed
 - **Windows scheduled tasks moved into the Task Scheduler folder `\Automations\`** with readable names and a
@@ -32,8 +48,75 @@ dates are ISO 8601.
   sessions start when you open one from the Claude app or claude.ai/code (a terminal session joins with
   `/remote-control`), like the ChatGPT app and antigravity.google.com already worked. `--start-session=on`, or a
   Claude Code too old for the flag, keeps the old `--name` command. `doctor` recognises both forms.
+- `setup --jev-token=KEY` and `--openrouter-key=KEY` still work but are deprecated: a key on the command line shows
+  in process listings and shell history. `setup` prints a note, and the manual and hints point to
+  `--jev-token-stdin` and to the environment variables `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`.
+- **CI hardening**: the workflow runs with read-only token permissions (`permissions: contents: read`), the actions
+  are pinned by commit SHA (`actions/checkout` v4.2.2, `actions/setup-python` v5.6.0) and the Python matrix covers
+  3.10 to 3.14 (was 3.10 and 3.12) on Ubuntu, macOS and Windows.
+- Routing a very long prompt is fast again: the classifiers, the skill pre-filter and the local model read the first
+  and last 20,000 characters of the user's own text (a 1.2 million character prompt took 5.8 s, now under a second);
+  the destructive-request check still reads the whole prompt, and `lang.fold` is memoised.
+- The logs rotate: `routing.jsonl`, `subagents.jsonl` and `guard.jsonl` (16 MB), `model_discovery.log` (64 KB) and
+  `daemon.log` (512 KB) are cut to their newer half beyond that size, under the same lock as the append. On
+  macOS and Linux the state and log folders trirouter creates are owner-only (0700) and its log and state files
+  mode 0600. The Windows byte lock on a log sits far past the end of the file, so a reader never hits it.
+- The hook daemon's reload waits at most 30 s for the running requests (a stuck request no longer freezes every
+  later hook); a negative chunk size in a chunked request body is a 400.
+- The routing log records whether the safety check fired (`destructive`) and why a prompt was queued (`queued`:
+  earlier requests of the session, other sessions in the folder); another session in the same folder whose
+  transcript has been silent for 10 minutes no longer counts as working there. SkillSpector's install hint pins
+  v2.12.0; the MCP server reports the package version; `catalog-index.json` follows `TRIROUTER_HOME`.
+
+### Security
+- **A hook can no longer fail the host tool.** Every hook entry point (`hooks.main`, `handle`, the handlers that
+  read state) is guarded: an unexpected error is logged by type and the prompt gets no context instead of an error;
+  the hook shim `~/.trirouter/bin/run_hook.py` exits 0 whatever happens (re-run `setup` to rewrite it). A damaged
+  state file (`inflight.json` with a number, a list of strings or a text stamp where an entry belongs) heals on
+  the next prompt; a setting that is not a number (`JEV_TIMEOUT=abc`, `ROUTER_MAX_EXTRA_AGENTS=x`) falls back to
+  its default instead of stopping the import; a `session_id`, `cwd`, `transcript_path` or `prompt_id` of the
+  wrong type is ignored.
+- **JEV's answers are checked before they are used or cached.** Each answer is validated against the question it
+  answers: a task outside the known tasks, a skill outside the candidates, an agents count outside the criteria,
+  an effort outside the offered levels (a banned one is lowered as before), a model outside the catalog, a score
+  or confidence that is not a number within range. A malformed required answer (task, difficulty, the three
+  noul questions) falls back to the local classifier; a malformed optional one is dropped. Only validated answers
+  are cached, a damaged cache entry is a miss, and the cache key includes the channel and model. No text of JEV's
+  reaches the `[router]` context verbatim any more (an injected task or skill name was rendered as is).
+- **No remote path is ever probed.** The note about a foreign project only looks at paths on the session's own
+  drive: a UNC share (`//host/share`, `\\host\share`), an extended (`\\?\`) or device (`\\.\`) path and
+  another drive letter are never passed to `exists()`, which on Windows meant an SMB round trip with the user's
+  credentials and a multi-second hang per prompt.
+- Secrets are redacted before the prompt leaves the machine: the text sent to JEV, the routing log and the
+  QUEUE / CONCURRENCY context mask API keys and tokens by shape (now also AWS access keys), values after a
+  password / api key label, URL passwords (`postgres://user:pass@host`) and bearer tokens.
+- The JEV endpoint must be https (loopback excepted), a redirect is refused (urllib would forward the
+  Authorization header), the answer is capped at 256 KB and the whole call, DNS lookup included, is bounded by
+  `JEV_TIMEOUT`.
+- A skill name is quoted to the model only when it is a plain identifier (`[\w:.-]{1,80}`; the catalog falls back
+  to the folder name, then skips the skill), and a skill path only when it lies inside one of the indexed skill
+  roots: `catalog.json` and the saved last decision are data.
+- A model id is checked before it becomes a command-line argument: a slug from `codex debug models` that is not one
+  plain word (letters, digits and `_ . : / -`, never a leading `-`) is skipped, and an id of that shape in
+  `models.local.json` is never tried (`codex exec -m`, `claude -p --model`) and never selectable.
+- A CLI started by `cli-bridge` runs with `TRIROUTER_NESTED=1`, which the hooks now honour: the nested prompt is
+  not routed (and not sent to JEV) a second time.
 
 ### Fixed
+- The daily model check no longer sends a paid prompt every day for a Claude alias that `claude --help` does not
+  name. The help lists aliases as examples only (`haiku` works but is not named), so an alias it leaves out stays
+  selectable and is neither tried nor removed; a Claude alias is tried only when the help names it for the first
+  time, or names it again after an older version had recorded it as no longer listed. Codex and Antigravity
+  models that are no longer offered are still removed.
+- `trirouter doctor` no longer registers, runs and deletes the scheduled task `Trirouter - Setup` on Windows to read
+  Antigravity's autostart entry: it reads the registry value directly, so the report is strictly read-only (and no
+  longer waits 30 seconds when agy has no autostart entry).
+- The Claude `SessionStart` hook no longer deletes expired quarantine entries itself (a large skill takes seconds
+  to remove): it stamps the time and starts `python -m trirouter.skillscan --purge-expired` detached, like the
+  daily model check. The Antigravity prompt is read from the last 256 KB of the transcript, not the whole file.
+- The tests no longer rewrite the real `~/.skills/catalog.json` or the installed completion scripts (the scheduled
+  run in `test_discovery.py` reached `sync.user_side()`); `conftest.py` isolates the hub, the catalog and
+  `TRIROUTER_HOME`.
 - A `config.json`, `models.local.json`, Claude `settings.json` or Antigravity seen-turns file that holds valid JSON of
   the wrong type (a list instead of an object) counts as empty, like an unreadable one, instead of failing the hook.
 - The tests wrote to the real home folder: `test_discovery.py` regenerated agents into `~/.claude/agents`,

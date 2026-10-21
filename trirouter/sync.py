@@ -6,11 +6,13 @@ flag or model works everywhere right after a development round.
   tab completion       the installed shell scripts, from manual.py (profiles are left alone)
   worker agents        the generated Claude / Codex / Antigravity agents, from templates + targets.json + models.json
                        (only for tools that already have generated agents: `skills --apply` creates them)
+  skill catalog        ~/.skills/catalog.json, the skill list the router reads, from the skills on this machine
+                       (only once the hub folder exists: `setup` creates it)
 
 `--check` changes nothing and exits 1 when something is out of date (CI). `--pre-commit` is what the git hook runs:
 the sync, then `git add docs/cli.md` when it was regenerated, a CHANGELOG reminder, the tests and, when routing code
 is staged, the routing evaluation; a failure stops the commit (`git commit --no-verify` skips the hook once).
-The daily background check (discovery.py) runs the user-side part (completion, agents) by itself.
+The daily background check (discovery.py) runs the user-side part (completion, agents, catalog) by itself.
 """
 import contextlib
 import io
@@ -18,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import completion, hub, manual, platforms as P
+from . import catalog, completion, hub, manual, platforms as P
 
 PKG = Path(__file__).resolve().parent
 REPO = PKG.parent
@@ -123,10 +125,23 @@ def _agents(apply):
     return [("worker agents", True, f"{len(changes)} change(s) {'written' if apply else 'pending'} ({', '.join(providers)})")]
 
 
+def _skill_catalog(apply):
+    if not catalog.HUB.is_dir():
+        return [("skill catalog", False, f"no skill hub yet (`{P.command_hint('setup')}` creates it)")]
+    have, want = catalog.load_catalog(), catalog.build_catalog(hub.catalog_only_setting())
+    if have == want:
+        return [("skill catalog", False, f"up to date ({len(want)} skills)")]
+    if apply:
+        catalog.write_catalog(want)
+    return [("skill catalog", True, f"rewritten ({len(want)} skills)" if apply else
+             f"out of date ({len(have)} listed, {len(want)} found)")]
+
+
 def items(apply, user=True, repo=None):
     """Runs every item; [(label, stale, detail)]. A failing item is reported, never raised."""
     repo = is_checkout() if repo is None else repo
-    steps = ([("docs/cli.md", _docs), ("pre-commit hook", _git_hook)] if repo else []) +             ([("tab completion", _completion), ("worker agents", _agents)] if user else [])
+    steps = ([("docs/cli.md", _docs), ("pre-commit hook", _git_hook)] if repo else []) + \
+            ([("tab completion", _completion), ("worker agents", _agents), ("skill catalog", _skill_catalog)] if user else [])
     out = []
     for label, step in steps:
         try:
@@ -137,7 +152,7 @@ def items(apply, user=True, repo=None):
 
 
 def user_side():
-    """The daily background check: completion scripts and agents, silently. Never raises."""
+    """The daily background check: completion scripts, agents and the skill catalog, silently. Never raises."""
     try:
         items(apply=True, user=True, repo=False)
     except Exception:  # noqa: BLE001

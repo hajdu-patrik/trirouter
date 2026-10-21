@@ -26,7 +26,7 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
   templates in `trirouter/templates/agents/`, bundled skills in `trirouter/skills/`. One CLI
   (`trirouter <command>` = `python install.py <command>` = `python -m trirouter <command>`; the launcher
   only exists after the first setup); no stand-alone scripts. Commands, flags and help texts are data in
-  `trirouter/manual.py`: after editing it run `python -m trirouter sync` (regenerates docs/cli.md, the installed
+  `trirouter/manual.py`: after editing it run `python -m trirouter sync` (regenerates docs/cli.md, the skill catalog, the installed
   tab completion and agents; a test checks docs/cli.md).
   `jev_router/` is a thin compatibility package for shims written before the rename (remove it after the
   next release); `trirouter/legacy.py` holds the old names and the state-folder migration.

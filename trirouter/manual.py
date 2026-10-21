@@ -69,6 +69,9 @@ CATALOG_ONLY = Flag("--catalog-only", value="PATTERN,...", default="none", remem
                         "Antigravity reads the whole hub and keeps seeing them.")
 QDAYS = Flag("--quarantine-days", value="N", default="3", remembered="yes (skillscan.quarantine_days)", kind="int",
              doc="Days a quarantined skill is kept before it is deleted for good. 0 = never delete.")
+KEY_ARG_DEPRECATED = ("Deprecated: the key is visible in process listings and shell history; prefer --jev-token-stdin "
+                      "or the environment variables TYPESAFE_API_KEY / JEV_OPENROUTER_API_KEY, which already win over "
+                      "the saved key.")
 
 COMMANDS = {}
 
@@ -82,7 +85,7 @@ EXIT_STD = ("0 on success. 2 on a usage error (unknown or misused option, missin
             "1 when the command ran but failed.")
 
 _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and scan skills",
-     synopsis=("{prog} setup [-y] [-n] [--providers=LIST] [--jev-token=TOKEN] [--remote[=NAME]] [options]",),
+     synopsis=("{prog} setup [-y] [-n] [--providers=LIST] [--jev-token-stdin] [--remote[=NAME]] [options]",),
      description=(
          "Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity and help you log in; "
          "(2) the JEV / TypeSafe token or an OpenRouter key (optional; without one the built-in local model decides); "
@@ -101,12 +104,15 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
      flags=(YES, DRY,
             Flag("--providers", value="LIST", default="every installed, logged-in tool",
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
-            Flag("--jev-token", value="TOKEN", default="none", remembered="yes (typesafe_api_key or openrouter_api_key)",
-                 doc="A TypeSafe token, or an OpenRouter key (sk-or-...). Saved protected: encrypted with Windows "
+            Flag("--jev-token-stdin", remembered="yes (typesafe_api_key or openrouter_api_key)",
+                 doc="Read a TypeSafe token, or an OpenRouter key (sk-or-...), from the first line of standard input, "
+                     "so it never shows in process listings or shell history. Saved protected: encrypted with Windows "
                      "DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables "
                      "TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key."),
+            Flag("--jev-token", value="TOKEN", default="none", remembered="yes (typesafe_api_key or openrouter_api_key)",
+                 doc=KEY_ARG_DEPRECATED + " A TypeSafe token, or an OpenRouter key (sk-or-...), saved the same way."),
             Flag("--openrouter-key", value="KEY", default="none", remembered="yes (openrouter_api_key)",
-                 doc="An OpenRouter key; same as --jev-token=sk-or-..."),
+                 doc=KEY_ARG_DEPRECATED + " An OpenRouter key; same as --jev-token=sk-or-..."),
             Flag("--remote", value="NAME", optional=True, default="ask", remembered="yes (remote_name)",
                  doc="Also set up remote access, under NAME (default: the saved name or the hostname)."),
             Flag("--workdir", value="DIR", default="the checkout", remembered="yes (remote_workdir)",
@@ -119,7 +125,7 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
      examples=(("{prog} setup", "interactive setup (python install.py alone does the same)"),
                ("{prog} setup --dry-run", "show every change, write nothing"),
                ("{prog} setup --yes --providers=claude,codex", "unattended, only these two tools"),
-               ("{prog} setup --jev-token=sk-or-...", "add an OpenRouter key and keep the rest"),
+               ("cat key.txt | {prog} setup --jev-token-stdin", "add a TypeSafe token or OpenRouter key from a file and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
      exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found.",
      see_also=("keys", "models", "skills", "remote", "doctor", "uninstall"))
@@ -136,8 +142,8 @@ _add(key="keys", summary="Protect the API keys saved in config.json",
          "always win.\n\n"
          "No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, "
          "and the key is also removed from older backups next to it (config.json.*). Without --apply the command "
-         "only previews; `{prog} doctor` reports the state. A key saved with `setup --jev-token` is stored "
-         "protected right away, `setup` also removes plaintext keys from old backups."),
+         "only previews; `{prog} doctor` reports the state. A key saved with `setup` is stored "
+         "protected right away, and `setup` also removes plaintext keys from old backups."),
      flags=(APPLY, DRY),
      changes="Preview by default; --apply writes",
      examples=(("{prog} keys", "show what would be protected"),
@@ -153,8 +159,9 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
          "Antigravity: `agy models`; Claude Code: the model aliases `claude --help` names (only generic family "
          "aliases such as haiku, sonnet, opus or fable -- never a dated model ID or a mode alias). A model seen for the first "
          "time is tried with a one-word prompt (Codex, Claude; about 10-60 s each) and becomes selectable when it "
-         "answers; a model that is no longer offered is taken out of the selection (Claude: only after a prompt "
-         "confirms it is gone). A check that cannot run -- tool missing, not logged in, network error -- changes "
+         "answers; a Codex or Antigravity model that is no longer offered is taken out of the selection (Claude's "
+         "help names aliases as examples only, so a Claude alias it does not name stays). A check that cannot run "
+         "-- tool missing, not logged in, network error -- changes "
          "nothing. Results are stored per user in ~/.trirouter/models.local.json, never in the repository, and the "
          "worker agents are regenerated when something changed. Effort levels outside the policy (ultra) are "
          "always dropped.\n\n"
@@ -288,12 +295,14 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
 _add(key="sync", summary="Bring everything generated from the sources up to date (after a pull or a change)",
      synopsis=("{prog} sync [--check | -n]", "{prog} sync --pre-commit"),
      description=(
-         "One step after every development round or `git pull`, so new commands, flags and models work everywhere: "
-         "rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), regenerates "
-         "the worker agents of the tools that already have generated ones (from templates/agents, targets.json and "
-         "models.json) and, in a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to "
-         ".githooks (never over another hooks folder or your own .git/hooks). The daily background check refreshes "
-         "the completion scripts and agents by itself.\n\n"
+         "One step after every development round or `git pull`, so new commands, flags, models and skills work "
+         "everywhere: rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), "
+         "regenerates the worker agents of the tools that already have generated ones (from templates/agents, "
+         "targets.json and models.json), rebuilds the skill catalog (~/.skills/catalog.json, the list the router "
+         "reads) when a skill was added, removed or changed since it was written (only once ~/.skills exists) and, in "
+         "a trirouter checkout, regenerates docs/cli.md and sets git's core.hooksPath to .githooks (never over "
+         "another hooks folder or your own .git/hooks). The daily background check refreshes the completion "
+         "scripts, agents and skill catalog by itself.\n\n"
          "The checkout's git pre-commit hook runs `{prog} sync --pre-commit`: the sync, `git add docs/cli.md` when it "
          "was regenerated, a reminder when user-visible files are staged without CHANGELOG.md, the tests and, when "
          "routing code is staged (core, lang, distill, config, eval), the routing evaluation. A failure stops the "
@@ -500,7 +509,7 @@ TASKS = (
     ("Turn the daily model check off", "trirouter models --auto=off"),
     ("Print the version", "trirouter --version"),
     ("Reach this computer from a phone", "trirouter remote --name \"My PC\""),
-    ("Update tab completion, agents and docs after a pull or a change", "trirouter sync"),
+    ("Update tab completion, agents, the skill catalog and docs after a pull or a change", "trirouter sync"),
     ("Remove everything the installer added", "trirouter uninstall"),
 )
 
