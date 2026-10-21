@@ -23,7 +23,7 @@ import re
 import time
 from pathlib import Path
 
-from . import core, platforms
+from . import core, lang, platforms
 
 VERSION = 1
 CLASSES = {"task": list(core.TASKS), "level": [0, 1, 2]}
@@ -76,7 +76,7 @@ def eval_files():
 
 def features(text):
     """The set of binary features of a prompt: words, word pairs, char 3-5-grams inside words, a length bucket."""
-    words = _WORD_RE.findall(core._norm(text)[:MAX_CHARS])
+    words = _WORD_RE.findall(lang.fold(text)[:MAX_CHARS])
     f = {"w:" + w for w in words}
     f.update("b:" + a + " " + b for a, b in zip(words, words[1:]))
     for w in words:
@@ -104,7 +104,7 @@ def default_tier():
 # ---- training data ------------------------------------------------------------------------------------------
 
 def key_of(text):
-    return " ".join(core._norm(text).split())
+    return " ".join(lang.fold(text).split())
 
 
 def _usable(prompt):

@@ -12,10 +12,9 @@ import math
 import os
 import re
 import time
-import unicodedata
 from pathlib import Path
 
-from . import legacy, platforms as P
+from . import lang, legacy, platforms as P
 
 HOME = Path.home()
 HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
@@ -64,11 +63,6 @@ _DESCRIPTION = re.compile(r"^description:(.*)$", re.M)
 _BLOCK_MARKERS = (">", "|", ">-", "|-", "")
 
 
-def _norm(text):
-    t = unicodedata.normalize("NFKD", (text or "").lower())
-    return "".join(c for c in t if not unicodedata.combining(c))
-
-
 def stem(t):
     for suf in ("ing", "ions", "ion", "ed", "es", "s"):
         if len(t) > len(suf) + 3 and t.endswith(suf):
@@ -78,7 +72,7 @@ def stem(t):
 
 def tokens(text):
     out = set()
-    for t in _TOK.findall(_norm(text)):
+    for t in _TOK.findall(lang.fold(text)):
         t = t.strip(".-")
         if t not in STOP and len(t) >= 3:
             out.add(stem(t))
@@ -319,7 +313,7 @@ def prefilter(prompt, catalog, n=8, min_score=1.5):
         return []
     docs, df = _cached_index(catalog)
     q = _expand(tokens(prompt))
-    raw = _norm(prompt)
+    raw = lang.fold(prompt)
     scored = []
     for s, nt, dt in docs:
         score, hits, name_hits = _overlap(q, nt, dt, df, len(docs))

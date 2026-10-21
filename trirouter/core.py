@@ -8,10 +8,8 @@ globally inside arbitrary other projects.
 import json
 import os
 import re
-import sys
 import threading
 import time
-import unicodedata
 from pathlib import Path
 
 from . import catalog, lang, legacy, platforms, secret
@@ -154,7 +152,7 @@ def is_continuation(prompt):
     own, pasted = split_pasted(prompt)
     if pasted:
         return False
-    words = re.findall(r"[a-z0-9']+", _norm(own))
+    words = re.findall(r"[a-z0-9']+", lang.fold(own))
     if not words or len(words) > CONTINUATION_MAX_WORDS:
         return False
     if STATUS_RE.match(" ".join(words)):
@@ -171,12 +169,12 @@ def is_meta_question(prompt):
     own, pasted = split_pasted(prompt)
     if pasted or FENCE_RE.search(own) or len(own) > 120:
         return False
-    text = _norm(own)
+    text = lang.fold(own)
     return len(text.split()) <= META_MAX_WORDS and bool(META_RE.search(text))
 
 
 def continuation_lang(prompt, previous_lang):
-    words = re.findall(r"[a-z0-9']+", _norm(split_pasted(prompt)[0]))
+    words = re.findall(r"[a-z0-9']+", lang.fold(split_pasted(prompt)[0]))
     votes = {code: sum(w in vocab for w in words) for code, vocab in CONTINUATION_LANG_WORDS.items()}
     hu, en = votes["hu"], votes["en"]
     return previous_lang if hu == en else ("hu" if hu > en else "en")
@@ -194,11 +192,6 @@ def continued_decision(previous, lang_code):
     d.update(backend="continuation", lang=lang_code, destructive_p=None, verify=d.get("verify") or "",
              notes=["continues the previous request: keep its model and effort"])
     return d
-
-
-def _norm(text):
-    t = unicodedata.normalize("NFKD", text.lower())
-    return "".join(c for c in t if not unicodedata.combining(c))
 
 
 # Code-level backup for JEV's destructive question, which prompt injection can sway. Object-bound on
@@ -228,7 +221,7 @@ DESTRUCTIVE_RE = re.compile(
 
 
 def is_destructive(prompt):
-    return bool(DESTRUCTIVE_RE.search(_norm(prompt)))
+    return bool(DESTRUCTIVE_RE.search(lang.fold(prompt)))
 
 
 # Writing a draft for the user (an email, a letter) is harmless; sending it is not. The destructive regex still
@@ -241,7 +234,7 @@ SENDING_RE = re.compile(r"\b(send|post|publish|submit|deliver|dispatch|forward|k
 
 
 def is_drafting(prompt):
-    t = _norm(split_pasted(prompt)[0])
+    t = lang.fold(split_pasted(prompt)[0])
     return bool(DRAFTING_RE.search(t)) and not SENDING_RE.search(t) and not is_destructive(prompt)
 
 
@@ -334,7 +327,7 @@ def local_agents_answer(t, level):
 
 
 def local_answers(prompt):
-    t = _norm(prompt)
+    t = lang.fold(prompt)
     scores = {k: len(re.findall(p, t)) for k, p in LOCAL_TASK_RE.items()}
     for k, p in LOCAL_TASK_STRONG_RE.items():
         scores[k] += len(re.findall(p, t))
@@ -410,6 +403,11 @@ def base_provider(provider):
     return provider.split("-")[0]
 
 
+def for_provider(table, provider, default):
+    """The provider's section of a config table (models.json, routes.json, targets.json), else its base provider's."""
+    return table.get(provider) or table.get(base_provider(provider)) or default
+
+
 def safe_key(name):
     return "skill_" + re.sub(r"[^a-z0-9_]", "_", name.lower())
 
@@ -476,7 +474,7 @@ def models_for(provider):
     marked `"routable": false` in the catalog is never selectable, whatever a probe recorded."""
     cfg = load_json("models.json", {})
     base = base_provider(provider)
-    m = cfg.get(provider) or cfg.get(base) or {}
+    m = for_provider(cfg, provider, {})
     local = model_overrides().get(base, {})
     local = local if isinstance(local, dict) else {}
     banned = excluded_efforts()
@@ -500,12 +498,10 @@ ROLE_ORDER = ("fast", "balanced", "deep")
 
 def _catalog_role(provider, model_id):
     """The role models.json (or models.local.json) gives the model, even when it is not selectable."""
-    cfg = load_json("models.json", {})
-    base = base_provider(provider)
-    for model in (cfg.get(provider) or cfg.get(base) or {}).get("models", []):
+    for model in for_provider(load_json("models.json", {}), provider, {}).get("models", []):
         if model.get("id") == model_id:
             return model.get("role", "balanced")
-    entry = model_overrides().get(base, {}).get(model_id)
+    entry = model_overrides().get(base_provider(provider), {}).get(model_id)
     return (entry.get("role") if isinstance(entry, dict) else None) or "balanced"
 
 
@@ -538,9 +534,13 @@ def clamp_effort(effort, allowed):
         return effort
     if not effort or effort in allowed:
         return effort or allowed[len(allowed) // 2]
-    pos = EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else 2
-    return min(allowed, key=lambda a: (abs((EFFORT_ORDER.index(a) if a in EFFORT_ORDER else 2) - pos),
-                                       -(EFFORT_ORDER.index(a) if a in EFFORT_ORDER else 2)))
+    rank = lambda level: EFFORT_ORDER.index(level) if level in EFFORT_ORDER else 2  # noqa: E731
+    return min(allowed, key=lambda a: (abs(rank(a) - rank(effort)), -rank(a)))
+
+
+def _usable_levels(effort):
+    """The levels of an effort_levels_for() answer that are not excluded."""
+    return [l for l in effort["levels"] if l not in set(effort.get("excluded", []))]
 
 
 def _short_desc(desc):
@@ -575,7 +575,7 @@ def build_questions(skills, effort=None, models=None):
         for name, desc in skills.items():
             q[safe_key(name)] = {"type": "noul", "instructions": f"The request needs this capability: {desc}"}
     if effort and effort.get("levels"):
-        usable = [l for l in effort["levels"] if l not in set(effort.get("excluded", []))]
+        usable = _usable_levels(effort)
         instructions = "Which reasoning-effort level should the model use for this request?"
         if effort.get("note"):
             instructions += " " + effort["note"]
@@ -746,7 +746,7 @@ def _mock_effort(lvl, effort):
     """The mock never picks the very top level on its own; that is left to JEV or an override."""
     if not effort or not effort.get("levels"):
         return None
-    usable = [l for l in effort["levels"] if l not in set(effort.get("excluded", []))]
+    usable = _usable_levels(effort)
     if not usable:
         return None
     idx = round(lvl / 2 * (len(usable) - 1) * 0.8) if len(usable) > 1 else 0
@@ -787,7 +787,7 @@ CODE_SIGNS_RE = re.compile(r"`|[\w.-]+\.[a-z]{1,5}\b|[/\\]|\b\w+\(\)|[{};=<>]")
 
 def is_short_chat(prompt, max_chars):
     own = " ".join(split_pasted(prompt)[0].split())
-    norm = _norm(own)
+    norm = lang.fold(own)
     return (bool(own) and len(own) < max_chars and not CODE_SIGNS_RE.search(own)
             and not re.search(LOCAL_TASK_RE["code"], norm) and not re.search(LOCAL_TASK_RE["test"], norm))
 
@@ -1117,8 +1117,8 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     session already runs, so a tier can say "stay in-session". previous: this session's last
     decision, re-used when the prompt only continues it."""
     routes_all, targets_all = load_json("routes.json", {}), load_json("targets.json", {})
-    routes = routes_all.get(provider) or routes_all.get(base_provider(provider)) or {"default": "main", "table": {}}
-    targets = targets_all.get(provider) or targets_all.get(base_provider(provider)) or {"tiers": {"main": "Answer directly in this session."}}
+    routes = for_provider(routes_all, provider, {"default": "main", "table": {}})
+    targets = for_provider(targets_all, provider, {"tiers": {"main": "Answer directly in this session."}})
     effort = effort_levels_for(provider)
     models = models_for(provider)
     own, pasted = split_pasted(prompt)
@@ -1195,14 +1195,12 @@ def _distilled_prediction(own):
         return None
 
 
-def _distilled_ok(own, a, candidates):
-    """The local model may stand in for JEV: the same guards as the keyword fast path (no strong skill candidate,
-    a bounded length, nothing that needs the web or a long context per the local signals) and a confident answer."""
-    if candidates and candidates[0][0] >= 3.0 or len(own) > LOCAL_FAST_MAX_CHARS:
-        return False
-    if a["task"]["choice"] == "research" or a["needs_web"]["noul"] >= LONG_CTX_T or a["long_context"]["noul"] >= LONG_CTX_T:
-        return False
-    return _distilled_prediction(own) is not None
+def _needs_jev(own, a, candidates):
+    """A skill may be needed (that choice is JEV's), the prompt is long, or the local signals ask for the web or a long
+    context: then neither the keyword classifier nor the distilled model stands in for JEV."""
+    return (bool(candidates) and candidates[0][0] >= 3.0 or len(own) > LOCAL_FAST_MAX_CHARS
+            or a["task"]["choice"] == "research" or a["needs_web"]["noul"] >= LONG_CTX_T
+            or a["long_context"]["noul"] >= LONG_CTX_T)
 
 
 def _apply_distilled(answers, own, effort):
@@ -1213,7 +1211,7 @@ def _apply_distilled(answers, own, effort):
         return
     answers["task"] = {"choice": p["task"], "confidence": max(p["task_p"], p["conf"])}
     answers["difficulty"] = {"score": p["level"], "confidence": max(p["level_p"], p["conf"])}
-    answers["agents"] = local_agents_answer(_norm(own), p["level"])
+    answers["agents"] = local_agents_answer(lang.fold(own), p["level"])
     choice = _mock_effort(float(p["level"]), effort)
     if choice:
         answers["effort"] = {"choice": choice, "confidence": 0.5}
@@ -1225,19 +1223,14 @@ def _fast_path_reason(own, pasted, candidates, routes, backend):
     if pasted or backend or BACKEND != "auto" or not use_jev(None):  # an explicit backend is never second-guessed
         return None
     a = local_answers(own)
-    if _distilled_ok(own, a, candidates):
+    if not _needs_jev(own, a, candidates) and _distilled_prediction(own) is not None:
         return "distilled"
     if not _same_tier_at_low_levels(a["task"]["choice"], routes):
         return None  # the local trivial/moderate guess is a coin flip and the tier depends on it: that is JEV's
     cc = routes.get("cost_cap") or {}
     if cc and is_short_chat(own, int(cc.get("short_chat_chars", 40))) and a["task"]["confidence"] >= MIN_CONF:
         return "short"  # an unsure local guess would land on the 'uncertain' default: JEV does better there
-    if candidates and candidates[0][0] >= 3.0:
-        return None  # a skill may be needed: that choice is JEV's
-    if len(own) > LOCAL_FAST_MAX_CHARS:
-        return None
-    if a["task"]["confidence"] >= LOCAL_CONFIDENT and a["task"]["choice"] != "research" \
-            and a["difficulty"]["score"] <= 1 and a["needs_web"]["noul"] < LONG_CTX_T and a["long_context"]["noul"] < LONG_CTX_T:
+    if not _needs_jev(own, a, candidates) and a["task"]["confidence"] >= LOCAL_CONFIDENT and a["difficulty"]["score"] <= 1:
         return "local-confident"
     return None
 
