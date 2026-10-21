@@ -79,20 +79,12 @@ def log_file():
     return core.STATE_DIR / "logs" / "model_discovery.log"
 
 
-def _read_json(path, default):
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else default
-    except (OSError, ValueError):
-        return default
-
-
 def _write_atomic(path, text):
     P.atomic_write(path, text)
 
 
 def read_state():
-    return _read_json(state_file(), {})
+    return P.read_json(state_file(), {}, kind=dict)
 
 
 def write_state(state):

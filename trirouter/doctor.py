@@ -17,10 +17,7 @@ def line(ok, label, detail=""):
 
 
 def jload(p):
-    try:
-        return json.loads(Path(p).read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return None
+    return P.read_json(p, encoding="utf-8-sig")
 
 
 def _hooks(cfg, event):

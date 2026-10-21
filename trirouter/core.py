@@ -14,7 +14,7 @@ import time
 import unicodedata
 from pathlib import Path
 
-from . import catalog, lang, legacy, secret
+from . import catalog, lang, legacy, platforms, secret
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
 # ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it (hooks and the MCP server only read)
@@ -373,17 +373,11 @@ def local_skill_answer(candidates):
 
 
 def load_json(name, default):
-    try:
-        return json.loads((CFG_DIR / name).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return default
+    return platforms.read_json(CFG_DIR / name, default)
 
 
 def user_config():
-    try:
-        return json.loads((STATE_DIR / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return platforms.read_json(STATE_DIR / "config.json", {})
 
 
 def jev_endpoint():
@@ -408,10 +402,7 @@ def jev_key():
 
 def model_overrides():
     """Per-account model availability written by `models --probe`; models.json is only the catalog."""
-    try:
-        return json.loads((STATE_DIR / "models.local.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return platforms.read_json(STATE_DIR / "models.local.json", {})
 
 
 def base_provider(provider):
@@ -711,11 +702,7 @@ def _cache_key(prompt, questions):
 
 
 def _cache_load():
-    try:
-        data = json.loads(_cache_path().read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return platforms.read_json(_cache_path(), {}, kind=dict)
 
 
 def _cache_get(key):
@@ -731,7 +718,6 @@ def _cache_get(key):
 
 def _cache_put(key, answers):
     try:
-        from . import platforms
         now = time.time()
         data = {k: v for k, v in _cache_load().items() if isinstance(v, dict) and now - float(v.get("ts", 0)) < CACHE_TTL_S}
         data[key] = {"ts": now, "answers": answers}

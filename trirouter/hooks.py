@@ -88,10 +88,7 @@ def _antigravity_prompt(payload):
 
 
 def _first_time(turn_key):
-    try:
-        seen = json.loads(SEEN_FILE.read_text(encoding="utf-8")) if SEEN_FILE.exists() else []
-    except (OSError, ValueError):
-        seen = []
+    seen = P.read_json(SEEN_FILE, [])
     if turn_key in seen:
         return False
     seen = (seen + [turn_key])[-200:]
@@ -381,10 +378,7 @@ def _transcript_family(payload):
 
 
 def _settings_family():
-    try:
-        return core.claude_family(json.loads(CLAUDE_SETTINGS.read_text(encoding="utf-8-sig")).get("model"))
-    except (OSError, ValueError, AttributeError):
-        return None
+    return core.claude_family(P.read_json(CLAUDE_SETTINGS, {}, "utf-8-sig", dict).get("model"))
 
 
 def claude_session_model(payload):

@@ -169,7 +169,17 @@ def python_cmd():
     return shell_arg(python_exe())
 
 
-# ---- files: atomic writes ----------------------------------------------------------------------------------
+# ---- files: JSON reads, atomic writes -----------------------------------------------------------------------
+
+def read_json(path, default=None, encoding="utf-8", kind=None):
+    """The JSON value in `path`, or `default` when the file is missing, unreadable or not JSON, or (with `kind`, e.g.
+    dict) holds another type. Never raises."""
+    try:
+        data = json.loads(Path(path).read_text(encoding=encoding))
+    except (OSError, ValueError):
+        return default
+    return data if kind is None or isinstance(data, kind) else default
+
 
 def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
     """Writes `text` (str, or bytes) to `path` so that an interrupt (Ctrl+C, a crash, a full disk) never leaves a half-written

@@ -61,11 +61,7 @@ def log_file():
 
 
 def read_state():
-    try:
-        data = json.loads(state_file().read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return P.read_json(state_file(), {}, kind=dict)
 
 
 def _write_state(state):

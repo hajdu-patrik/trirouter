@@ -15,6 +15,8 @@ import os
 import time
 from pathlib import Path
 
+from . import platforms as P
+
 def _minutes(var, default):
     try:
         return 60 * float(os.environ.get(var, default))
@@ -77,11 +79,7 @@ def _save(path, data):
 
 
 def _load(path):
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return P.read_json(path, {}, kind=dict)
 
 
 def _prune(data, now):

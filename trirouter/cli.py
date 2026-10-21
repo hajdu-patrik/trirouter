@@ -82,10 +82,7 @@ def ask(question, default="y"):
 
 
 def load_config():
-    try:
-        return json.loads(CONFIG.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return P.read_json(CONFIG, {})
 
 
 def save_config(cfg):

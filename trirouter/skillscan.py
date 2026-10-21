@@ -109,10 +109,7 @@ def run_scan(exe, skill_dir, llm):
 
 
 def load_cache():
-    try:
-        return json.loads(CACHE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    return P.read_json(CACHE, {})
 
 
 def save_cache(cache):
@@ -222,12 +219,7 @@ def entries(apply=False, days=None):
     for e in sorted(QUARANTINE.iterdir()):
         if not e.is_dir():
             continue
-        meta = {}
-        try:
-            meta = json.loads(sidecar(e).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
-        meta = meta if isinstance(meta, dict) else {}
+        meta = P.read_json(sidecar(e), {}, kind=dict)
         when = _parse_iso(meta.get("quarantined_at"))
         if when is None:
             try:

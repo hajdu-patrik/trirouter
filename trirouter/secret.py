@@ -18,6 +18,8 @@ import os
 import sys
 from pathlib import Path
 
+from . import platforms as P
+
 KEY_FIELDS = ("openrouter_api_key", "typesafe_api_key")
 IS_WINDOWS = sys.platform.startswith("win")
 DPAPI = "dpapi"
@@ -138,11 +140,7 @@ def mode_is_private(path):
 
 
 def _load(path):
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+    return P.read_json(path, encoding="utf-8-sig", kind=dict)
 
 
 def backups(config_path):
