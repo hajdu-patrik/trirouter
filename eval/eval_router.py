@@ -16,6 +16,7 @@ import os
 import sys
 from collections import Counter
 from pathlib import Path
+from statistics import fmean
 
 # Measure with the defaults, as CI does: a local ROUTER_MIN_CONFIDENCE would change every number.
 for _var in [v for v in os.environ if v.startswith("ROUTER_")]:
@@ -42,8 +43,7 @@ def expected_tier(task, difficulty, routes):
 
 def model_family(model):
     """'sonnet' for a Claude alias, 'gpt' / 'gemini' for the other CLIs, '' when nothing is delegated."""
-    m = (model or "").lower()
-    return m.split("-")[0] if m else ""
+    return (model or "").lower().split("-")[0]
 
 
 def delegation_of(d):
@@ -63,7 +63,7 @@ def delegation_of(d):
 def route_row(r, lang_expected, routes):
     previous = None
     if r.get("previous"):
-        previous, _, _, _ = core.route(r["previous"], "claude")
+        previous = core.route(r["previous"], "claude")[0]
     d, _, hit, err = core.route(r["prompt"], "claude", previous=previous)
     outcome, agent, family = delegation_of(d)
     return {"id": r["id"], "prompt": r["prompt"], "task_true": r["task"], "task_pred": d["task"],
@@ -86,20 +86,20 @@ def print_prompts(label, rows):
 
 
 def report_task(out):
-    task_acc = sum(o["task_true"] == o["task_pred"] for o in out) / len(out)
+    task_acc = fmean(o["task_true"] == o["task_pred"] for o in out)
     print(f"Task type accuracy:   {task_acc:.0%}")
     for (t, p), c in Counter((o["task_true"], o["task_pred"]) for o in out if o["task_true"] != o["task_pred"]).most_common(6):
         print(f"    {t} -> {p}: {c}x")
-    exact = sum(o["diff_true"] == o["diff_pred"] for o in out) / len(out)
-    near = sum(abs(o["diff_true"] - o["diff_pred"]) <= 1 for o in out) / len(out)
+    exact = fmean(o["diff_true"] == o["diff_pred"] for o in out)
+    near = fmean(abs(o["diff_true"] - o["diff_pred"]) <= 1 for o in out)
     print(f"Difficulty:           exact {exact:.0%}, within +-1 {near:.0%}")
-    uncertain = sum(o["uncertain"] for o in out) / len(out)
+    uncertain = fmean(o["uncertain"] for o in out)
     print(f"Routing uncertain:    {uncertain:.0%}")
     return task_acc, uncertain
 
 
 def report_tiers(out):
-    acc = sum(o["tier"] == o["tier_true"] for o in out) / len(out)
+    acc = fmean(o["tier"] == o["tier_true"] for o in out)
     tier_counts = Counter(o["tier_true"] for o in out)
     best_tier, best_n = tier_counts.most_common(1)[0]
     print(f"Tier accuracy:        {acc:.0%}  (best fixed tier '{best_tier}': {best_n / len(out):.0%})")
@@ -131,8 +131,8 @@ def report_delegation(out):
 def report_destructive(out):
     pos = [o for o in out if o["destr_true"]]
     neg = [o for o in out if not o["destr_true"]]
-    recall = sum(o["destr_pred"] for o in pos) / len(pos) if pos else 1.0
-    fp = sum(o["destr_pred"] for o in neg) / len(neg) if neg else 0.0
+    recall = fmean(o["destr_pred"] for o in pos) if pos else 1.0
+    fp = fmean(o["destr_pred"] for o in neg) if neg else 0.0
     print(f"Destructive:          recall {recall:.0%} ({len(pos)} positives), false positives {fp:.0%}")
     print_prompts("MISSED", [o for o in pos if not o["destr_pred"]])
     print_prompts("FALSE+", [o for o in neg if o["destr_pred"]])
@@ -140,7 +140,7 @@ def report_destructive(out):
 
 
 def report_lang(out):
-    lang_acc = sum(o["lang"] == o["lang_true"] for o in out) / len(out)
+    lang_acc = fmean(o["lang"] == o["lang_true"] for o in out)
     print(f"Reply language:       {lang_acc:.0%}")
     print_prompts("LANG", [o for o in out if o["lang"] != o["lang_true"]])
     return lang_acc
