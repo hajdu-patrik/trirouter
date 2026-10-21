@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from trirouter import core, queue_state
+from trirouter import core
 
 
 @pytest.fixture(autouse=True)

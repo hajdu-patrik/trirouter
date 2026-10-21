@@ -2,11 +2,10 @@
 of the manual; the shell and profile choice per OS (simulated); install is idempotent, keeps a .bak and the line
 endings, honours --dry-run and can be removed; setup installs it unless --no-completion. Where bash or PowerShell
 is installed the generated script is also checked by the real shell."""
-import os
 import re
 import shutil
 import subprocess
-from pathlib import Path, PureWindowsPath
+from pathlib import PureWindowsPath
 
 import pytest
 

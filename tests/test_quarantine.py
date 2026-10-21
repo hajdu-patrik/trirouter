@@ -9,7 +9,6 @@ import stat
 import sys
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from test_skillscan import REPORTS, all_of, apply_act, make_skills, scans  # noqa: F401 - `scans` is a fixture
