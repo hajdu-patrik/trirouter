@@ -175,7 +175,7 @@ def pending_note():
 
 # ---- listing ------------------------------------------------------------------------------------------------
 
-def _first_line(text):
+def _last_line(text):
     return (text.strip().splitlines() or ["no output"])[-1][:160]
 
 
@@ -184,7 +184,7 @@ def list_codex(exe):
     code, out = P.run([exe, "debug", "models"], timeout=120)
     start = out.find("{")
     if code != 0 or start < 0:
-        raise Unchecked(f"`codex debug models` failed: {_first_line(out)}")
+        raise Unchecked(f"`codex debug models` failed: {_last_line(out)}")
     try:
         data, _ = json.JSONDecoder().raw_decode(out[start:])
     except ValueError as exc:
@@ -212,7 +212,7 @@ def list_antigravity(exe):
     code, out = P.run([exe, "models"], timeout=120)
     low = out.lower()
     if code != 0 or "not logged in" in low or "sign in" in low:
-        raise Unchecked(f"`agy models` failed: {_first_line(out)}")
+        raise Unchecked(f"`agy models` failed: {_last_line(out)}")
     found = {}
     for line in out.splitlines():
         parts = line.strip().split(None, 1)
@@ -258,7 +258,7 @@ def list_claude(exe, catalog):
     """({alias: {levels, description}}, [(name, reason)] rejected by the policy) from `claude --help`."""
     code, out = P.run([exe, "--help"], timeout=60)
     if code != 0:
-        raise Unchecked(f"`claude --help` failed: {_first_line(out)}")
+        raise Unchecked(f"`claude --help` failed: {_last_line(out)}")
     names, levels = parse_claude_help(out)
     if not names:
         raise Unchecked("`claude --help` names no model alias")

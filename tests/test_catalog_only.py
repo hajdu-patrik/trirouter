@@ -50,11 +50,11 @@ def native_in(items):
     return {s["name"]: s["native_in"] for s in items}
 
 
-def test_parse_catalog_only():
-    assert hub.parse_catalog_only("gke-*, Google-* ,,gcloud,gke-*") == ["gke-*", "google-*", "gcloud"]
-    assert hub.parse_catalog_only("") == [] and hub.parse_catalog_only("  , ") == []
-    assert hub.parse_catalog_only(["A*", 3, " b "]) == ["a*", "b"]
-    assert hub.parse_catalog_only(None) == []
+def test_parse_patterns():
+    assert catalog.parse_patterns("gke-*, Google-* ,,gcloud,gke-*") == ["gke-*", "google-*", "gcloud"]
+    assert catalog.parse_patterns("") == [] and catalog.parse_patterns("  , ") == []
+    assert catalog.parse_patterns(["A*", 3, " b "]) == ["a*", "b"]
+    assert catalog.parse_patterns(None) == []
 
 
 def test_matches_preview_skips_bundled(machine):

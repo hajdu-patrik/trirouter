@@ -6,14 +6,15 @@ import os
 import sys
 from pathlib import Path
 
-from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt, legacy,
-               manual, platforms as P, remote, secret, skillscan, sync)
+from . import (__version__, catalog, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt,
+               legacy, manual, platforms as P, remote, secret, skillscan, sync)
 
 STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (prepare_state)
 CONFIG = STATE / "config.json"
 ALL = ("claude", "codex", "antigravity")
+ON_WORDS = ("on", "1", "true", "yes")
 
-FLAGS, POSITIONAL, COMMAND, YES, DRY = {}, [], "setup", False, False
+FLAGS, POSITIONAL, YES, DRY = {}, [], False, False
 
 
 def program_name():
@@ -28,8 +29,8 @@ def program_name():
 
 def configure(inv):
     """Publishes a parsed invocation to the module-level state the commands read."""
-    global FLAGS, POSITIONAL, COMMAND, YES, DRY
-    FLAGS, POSITIONAL, COMMAND = inv.flags, inv.positional, inv.key
+    global FLAGS, POSITIONAL, YES, DRY
+    FLAGS, POSITIONAL = inv.flags, inv.positional
     YES = "--yes" in FLAGS
     DRY = "--dry-run" in FLAGS
 
@@ -197,7 +198,7 @@ def scan_settings(cfg, persist):
         sc["allow"] = sorted(set(sc.get("allow") or []) | {n.strip() for n in names.split(",") if n.strip()})
     llm = FLAGS.get("--scan-llm")
     if isinstance(llm, str):
-        sc["llm"] = llm.strip().lower() in ("on", "1", "true", "yes")
+        sc["llm"] = llm.strip().lower() in ON_WORDS
     days = FLAGS.get("--quarantine-days")
     if isinstance(days, str):
         sc["quarantine_days"] = int(days)
@@ -216,14 +217,14 @@ def link_settings(cfg, persist):
     sk = dict(cfg.get("skills") or {})
     value = FLAGS.get("--catalog-only")
     if isinstance(value, str):
-        sk["catalog_only"] = [] if value.strip().lower() == "none" else hub.parse_catalog_only(value)
+        sk["catalog_only"] = [] if value.strip().lower() == "none" else catalog.parse_patterns(value)
         names = hub.catalog_only_matches(sk["catalog_only"])
         say(f"  Catalog-only: {len(names)} hub skill(s) match {', '.join(sk['catalog_only']) or '(no pattern)'}"
             + (" - not linked into Claude/Codex, served through the catalog" if names else ""))
     if persist and sk != (cfg.get("skills") or {}):
         cfg["skills"] = sk
         save_config(cfg)
-    hub.LINK = {"catalog_only": tuple(hub.parse_catalog_only(sk.get("catalog_only") or []))}
+    hub.LINK = {"catalog_only": tuple(catalog.parse_patterns(sk.get("catalog_only") or []))}
 
 
 def choose_quarantine(items):
@@ -344,9 +345,6 @@ def next_steps(providers):
     say(f"  * New and retired models are picked up once a day by themselves; `{P.command_hint('models')}` checks "
         "now which models your accounts can use.")
     say(f"  * Health check any time: {P.command_hint('doctor')}")
-
-
-ON_WORDS = ("on", "1", "true", "yes")
 
 
 def set_model_auto(value):

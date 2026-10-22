@@ -157,11 +157,6 @@ def _scan_hub_skills():
                           accept_flagged=SCAN.get("accept_flagged", False), days=SCAN.get("quarantine_days"))
 
 
-def parse_catalog_only(value):
-    """`--catalog-only=a-*,b` -> ["a-*", "b"] (lowercase, de-duplicated); an empty string clears the list."""
-    return catalog.parse_patterns(value)
-
-
 def _catalog_only_skills(patterns):
     """Hub skills (never the bundled ones) whose folder name matches a pattern."""
     return [s for s in hub_skills() if catalog.is_catalog_only(s, patterns, REPO_SKILLS)]
