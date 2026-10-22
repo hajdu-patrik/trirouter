@@ -1,25 +1,5 @@
-"""SkillSpector gate for the shared skill folder (https://github.com/NVIDIA/SkillSpector).
-
-Every hub skill is scanned before it is linked into the tools. When all verdicts are known, the
-DO_NOT_INSTALL skills nobody has decided on yet are put to the user in ONE question (all / none /
-select, default none): the chosen ones move to ~/.trirouter/quarantine/, where no tool (Antigravity
-reads the whole hub) and no catalog sees them; the others are kept, remembered for that exact content.
-Unattended runs (no terminal, --yes) only warn: static analysis also flags legitimate skills that run
-scripts. `skillscan.allow` in config.json (or --allow-skill) silences the verdict and restores a
-quarantined skill. CAUTION only warns.
-
-Quarantine entries are `<name>` folders with a sidecar `<name>.json` (name, quarantined_at, purge_after,
-risk, max_severity; an entry without one gets it from its folder's mtime). They are deleted for good
-after `skillscan.quarantine_days` days (default 3, 0 = never) by `purge_expired`, which runs at every
-setup / `skills --apply` and, at most every 6 hours, from the Claude SessionStart hook. The retention
-now in force decides, not the purge_after written earlier. Only folders directly inside the quarantine
-folder are ever deleted, and links are never followed.
-
-Static analysis by default (`--no-llm`: nothing leaves the machine); `skillscan.llm: true` lets
-SkillSpector's own provider settings (SKILLSPECTOR_PROVIDER, ...) add its LLM analysis.
-SkillSpector is optional (Python 3.12+, installed as its own tool): without it skills are linked
-unscanned with a warning (also when it does not start), and so is a skill whose scan fails.
-"""
+"""SkillSpector gate for the hub (https://github.com/NVIDIA/SkillSpector): hub skills are scanned before they are
+linked; flagged ones go into one question, the chosen move to ~/.trirouter/quarantine. Unattended runs only warn."""
 import hashlib
 import json
 import os
@@ -209,9 +189,8 @@ def _move_to_quarantine(skill, dest, risk, max_severity, days):
 
 
 def entries(apply=False, days=None):
-    """Quarantine entries, oldest first: [{entry, name, quarantined_at, purge_at, risk, max_severity}].
-    purge_at is quarantined_at + the retention now in force (None: never). An entry without a sidecar takes
-    its folder's mtime as quarantined_at; the sidecar is written then only when `apply`."""
+    """Quarantine entries, oldest first: [{entry, name, quarantined_at, purge_at, risk, max_severity}]; purge_at =
+    quarantined_at + the retention now in force (None: never). A missing sidecar falls back to the folder's mtime."""
     days = configured_days() if days is None else days
     out = []
     if not QUARANTINE.is_dir():

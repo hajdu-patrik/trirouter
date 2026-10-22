@@ -1,17 +1,5 @@
-"""Shared "before prompt" hook for Claude Code, Codex CLI and Antigravity CLI. Always exits 0.
-
-Antigravity has no prompt-submit event, only PreInvocation, which fires before every model call of a
-turn and carries no prompt text. So the latest user input is read back from the transcript, and the
-context is injected only once per user turn.
-
-    python -m trirouter.hooks claude|codex UserPromptSubmit|Stop [--cloud-only]
-    python -m trirouter.hooks claude StopFailure|SessionEnd|SubagentStart|SessionStart|PostModelSwitch|PreToolUse
-    python -m trirouter.hooks antigravity  PreInvocation|Stop
-
-The handlers return their output (the JSON the host reads from stdout, or ""); main() prints it. The
-daemon (daemon.py) calls handle() directly, from several threads, for Claude's http hooks. Every entry point is
-`guarded`: an unexpected error is logged and the host gets no context, never a failure.
-"""
+"""The "before prompt" hook for Claude Code, Codex and Antigravity (`python -m trirouter.hooks <provider> <event>`,
+always exit 0); the daemon calls handle(). Antigravity sends no prompt: it is read from the transcript."""
 import functools
 import hashlib
 import json
@@ -212,9 +200,8 @@ def start_daemon():
 
 
 def session_start_output(provider, raw):
-    """Starts the hook daemon (http transport) and the daily model check when due, tells the session once what
-    the check changed, and starts the purge of expired quarantine entries at most every 6 hours. Cheap, silent
-    unless the model list changed (a SessionStart hook's stdout becomes model context)."""
+    """Starts the hook daemon (http transport) and the daily model check when due, tells the session once what the check
+    changed, starts the quarantine purge. Silent otherwise: a SessionStart hook's stdout becomes model context."""
     if provider == "claude":
         start_daemon()
     start_model_discovery()
@@ -368,8 +355,7 @@ def _settings_family(payload):
 
 def claude_session_model(payload):
     """The Claude family this session runs: recorded at SessionStart / PostModelSwitch, else the newest assistant
-    message of the transcript, else the `model` of ~/.claude/settings.json; None when unknown (an unreadable
-    source falls through to the next one)."""
+    message of the transcript, else settings.json `model`; None when unknown."""
     return next((f for f in (source(payload) for source in (_recorded_family, _transcript_family, _settings_family))
                  if f), None)
 
@@ -421,10 +407,8 @@ def deny_text(budget):
 
 @guarded(None)
 def agent_guard(payload):
-    """PreToolUse for the Agent tool (Claude) -> the hook output (a dict to print as JSON), or None to let the call
-    through unchanged. Over the prompt's subagent budget the first call is denied with a reason; a general-purpose
-    call that names no model gets the routed worker's family (updatedInput replaces the whole input, so every
-    original field is copied). Calls inside a subagent, unknown prompts and a disabled guard pass."""
+    """PreToolUse for the Agent tool -> the hook output (a dict) or None. Over the prompt's subagent budget the first
+    call is denied; a general-purpose call without a model gets the routed worker's family."""
     if not isinstance(payload, dict) or payload.get("agent_id") or payload.get("tool_name") not in AGENT_TOOLS:
         return None
     prompt_id = _text(payload.get("prompt_id"))

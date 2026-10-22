@@ -1,27 +1,5 @@
-"""Model discovery: which models each harness offers today, compared with what the router knows.
-
-    trirouter models --discover          the daily check, by hand (--dry-run: report only)
-    trirouter models                     the full probe: also tries every known Codex model
-    python -m trirouter.discovery --scheduled
-                                         the daily check in the background, started by the hooks (maybe_start)
-                                         at most once per 24 hours unless `models --auto=off`
-
-Sources:
-    Codex        `codex debug models` (JSON). A model not seen before is tried with a one-word prompt
-                 before it becomes selectable; a hidden one (visibility "hide") is recorded, not selected.
-    Antigravity  `agy models`: one slug per model and effort; the list is what the account may use.
-    Claude Code  the aliases `claude --help` names for --model. Only generic family aliases count
-                 (core.claude_alias_allowed: never a dated ID or a mode alias). The help names its
-                 aliases as examples only, so an alias is tried with a one-word prompt before it is added,
-                 and one the help does not name is left alone: never tried, never removed.
-
-Results go to ~/.trirouter/models.local.json only, never to the repository's models.json: a new model gets a
-full entry (levels, role, description, ...), a Codex or Antigravity model that is no longer offered gets
-"selectable": false and "listed": false (it comes back by itself when it is offered again). A check that
-could not run -- CLI missing, not logged in, network or auth error, unreadable output, a list that names none
-of the known models -- changes nothing. Effort levels outside the policy (models.json
-policy.excluded_efforts) are stripped from every discovered model.
-"""
+"""Model discovery: which models each tool offers today (`codex debug models`, `agy models`, `claude --help`) against
+what the router knows; results go to models.local.json only, a check that cannot run changes nothing."""
 import copy
 import json
 import os
@@ -465,9 +443,8 @@ def unchecked(provider, reason="", status="unchecked"):
 
 
 def run(mode="discover", apply=False, say=print, providers=ALL):
-    """mode "discover": list every harness's models, try only new (or returning) ones; "probe": also try every
-    known Codex model. With apply, models.local.json, the state, the log and the note are written and the
-    worker agents regenerated when something changed. Returns {"results": [...], "changed": bool, "local": {...}}."""
+    """mode "discover" tries only new (or returning) models, "probe" also every known Codex model; with apply the
+    results are saved and the worker agents regenerated. -> {"results": [...], "changed": bool, "local": {...}}."""
     say = say or (lambda *_a, **_k: None)
     catalog = core.load_json("models.json", {})
     today = time.strftime("%Y-%m-%d")

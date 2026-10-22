@@ -1,18 +1,5 @@
-"""A small local model distilled from JEV's own answers, so most prompts need no network call.
-
-The routing log holds every prompt JEV classified (task + difficulty). A multinomial Naive Bayes over word
-uni-/bigrams and word-internal char 3-5-grams (pure Python, a few hundred samples, trains in about a second)
-learns to reproduce those two answers. What counts is the routing outcome, not the raw labels, so the
-confidence threshold is calibrated by k-fold cross-validation on the *tier* the (task, level) pair maps to in
-the Claude route table: the model may skip JEV only above the lowest threshold whose held-out tier agreement
-is >= TARGET_AGREEMENT with >= MIN_COVERAGE of the prompts covered. If no threshold qualifies it is saved as
-disabled and the router behaves exactly as before.
-
-Per-user data only: the model is written to <STATE_DIR>/state/distilled.json (vocabulary of the user's own
-prompts), never into the repository. The eval CSVs under eval/ are a base set that is always part of the
-training data (never part of the evaluation). Nothing here ever raises into a hook: load() and predict()
-return None on any problem.
-"""
+"""A small local model (Naive Bayes over word and char n-grams) distilled from JEV's answers in the routing log, so most
+prompts need no network call; it skips JEV only above a threshold calibrated by cross-validation."""
 import csv
 import hashlib
 import json
@@ -216,10 +203,8 @@ def _posterior(model, feats, head):
 
 
 def predict_with(model, text, table=None):
-    """The model's answer for one prompt. The two heads are combined into the routing outcome: the tier with the
-    highest probability (task and level treated as independent), and inside it the most probable (task, level).
-    -> {task, task_p, level, level_p, tier, tier_p, known}; task_p / level_p are the marginals of the chosen pair,
-    known the number of the prompt's features the model has seen; head_task / head_level are each head's own argmax."""
+    """The model's answer for one prompt: the likeliest tier (task and level taken as independent), inside it the
+    likeliest (task, level). -> {task, task_p, level, level_p, tier, tier_p, known, head_task, head_level}."""
     table = table if table is not None else model.get("table") or claude_table()
     feats = features(text)
     known = sum(f in model["features"] for f in feats)
@@ -480,9 +465,8 @@ def disabled_by_env():
 
 
 def predict(text):
-    """-> {task, task_p, level, level_p, tier, tier_p, conf, confident} or None when no model file exists.
-    `confident` is True only for an enabled model whose confidence reaches the calibrated threshold, and only
-    while the Claude route table is the one it was calibrated against (else the tiers mean something else)."""
+    """-> predict_with()'s dict plus conf and confident, or None without a model file. `confident` needs an enabled
+    model, a confidence at the calibrated threshold and the Claude route table the model was calibrated against."""
     try:
         model = load()
         if not model:
@@ -515,9 +499,8 @@ def count_new_jev(path, saved):
 
 
 def maybe_retrain(now=None, force=False):
-    """Daily background job: trains when at least RETRAIN_MIN_NEW new JEV entries arrived since the saved model
-    (or when there is no model yet, or the route table changed). Checks at most once a day and reads only the
-    log's new tail. -> the report dict when it trained, else None. Never raises."""
+    """Daily background job: trains when RETRAIN_MIN_NEW new JEV entries arrived since the saved model (or there is
+    none, or the route table changed); at most once a day. -> the report, else None. Never raises."""
     try:
         if disabled_by_env():
             return None

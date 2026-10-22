@@ -1,12 +1,5 @@
-"""Clean interruption of the command-line commands (not of the hooks or the MCP server).
-
-* Ctrl+C at any point, and Ctrl+D (end of input) at a question or while a command runs: the command stops at
-  once, child processes are ended, one line goes to stderr and the exit status is 130. Files are written
-  atomically (platforms.atomic_write), so nothing is left half-written.
-* While a command runs without asking anything, a small key watcher turns Ctrl+D into the same interrupt (a
-  terminal only delivers Ctrl+C as a signal). It exists only when stdin is an interactive terminal, pauses while
-  a question is shown (so typing an answer works normally) and always restores the terminal.
-"""
+"""Clean interruption of the commands (not of hooks or the MCP server): Ctrl+C anywhere, Ctrl+D at a question or while a
+command runs, stop it at once, end child processes and exit 130. A key watcher turns Ctrl+D into the interrupt."""
 import _thread
 import atexit
 import contextlib
@@ -103,9 +96,8 @@ def _backend(stream):
 
 
 class KeyWatcher:
-    """Turns Ctrl+D into `trigger()` (default: KeyboardInterrupt in the main thread) while a command runs.
-
-    A no-op unless `stream` (stdin) is an interactive terminal. `backend` is for tests."""
+    """Turns Ctrl+D into `trigger()` (default: KeyboardInterrupt in the main thread) while a command runs; a no-op
+    unless `stream` (stdin) is an interactive terminal. `backend` is for tests."""
 
     def __init__(self, stream=None, trigger=None, backend=None):
         self.stream = sys.stdin if stream is None else stream

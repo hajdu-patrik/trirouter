@@ -1,17 +1,5 @@
-"""Remote access from a phone or another device through each tool's own remote feature, started at
-logon under one machine name.
-
-  Claude       `claude remote-control` (Windows: scheduled task, macOS: launchd, Linux: systemd --user), as a
-               server that only holds the connection: no session is created at logon (`--no-create-session-in-dir`);
-               sessions start on demand from the Claude app or claude.ai/code. `remote --start-session=on`
-               restores the pre-created session.
-  Antigravity  `agy remote-control start` (registers its own autostart)
-  Codex        macOS/Linux: `codex remote-control start`. Windows: `codex app-server --remote-control`
-               in a scheduled task, because every process there runs inside a Job Object without
-               breakaway permission, so the `start` daemon cannot detach.
-
-On Windows console programs run under `conhost.exe --headless`, so nothing opens a window.
-"""
+"""Remote access from another device through each tool's own remote feature, started at logon under one machine name
+(Windows: scheduled tasks, macOS: launchd, Linux: systemd --user); no console window opens on Windows."""
 import base64
 import json
 import os
@@ -84,9 +72,8 @@ def _rc_help(claude):
 
 
 def claude_rc_args(claude, name, start_session=False):
-    """The arguments after `claude`. By default the server only holds the connection: no session is pre-created in
-    the folder, and on-demand sessions are named "<name>-...". A Claude Code too old for these flags (or with
-    start_session) gets the classic `--name`, which pre-creates one session under that name."""
+    """The arguments after `claude`: by default the server only holds the connection (no session pre-created); with
+    start_session, or a Claude Code too old for the flags, the classic `--name` pre-creates one."""
     help_text = _rc_help(claude)
     if start_session or "create-session-in-dir" not in help_text:  # listed as --[no-]create-session-in-dir
         return ["remote-control", "--name", str(name)]
@@ -125,10 +112,8 @@ def _hidden_ps(script):
 
 
 def _run_once(script, wait_s=30):
-    """Last output line of a PowerShell script run by the Task Scheduler ("" on timeout). Needed for
-    HKCU writes: a process inside a packaged (MSIX) app, such as the Claude desktop app, writes only to a
-    private copy of HKCU, so a Run entry written from there never takes effect. The result goes through a
-    file because conhost does not pass the exit code on."""
+    """Last output line of a PowerShell script run by the Task Scheduler ("" on timeout): a packaged (MSIX) app writes
+    only to a private copy of HKCU, so HKCU writes must come from outside. The result goes through a file."""
     result = STATE / "state" / "setup-task.txt"
     result.parent.mkdir(parents=True, exist_ok=True)
     result.unlink(missing_ok=True)
@@ -389,7 +374,8 @@ def _remote_codex(workdir):
     if not codex:
         return None
     if P.IS_WINDOWS:
-        # one remote connection per computer: while the ChatGPT app holds it, this one retries
+        # `remote-control start` cannot detach here (every process runs in a Job Object without breakaway): a scheduled
+        # task runs the app server. One connection per computer: while the ChatGPT app holds it, this one retries.
         _drop_old_task("codex")
         code, out = _win_loop(TASK_CODEX, "codex-remote.cmd", workdir,
                               f'call "{codex}" app-server --remote-control --listen off',

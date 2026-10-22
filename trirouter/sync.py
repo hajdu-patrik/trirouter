@@ -1,19 +1,5 @@
-"""`trirouter sync`: brings everything that is generated from the sources up to date in one step, so a new command,
-flag or model works everywhere right after a development round.
-
-  docs/cli.md          the CLI reference, from manual.py                          (checkout only)
-  git pre-commit hook  core.hooksPath = .githooks, which runs `sync --pre-commit` (checkout only)
-  tab completion       the installed shell scripts, from manual.py (profiles are left alone)
-  worker agents        the generated Claude / Codex / Antigravity agents, from templates + targets.json + models.json
-                       (only for tools that already have generated agents: `skills --apply` creates them)
-  skill catalog        ~/.skills/catalog.json, the skill list the router reads, from the skills on this machine
-                       (only once the hub folder exists: `setup` creates it)
-
-`--check` changes nothing and exits 1 when something is out of date (CI). `--pre-commit` is what the git hook runs:
-the sync, then `git add docs/cli.md` when it was regenerated, a CHANGELOG reminder, the tests and, when routing code
-is staged, the routing evaluation; a failure stops the commit (`git commit --no-verify` skips the hook once).
-The daily background check (discovery.py) runs the user-side part (completion, agents, catalog) by itself.
-"""
+"""`trirouter sync` updates what is generated from the sources: docs/cli.md and the pre-commit hook (checkout), tab
+completion, worker agents, the skill catalog. `--check` exits 1 when stale; `--pre-commit` is the git hook."""
 import contextlib
 import io
 import subprocess
@@ -177,9 +163,8 @@ def _docs_unstaged():
 
 
 def _stage_docs(say, files):
-    """docs/cli.md differs from the index after the sync: stage it when it describes exactly the manual.py of this
-    commit. With unstaged manual.py edits it describes code outside the commit (perhaps another session's work in
-    progress): then it stays unstaged, and only a commit that stages part of manual.py is stopped."""
+    """docs/cli.md differs from the index after the sync: stage it when it matches this commit's manual.py. With
+    unstaged manual.py edits it stays unstaged; only a partly staged manual.py stops the commit."""
     if not _docs_unstaged():
         return True
     if git("diff", "--quiet", "--", "trirouter/manual.py")[0] != 1:

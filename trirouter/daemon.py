@@ -1,24 +1,5 @@
-"""Hook daemon: serves Claude Code's http hooks from one long-running process.
-
-A command hook starts a new Python process for every prompt (0.4-0.5 s on Windows before any work is done)
-and opens a new TLS connection to JEV each time. With `hooks.transport: "http"` in ~/.trirouter/config.json
-Claude Code POSTs the hook input to this daemon instead, which runs exactly the same handlers (hooks.handle)
-and keeps the JEV connection alive. Codex and Antigravity keep their command hooks.
-
-    python -m trirouter.daemon [--port N]      serve on 127.0.0.1 (config.json daemon.port, default 47621)
-
-    GET  /health                          {"ok": true, "service": "trirouter", "pid": ..}  (no token)
-    POST /hook/<provider>/<event>         the hook's JSON input; answers the hook's output (200, maybe empty)
-    POST /shutdown                        stops the daemon
-    Every POST needs the header X-Trirouter-Token (state/daemon.json "token", also written into Claude's
-    settings.json); a wrong or missing token gets 403.
-
-The daemon binds to 127.0.0.1 only, exits after IDLE_EXIT_S without a request, on SIGTERM and on /shutdown,
-and exits quietly when another trirouter daemon already serves its port. A failing handler answers 200 with an
-empty body: Claude Code then continues without router context, exactly as when the daemon is down. Package
-source and config changes are picked up on the next request (hotreload.py); a failed reload keeps the old code.
-Claude's SessionStart stays a command hook: it starts the daemon (ensure_running) when it is down.
-"""
+"""Hook daemon: serves Claude Code's http hooks from one long-running process (hooks.handle, hot-reloading, JEV
+connection kept open). 127.0.0.1 only, token header on every POST, a failing handler answers 200 empty."""
 import hmac
 import json
 import os
