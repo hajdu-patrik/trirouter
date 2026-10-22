@@ -20,7 +20,6 @@ import os
 import re
 import sys
 import time
-from pathlib import Path
 
 from . import core, platforms as P, queue_state
 from .secret import redact
@@ -39,7 +38,6 @@ SYSTEM_PREFIXES = ("<task-notification", "<system-reminder", "[system notificati
                    "caveat: the messages below", "<agent-message")
 STOP_EVENTS = ("Stop", "StopFailure", "SessionEnd")
 PURGE_EVERY_S = 6 * 3600  # SessionStart: at most one quarantine purge per 6 hours
-REPO = Path(__file__).resolve().parent.parent
 
 
 def log(entry, path=None):
@@ -244,7 +242,7 @@ def _purge_quarantine():
     if 0 <= time.time() - last < PURGE_EVERY_S:
         return
     P.atomic_write(stamp, str(time.time()), mode=0o600)
-    P.spawn_detached([P.python_exe_windowless(), "-m", "trirouter.skillscan", "--purge-expired"], cwd=str(REPO))
+    P.spawn_detached([P.python_exe_windowless(), "-m", "trirouter.skillscan", "--purge-expired"], cwd=str(P.REPO))
 
 
 def prompt_output(provider, hook_event_name, raw):

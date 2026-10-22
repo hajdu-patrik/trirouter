@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+PKG = Path(__file__).resolve().parent
+REPO = PKG.parent
 HOME = Path.home()
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"

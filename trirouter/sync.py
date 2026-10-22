@@ -18,12 +18,10 @@ import contextlib
 import io
 import subprocess
 import sys
-from pathlib import Path
 
 from . import catalog, completion, hub, manual, platforms as P
 
-PKG = Path(__file__).resolve().parent
-REPO = PKG.parent
+REPO = P.REPO
 DOCS_CLI = REPO / "docs" / "cli.md"
 HOOKS_DIR = ".githooks"
 LOCAL_SETTINGS = ("pre-commit hook",)  # reported by --check and doctor, but never a reason for --check to fail

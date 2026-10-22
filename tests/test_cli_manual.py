@@ -280,7 +280,7 @@ def test_windows_launcher_never_uses_the_windowless_interpreter(monkeypatch):
 
 def test_posix_launcher_has_a_shebang_and_the_repo_path():
     text = I.launcher_py(python="/usr/bin/python3", windows=False)
-    assert text.startswith("#!/usr/bin/python3\n") and str(I.REPO) in text and "TRIROUTER_PROG" in text
+    assert text.startswith("#!/usr/bin/python3\n") and str(P.REPO) in text and "TRIROUTER_PROG" in text
     spaced = I.launcher_py(python="/opt/my py/python3", windows=False)
     assert spaced.startswith("#!/bin/sh\n") and 'exec "/opt/my py/python3" "$0" "$@"' in spaced
     compile(text, "trirouter", "exec")

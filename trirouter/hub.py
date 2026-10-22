@@ -27,12 +27,10 @@ from pathlib import Path
 
 from . import catalog, legacy, platforms as P, skillscan
 
-PKG = Path(__file__).resolve().parent
-REPO = PKG.parent
 HOME = Path.home()
 HUB = catalog.HUB
-REPO_SKILLS = PKG / "skills"
-AGENT_TEMPLATES = PKG / "templates" / "agents"
+REPO_SKILLS = P.PKG / "skills"
+AGENT_TEMPLATES = P.PKG / "templates" / "agents"
 CLAUDE_SKILLS = P.PATHS["claude_skills"]
 CODEX_SKILLS = P.PATHS["codex_skills"]
 LEGACY_CODEX_SKILLS = HOME / ".codex" / "skills"
@@ -286,7 +284,7 @@ def _tier_variants(provider, tiers, generic):
 def planned_agents():
     """[(provider, name, model, effort, description, body)]: every selectable model x allowed effort,
     so whatever JEV picks has a matching fixed agent, plus the tier-specific agents (test-worker-*)."""
-    targets = json.loads((PKG / "config" / "targets.json").read_text(encoding="utf-8"))
+    targets = json.loads((P.PKG / "config" / "targets.json").read_text(encoding="utf-8"))
     out = _antigravity_agents(targets) if "antigravity" in PROVIDERS else []
     seen = set()
     for provider in (p for p in ("claude", "codex") if p in PROVIDERS):

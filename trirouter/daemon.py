@@ -32,13 +32,10 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 from . import __version__, core, platforms as P
 from .hotreload import HotReloader
 
-PKG = Path(__file__).resolve().parent
-REPO = PKG.parent
 HOST = "127.0.0.1"  # never another interface: the hooks carry prompts
 DEFAULT_PORT = 47621
 IDLE_EXIT_S = 7 * 24 * 3600  # Remote Control sessions live for days; SessionStart restarts it anyway
@@ -111,7 +108,7 @@ class HookRunner:
     so one request never sees half-purged modules; requests run in parallel otherwise."""
 
     def __init__(self, keepalive=True):
-        self.reloader = HotReloader("trirouter", PKG, "hooks", keep=("hotreload", "daemon"))
+        self.reloader = HotReloader("trirouter", P.PKG, "hooks", keep=("hotreload", "daemon"))
         self.keepalive = keepalive
         self.cond = threading.Condition()
         self.active = 0
@@ -368,7 +365,7 @@ def start(wait=2.0, port=None, check=True):
     if check and health(port):
         return True
     token(create=True)  # here, not in two racing daemons
-    if not P.spawn_detached(daemon_argv(port), cwd=str(REPO)):
+    if not P.spawn_detached(daemon_argv(port), cwd=str(P.REPO)):
         return False
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:

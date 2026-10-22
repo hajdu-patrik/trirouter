@@ -24,7 +24,6 @@ from pathlib import Path
 
 from . import legacy, platforms as P
 
-REPO = Path(__file__).resolve().parent.parent
 BIN = P.STATE / "bin"
 LEGACY_BIN = P.HOME / legacy.STATE_NAME / "bin"  # the pre-rename shim folder: re-pointed, never written
 SHIM_HOOK, SHIM_MCP, SHIM_ROUTE = BIN / "run_hook.py", BIN / "mcp_server.py", BIN / "route.py"
@@ -56,7 +55,7 @@ def shim(module, command=None, hook=False):
     exit 0 whatever happens."""
     argv = f'sys.argv[1:1] = ["{command}"]\n' if command else ""
     target = f"{module} {command}" if command else module
-    return (HOOK_SHIM_TEMPLATE if hook else SHIM_TEMPLATE).format(target=target, repo=REPO, module=module, argv=argv)
+    return (HOOK_SHIM_TEMPLATE if hook else SHIM_TEMPLATE).format(target=target, repo=P.REPO, module=module, argv=argv)
 
 
 class Writer:
@@ -509,7 +508,7 @@ def launcher_py(python=None, windows=None, repo=None):
     """Source of the Python launcher. On POSIX it is the executable itself (shebang to the interpreter);
     on Windows trirouter.cmd runs it."""
     windows = P.IS_WINDOWS if windows is None else windows
-    body = LAUNCHER_PY_TEMPLATE.format(repo=repo or REPO)
+    body = LAUNCHER_PY_TEMPLATE.format(repo=repo or P.REPO)
     if windows:
         return body
     exe = python or P.python_exe()

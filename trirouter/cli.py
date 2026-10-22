@@ -24,9 +24,6 @@ from pathlib import Path
 from . import (__version__, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt, legacy,
                manual, platforms as P, remote, secret, skillscan, sync)
 
-PKG = Path(__file__).resolve().parent
-REPO = PKG.parent
-
 STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (prepare_state)
 CONFIG = STATE / "config.json"
 MODELS_LOCAL = STATE / "models.local.json"
@@ -344,7 +341,7 @@ def extras(providers, cfg):
 def remote_workdir(cfg):
     """Claude Code only serves trusted folders, and never the home directory."""
     wd = FLAGS.get("--workdir")
-    return str(Path(wd).resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(REPO))
+    return str(Path(wd).resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(P.REPO))
 
 
 def next_steps(providers):

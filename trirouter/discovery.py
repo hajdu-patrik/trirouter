@@ -29,12 +29,9 @@ import os
 import re
 import sys
 import time
-from pathlib import Path
 
 from . import core, platforms as P, store
 
-PKG = Path(__file__).resolve().parent
-REPO = PKG.parent
 ALL = ("claude", "codex", "antigravity")
 LABELS = {"claude": "Claude Code", "codex": "Codex", "antigravity": "Antigravity"}
 EXE = {p: P.PROVIDERS[p]["exe"] for p in ALL}
@@ -179,7 +176,7 @@ def maybe_start(now=None):
             state = read_state()
             state["last_start"] = now
             write_state(state)
-            return P.spawn_detached(background_argv(), env=child_env(), cwd=str(REPO))
+            return P.spawn_detached(background_argv(), env=child_env(), cwd=str(P.REPO))
         finally:
             release_lock()
     except Exception:  # noqa: BLE001 - called from hooks: never block or crash the host tool
