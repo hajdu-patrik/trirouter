@@ -120,7 +120,10 @@ dates are ISO 8601.
   in-flight queue are left as they are; the hook works on what it read). A lock file carries its owner's token, and
   `release()` moves the file to a name only that hook knows before it looks at the token, so what it checks is what
   it removes: a hook that was taken over as stale after hanging never deletes the lock a newer hook holds, not even
-  one that took the lock between the check and the removal (a read followed by an unlink left that window).
+  one that took the lock between the check and the removal (a read followed by an unlink left that window). The
+  takeover of a stale lock is exclusive as well: hooks that find the same stale lock go one at a time through a
+  second lock file (`<lock>.break`, itself taken over when a taker died holding it) and look at the lock again under
+  it, so a late one no longer deletes the fresh lock of the one that was quicker and takes the lock as well.
 - A log append that could not take the file lock within 2 s still writes its line but never rotates the file: a
   rewrite next to another writer lost that writer's lines or tore a JSONL line. The log is opened for appending
   (`O_APPEND`, one unbuffered write per line), so such an unlocked write lands at the end of the file instead of

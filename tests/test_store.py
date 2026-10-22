@@ -1,6 +1,6 @@
 """trirouter/store.py: the lock file and the JSON map store behind the hook state. A hook never waits past
-LOCK_WAIT_S, but without the lock it must not rewrite the shared file, and a holder taken over as stale must not
-remove the new holder's lock."""
+LOCK_WAIT_S, but without the lock it must not rewrite the shared file, and neither a holder taken over as stale nor
+a second taker of a stale lock may remove the new holder's lock."""
 import json
 import os
 import threading
@@ -19,6 +19,20 @@ def quick(monkeypatch):
 def _age(path, seconds):
     old = time.time() - seconds
     os.utime(path, (old, old))
+
+
+def _replay_before(monkeypatch, path, step, action):
+    """Runs `action` once, right before the first os.open / os.replace / os.unlink (`step`) whose target is `path` or
+    starts with it (a file moved from it); -> a list that is empty until it ran."""
+    real, replayed = getattr(os, step), []
+
+    def hooked(target, *args, **kwargs):
+        if not replayed and os.fspath(target).startswith(os.fspath(path)):
+            replayed.append(step)
+            action()
+        return real(target, *args, **kwargs)
+    monkeypatch.setattr(os, step, hooked)
+    return replayed
 
 
 def test_the_lock_holds_its_owners_token_and_a_stale_takeover_keeps_the_new_holders_lock(tmp_path):
@@ -46,18 +60,15 @@ def test_release_never_removes_the_lock_of_a_taker_that_arrives_mid_release(tmp_
     path = tmp_path / "x.lock"
     first, taker = store.FileLock(path, stale_s=10), store.FileLock(path, stale_s=10)
     assert first.acquire()
-    real, replayed = getattr(os, step), []
 
-    def hooked(target, *args, **kwargs):
-        if not replayed and os.fspath(target).startswith(os.fspath(path)):  # the lock, or the file it was moved to
-            replayed.append(step)
-            if path.exists():  # still in place: the taker finds it stale and takes it over
-                _age(path, 11)
-            assert taker.acquire()
-        return real(target, *args, **kwargs)
-    monkeypatch.setattr(os, step, hooked)
+    def take_over():
+        if path.exists():  # still in place: the taker finds it stale and takes it over
+            _age(path, 11)
+        taker.acquire()
+    replayed = _replay_before(monkeypatch, path, step, take_over)
     first.release()
-    assert replayed and path.read_text(encoding="utf-8") == taker.token and list(tmp_path.iterdir()) == [path]
+    assert replayed and taker.held and path.read_text(encoding="utf-8") == taker.token
+    assert list(tmp_path.iterdir()) == [path]
     taker.release()
     assert list(tmp_path.iterdir()) == []
 
@@ -93,6 +104,73 @@ def test_a_lock_file_that_is_not_text_is_given_back_and_release_does_not_raise(t
     path.write_bytes(b"\xff\xfe\x00")  # damaged content: not this lock's token
     lock.release()
     assert path.read_bytes() == b"\xff\xfe\x00" and list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("step", ["replace", "unlink"])
+def test_two_takers_of_a_stale_lock_never_both_get_it(tmp_path, monkeypatch, step):
+    """One taker is replayed right before the other's first move and right before its first removal, whichever
+    file that is: whichever of them ends up with the lock, it is only one."""
+    path = tmp_path / "x.lock"
+    dead, taker, other = (store.FileLock(path, stale_s=10) for _ in range(3))
+    assert dead.acquire()
+    _age(path, 11)  # its holder died
+    replayed = _replay_before(monkeypatch, path, step, other.acquire)
+    taker.acquire()
+    holders = [lock for lock in (taker, other) if lock.held]
+    assert replayed and len(holders) == 1 and path.read_text(encoding="utf-8") == holders[0].token
+    holders[0].release()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_late_taker_finds_the_fresh_lock_of_a_quicker_one_and_leaves_it_alone(tmp_path, monkeypatch):
+    """The quicker taker completes its whole takeover right before the late one gets as far as the guard."""
+    path = tmp_path / "x.lock"
+    dead, quick, late = (store.FileLock(path, stale_s=10) for _ in range(3))
+    assert dead.acquire()
+    _age(path, 11)
+    replayed = _replay_before(monkeypatch, tmp_path / "x.lock.break", "open", quick.acquire)
+    assert not late.acquire()
+    assert replayed and quick.held and path.read_text(encoding="utf-8") == quick.token
+    assert list(tmp_path.iterdir()) == [path]
+    quick.release()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_taker_stays_away_while_another_one_is_taking_over(tmp_path):
+    path = tmp_path / "x.lock"
+    dead, taker = store.FileLock(path, stale_s=10), store.FileLock(path, stale_s=10)
+    busy = store.FileLock(tmp_path / "x.lock.break", stale_s=10)
+    assert dead.acquire() and busy.acquire()  # another taker is at it
+    _age(path, 11)
+    assert not taker.acquire() and path.read_text(encoding="utf-8") == dead.token  # the stale lock was not touched
+    busy.release()
+    assert taker.acquire() and path.read_text(encoding="utf-8") == taker.token
+
+
+def test_a_guard_left_by_a_dead_taker_goes_stale_and_is_taken_over_too(tmp_path):
+    path, guard_path = tmp_path / "x.lock", tmp_path / "x.lock.break"
+    dead, taker = store.FileLock(path, stale_s=10), store.FileLock(path, stale_s=10)
+    dead_taker = store.FileLock(guard_path, stale_s=10)
+    assert dead.acquire() and dead_taker.acquire()
+    _age(path, 11)
+    assert not taker.acquire()  # the guard is still fresh
+    _age(guard_path, 11)
+    assert taker.acquire() and path.read_text(encoding="utf-8") == taker.token
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_a_poll_of_a_live_lock_changes_nothing(tmp_path, monkeypatch):
+    path = tmp_path / "x.lock"
+    holder, poller = store.FileLock(path, stale_s=10), store.FileLock(path, stale_s=10, wait_s=0.15)
+    assert holder.acquire()
+    opened, real_open = [], os.open
+    monkeypatch.setattr(os, "open", lambda p, *a, **k: opened.append(os.fspath(p)) or real_open(p, *a, **k))
+    for name in ("replace", "unlink"):
+        monkeypatch.setattr(os, name, lambda *a, **k: pytest.fail("a live lock was touched"))
+    with poller:
+        assert not poller.held
+    assert set(opened) == {str(path)} and path.read_text(encoding="utf-8") == holder.token
+    assert list(tmp_path.iterdir()) == [path]
 
 
 def test_the_context_manager_proceeds_without_the_lock_and_says_so(tmp_path, quick):

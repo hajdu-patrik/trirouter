@@ -18,7 +18,8 @@ class FileLock:
     now; a file older than `stale_s` is considered abandoned and taken over). As a context manager it retries for
     `wait_s`, then proceeds WITHOUT the lock (`held` says which): a hook must never block on one, but it must not
     rewrite the shared file either. `release()` removes the file only while it still holds this object's token:
-    a holder that was taken over as stale never deletes the new holder's lock."""
+    a holder that was taken over as stale never deletes the new holder's lock. The takers of a stale file go one
+    at a time (a second lock file guards the takeover), so two of them never delete each other's fresh lock."""
 
     def __init__(self, path, stale_s, wait_s=0.0):
         self.path, self.stale_s, self.wait_s = Path(path), stale_s, wait_s
@@ -36,12 +37,8 @@ class FileLock:
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             except FileExistsError:
-                try:
-                    if time.time() - self.path.stat().st_mtime > self.stale_s:
-                        self.path.unlink()
-                        continue
-                except OSError:
-                    pass
+                if self._stale() and self._take_over():  # a poll of a live lock only gets as far as the stat
+                    continue
                 return False
             except OSError:
                 return False
@@ -49,6 +46,29 @@ class FileLock:
                 f.write(self.token)
             self.held = True
             return True
+        return False
+
+    def _stale(self):
+        try:
+            return time.time() - self.path.stat().st_mtime > self.stale_s
+        except OSError:
+            return False
+
+    def _take_over(self):
+        """Removes the stale lock file, True when it did. The takers go one at a time through a second lock file
+        (one left behind by a taker that died goes stale and is taken over the same way), and the file is looked at
+        again under it: a taker that was late finds the quicker one's fresh lock there and leaves it alone."""
+        guard = FileLock(self.path.with_name(f"{self.path.name}.break"), self.stale_s)
+        if not guard.acquire():
+            return False
+        try:
+            if self._stale():
+                self.path.unlink()
+                return True
+        except OSError:
+            pass
+        finally:
+            guard.release()
         return False
 
     def release(self):
