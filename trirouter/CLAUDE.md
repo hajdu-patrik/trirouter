@@ -24,8 +24,9 @@ Module map, the traps the code does not show, and what was verified about the th
 - `store.Store` rewrites a state file only under its lock. Without the lock a hook works on what it read: a lost update is fine, a
   rewrite from a stale read is not.
 - After editing `manual.py` run `python -m trirouter sync`: it regenerates `docs/cli.md`, completion, agents and the skill catalog.
-- Config JSON holds only keys the code reads. Claude models are generic family aliases (never a dated ID), `ultra` effort is stripped
-  everywhere. Worker agents and Codex roles are generated from `templates/agents`, `targets.json` and `models.json`: edit the sources.
+- Config JSON holds the keys the code reads plus one short `_comment` / note each. Claude models are generic family aliases (never a
+  dated ID), `ultra` effort is stripped everywhere. Worker agents and Codex roles are generated from `templates/agents`,
+  `targets.json` and `models.json`: edit the sources.
 - Quarantine deletes only folders directly inside `~/.trirouter/quarantine` and never follows links; SkillSpector runs static
   (`--no-llm`) unless `skillscan.llm` is on, and without it skills are linked unscanned with a warning.
 - The daemon binds 127.0.0.1 only. `GET /health`, `POST /hook/<provider>/<event>` and `POST /shutdown` (every POST with the
