@@ -331,7 +331,7 @@ def test_hook_antigravity_reads_transcript_once_per_turn(monkeypatch, capsys, tm
     assert "task=test" in msg
     assert "Respond in Hungarian." in msg
     assert run(monkeypatch, capsys, "antigravity", "PreInvocation", {**payload, "invocationNum": 2}) is None
-    log = [json.loads(l) for l in run_hook.LOG_FILE.read_text(encoding="utf-8").splitlines()]
+    log = [json.loads(line) for line in run_hook.LOG_FILE.read_text(encoding="utf-8").splitlines()]
     assert len(log) == 1
     assert log[0]["provider"] == "antigravity"
 

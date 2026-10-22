@@ -190,7 +190,7 @@ def _drop_stale_links(names):
         links = base.iterdir() if base.is_dir() else []
         for link in links:
             if owned(link) and (base == LEGACY_CODEX_SKILLS or link.name not in names or not link.exists()):
-                act(f"remove stale/legacy link {link}", lambda l=link: P.unlink_dir(l))
+                act(f"remove stale/legacy link {link}", lambda link=link: P.unlink_dir(link))
 
 
 def _register_hub_with_antigravity():

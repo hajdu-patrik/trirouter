@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from trirouter import cli, cliparse, integrations as I, manual, platforms as P
+from trirouter import cli, cliparse, integrations as integ, manual, platforms as P
 
 ROOT = Path(__file__).resolve().parent.parent
 SECTIONS = ("NAME", "SYNOPSIS", "DESCRIPTION", "OPTIONS", "CHANGES", "EXAMPLES", "EXIT STATUS", "SEE ALSO")
@@ -264,21 +264,21 @@ def test_every_command_in_docs_exists():
 # ---- the launcher ---------------------------------------------------------------------------------------
 
 def test_windows_launcher_uses_python_exe_and_passes_arguments():
-    text = I.launcher_cmd("C:/Python/python.exe")
+    text = integ.launcher_cmd("C:/Python/python.exe")
     assert text.startswith("@echo off\r\n") and text.endswith("\r\n")
     assert '"C:/Python/python.exe" "%~dp0trirouter.py" %*' in text and "pythonw" not in text
-    assert "TRIROUTER_PROG" in I.launcher_py(windows=True) and 'run_module("trirouter"' in I.launcher_py(windows=True)
+    assert "TRIROUTER_PROG" in integ.launcher_py(windows=True) and 'run_module("trirouter"' in integ.launcher_py(windows=True)
 
 
 def test_windows_launcher_never_uses_the_windowless_interpreter(monkeypatch):
     monkeypatch.setattr(P, "python_exe", lambda: "C:/Python/python.exe")
-    assert "pythonw" not in I.launcher_cmd()
+    assert "pythonw" not in integ.launcher_cmd()
 
 
 def test_posix_launcher_has_a_shebang_and_the_repo_path():
-    text = I.launcher_py(python="/usr/bin/python3", windows=False)
+    text = integ.launcher_py(python="/usr/bin/python3", windows=False)
     assert text.startswith("#!/usr/bin/python3\n") and str(P.REPO) in text and "TRIROUTER_PROG" in text
-    spaced = I.launcher_py(python="/opt/my py/python3", windows=False)
+    spaced = integ.launcher_py(python="/opt/my py/python3", windows=False)
     assert spaced.startswith("#!/bin/sh\n") and 'exec "/opt/my py/python3" "$0" "$@"' in spaced
     compile(text, "trirouter", "exec")
     compile(spaced, "trirouter", "exec")
@@ -287,13 +287,13 @@ def test_posix_launcher_has_a_shebang_and_the_repo_path():
 def test_user_path_editing_is_idempotent_and_keeps_everything_else():
     entry = r"C:\Users\x\.trirouter\bin"
     base = r"C:\Windows;%USERPROFILE%\bin;"
-    once = I.path_with(base, entry)
+    once = integ.path_with(base, entry)
     assert once == r"C:\Windows;%USERPROFILE%\bin;" + entry
-    assert I.path_with(once, entry) == once
-    assert I.path_with(once, entry.lower() + "\\") == once  # same folder, different spelling: no duplicate
-    assert I.path_with("", entry) == entry
-    assert I.path_without(once, entry) == r"C:\Windows;%USERPROFILE%\bin"
-    assert I.path_without(base, entry) == r"C:\Windows;%USERPROFILE%\bin"
+    assert integ.path_with(once, entry) == once
+    assert integ.path_with(once, entry.lower() + "\\") == once  # same folder, different spelling: no duplicate
+    assert integ.path_with("", entry) == entry
+    assert integ.path_without(once, entry) == r"C:\Windows;%USERPROFILE%\bin"
+    assert integ.path_without(base, entry) == r"C:\Windows;%USERPROFILE%\bin"
 
 
 @pytest.fixture
@@ -301,22 +301,22 @@ def fake_windows(tmp_path, monkeypatch):
     """Windows behavior on any OS, with a fake user PATH instead of the registry."""
     monkeypatch.setattr(P, "IS_WINDOWS", True)
     monkeypatch.setattr(P, "python_exe", lambda: "C:/Python/python.exe")
-    monkeypatch.setattr(I, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(integ, "BIN", tmp_path / "bin")
     store = {"path": (r"C:\Windows;%USERPROFILE%\bin", 2), "broadcast": 0}
-    monkeypatch.setattr(I, "user_path_read", lambda: store["path"])
-    monkeypatch.setattr(I, "user_path_write", lambda value, kind: store.update(path=(value, kind)))
-    monkeypatch.setattr(I, "broadcast_env_change", lambda: store.update(broadcast=store["broadcast"] + 1))
+    monkeypatch.setattr(integ, "user_path_read", lambda: store["path"])
+    monkeypatch.setattr(integ, "user_path_write", lambda value, kind: store.update(path=(value, kind)))
+    monkeypatch.setattr(integ, "broadcast_env_change", lambda: store.update(broadcast=store["broadcast"] + 1))
     return store
 
 
 def test_install_launcher_on_windows_dry_run_apply_and_idempotence(fake_windows, tmp_path, capsys):
-    I.install_launcher(I.Writer(apply=False))
+    integ.install_launcher(integ.Writer(apply=False))
     out = capsys.readouterr().out
     assert "[DRY] trirouter command: create" in out and "to your user PATH" in out
     assert not (tmp_path / "bin").exists() and fake_windows["path"][0] == r"C:\Windows;%USERPROFILE%\bin"
 
-    w = I.Writer(apply=True)
-    I.install_launcher(w)
+    w = integ.Writer(apply=True)
+    integ.install_launcher(w)
     out = capsys.readouterr().out
     assert "[DO]  trirouter command: create" in out and "reopen" in out and w.changes == 3
     assert (tmp_path / "bin" / "trirouter.cmd").read_bytes().startswith(b"@echo off\r\n")
@@ -324,55 +324,55 @@ def test_install_launcher_on_windows_dry_run_apply_and_idempotence(fake_windows,
     assert value == r"C:\Windows;%USERPROFILE%\bin;" + str(tmp_path / "bin") and kind == 2  # REG_EXPAND_SZ kept
     assert fake_windows["broadcast"] == 1
 
-    w = I.Writer(apply=True)
-    I.install_launcher(w)
+    w = integ.Writer(apply=True)
+    integ.install_launcher(w)
     assert "[OK]  trirouter command: up to date" in capsys.readouterr().out and w.changes == 0
     assert fake_windows["path"][0] == value and fake_windows["broadcast"] == 1
 
-    I.uninstall_launcher(I.Writer(apply=True))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert not (tmp_path / "bin" / "trirouter.cmd").exists() and not (tmp_path / "bin" / "trirouter.py").exists()
     assert fake_windows["path"][0] == r"C:\Windows;%USERPROFILE%\bin"
-    I.uninstall_launcher(I.Writer(apply=True))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert "not installed" in capsys.readouterr().out
 
 
 def test_launcher_status_reports_missing_and_present(fake_windows, tmp_path):
-    ok, detail = I.launcher_status()
+    ok, detail = integ.launcher_status()
     assert not ok and "missing" in detail
-    I.install_launcher(I.Writer(apply=True))
-    ok, detail = I.launcher_status()
+    integ.install_launcher(integ.Writer(apply=True))
+    ok, detail = integ.launcher_status()
     assert ok and "on PATH" in detail
     fake_windows["path"] = (r"C:\Windows", 2)
-    assert not I.launcher_status()[0]
+    assert not integ.launcher_status()[0]
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="needs symlinks and POSIX permissions")
 def test_install_launcher_on_posix_links_into_local_bin(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(I, "BIN", tmp_path / "bin")
-    monkeypatch.setattr(I, "LOCAL_BIN", tmp_path / "local-bin")
+    monkeypatch.setattr(integ, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(integ, "LOCAL_BIN", tmp_path / "local-bin")
     monkeypatch.setenv("PATH", "/usr/bin")
-    I.install_launcher(I.Writer(apply=True))
+    integ.install_launcher(integ.Writer(apply=True))
     out = capsys.readouterr().out
     exe, link = tmp_path / "bin" / "trirouter", tmp_path / "local-bin" / "trirouter"
     assert os.access(exe, os.X_OK) and link.is_symlink() and os.path.realpath(link) == os.path.realpath(exe)
     assert 'export PATH="$HOME/.local/bin:$PATH"' in out and "shell profile" in out
     monkeypatch.setenv("PATH", f"/usr/bin:{tmp_path / 'local-bin'}")
-    I.install_launcher(I.Writer(apply=True))
+    integ.install_launcher(integ.Writer(apply=True))
     assert "[OK]  trirouter command: up to date" in capsys.readouterr().out
-    I.uninstall_launcher(I.Writer(apply=True))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert not exe.exists() and not link.is_symlink()
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="needs symlinks")
 def test_a_foreign_file_in_local_bin_is_left_alone(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(I, "BIN", tmp_path / "bin")
-    monkeypatch.setattr(I, "LOCAL_BIN", tmp_path / "local-bin")
+    monkeypatch.setattr(integ, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(integ, "LOCAL_BIN", tmp_path / "local-bin")
     (tmp_path / "local-bin").mkdir()
     (tmp_path / "local-bin" / "trirouter").write_text("mine", encoding="utf-8")
-    I.install_launcher(I.Writer(apply=True))
+    integ.install_launcher(integ.Writer(apply=True))
     assert (tmp_path / "local-bin" / "trirouter").read_text(encoding="utf-8") == "mine"
     assert "left alone" in capsys.readouterr().out
-    I.uninstall_launcher(I.Writer(apply=True))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert (tmp_path / "local-bin" / "trirouter").read_text(encoding="utf-8") == "mine"
 
 

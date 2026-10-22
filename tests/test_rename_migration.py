@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from trirouter import cli, core, doctor, hub, integrations as I, legacy, platforms as P, remote, skillscan
+from trirouter import cli, core, doctor, hub, integrations as integ, legacy, platforms as P, remote, skillscan
 
 REPO = Path(__file__).resolve().parents[1]
 POSIX_ONLY = pytest.mark.skipif(sys.platform.startswith("win"), reason="needs POSIX permissions / symlinks")
@@ -113,7 +113,7 @@ def test_move_that_fails_is_reported_and_leaves_the_old_folder(tmp_path, monkeyp
     monkeypatch.setattr(os, "rename", locked)
     lines, say = quiet()
     assert legacy.migrate_state(tmp_path, apply=True, say=say) == "failed"
-    assert old.is_dir() and any("could not move" in l for l in lines)
+    assert old.is_dir() and any("could not move" in line for line in lines)
 
 
 def test_merge_keeps_newer_files_and_merges_config(tmp_path):
@@ -143,7 +143,7 @@ def test_merge_keeps_newer_files_and_merges_config(tmp_path):
     assert (new / "bin" / "trirouter.py").read_text() == "# launcher"          # the old shims are not carried over
     assert not (new / "bin" / "run_hook.py").exists()
     assert not (old / "config.json").exists()                                  # merged, so removed from the old folder
-    assert any("stay in" in l for l in lines)                                  # leftovers are reported
+    assert any("stay in" in line for line in lines)                                  # leftovers are reported
 
 
 def test_merge_leaves_no_old_folder_when_everything_moved(tmp_path):
@@ -173,8 +173,8 @@ def test_prepare_state_moves_then_re_points_for_a_writing_command(tmp_path, monk
     monkeypatch.setattr(P, "HOME", tmp_path)
     monkeypatch.setattr(P, "STATE", tmp_path / ".trirouter")
     calls = []
-    monkeypatch.setattr(I, "configured_providers", lambda: (["claude"], True))
-    monkeypatch.setattr(I, "install", lambda providers, apply=False, **k: calls.append(("install", providers, apply)))
+    monkeypatch.setattr(integ, "configured_providers", lambda: (["claude"], True))
+    monkeypatch.setattr(integ, "install", lambda providers, apply=False, **k: calls.append(("install", providers, apply)))
     monkeypatch.setattr(remote, "migrate", lambda name, workdir, apply=True: calls.append(("remote", name, apply)) or [])
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "FLAGS", {})
@@ -219,12 +219,12 @@ NEW_MODULE_HOOK = 'cd "$D" && python -m trirouter.hooks claude UserPromptSubmit 
 
 @pytest.mark.parametrize("cmd", [OLD_HOOK, OLDEST_HOOK, OLD_MODULE_HOOK, NEW_HOOK, NEW_MODULE_HOOK])
 def test_every_generation_of_our_hook_command_is_recognized(cmd):
-    assert I.is_router_cmd(cmd)
+    assert integ.is_router_cmd(cmd)
 
 
 def test_foreign_hook_is_not_ours():
-    assert not I.is_router_cmd("python /opt/other/hook.py") and not I.is_router_cmd("")
-    assert I.is_legacy_cmd(OLD_HOOK) and I.is_legacy_cmd(OLD_MODULE_HOOK) and not I.is_legacy_cmd(NEW_HOOK)
+    assert not integ.is_router_cmd("python /opt/other/hook.py") and not integ.is_router_cmd("")
+    assert integ.is_legacy_cmd(OLD_HOOK) and integ.is_legacy_cmd(OLD_MODULE_HOOK) and not integ.is_legacy_cmd(NEW_HOOK)
 
 
 def paths_in(tmp_path, monkeypatch):
@@ -243,25 +243,25 @@ def test_old_hook_entries_are_replaced_never_duplicated(tmp_path, monkeypatch):
     paths["agy_hooks"].parent.mkdir(parents=True)
     paths["agy_hooks"].write_text(json.dumps({"router": {"PreInvocation": [{"type": "command", "command": OLD_HOOK}]}}),
                                   encoding="utf-8")
-    I.install(("claude", "antigravity"), apply=True, launcher=False)
+    integ.install(("claude", "antigravity"), apply=True, launcher=False)
     cfg = json.loads(paths["claude_settings"].read_text())
     for event in ("UserPromptSubmit", "Stop"):
         cmds = [h["command"] for g in cfg["hooks"][event] for h in g["hooks"]]
-        assert cmds.count("other") == 1 and sum(I.is_router_cmd(c) for c in cmds) == 1
-        assert not any(I.is_legacy_cmd(c) for c in cmds)
+        assert cmds.count("other") == 1 and sum(integ.is_router_cmd(c) for c in cmds) == 1
+        assert not any(integ.is_legacy_cmd(c) for c in cmds)
     agy = json.loads(paths["agy_hooks"].read_text())["router"]
-    assert not any(I.is_legacy_cmd(h["command"]) for hooks in agy.values() for h in hooks)
-    assert I.configured_providers() == (["claude", "antigravity"], False)  # nothing old is left
+    assert not any(integ.is_legacy_cmd(h["command"]) for hooks in agy.values() for h in hooks)
+    assert integ.configured_providers() == (["claude", "antigravity"], False)  # nothing old is left
 
 
 def test_configured_providers_sees_old_and_new_entries(tmp_path, monkeypatch):
     paths = paths_in(tmp_path, monkeypatch)
-    assert I.configured_providers() == ([], False)
+    assert integ.configured_providers() == ([], False)
     paths["codex_config"].parent.mkdir(parents=True)
     paths["codex_config"].write_text(f'[mcp_servers.{legacy.MCP_NAME}]\ncommand = "py"\nargs = []\n', encoding="utf-8")
-    assert I.configured_providers() == (["codex"], True)
+    assert integ.configured_providers() == (["codex"], True)
     (tmp_path / "claude_desktop_config.json").write_text(json.dumps({"mcpServers": {"trirouter": {}}}), encoding="utf-8")
-    assert I.configured_providers() == (["claude", "codex"], True)
+    assert integ.configured_providers() == (["claude", "codex"], True)
 
 
 # ---- MCP server name ----
@@ -270,13 +270,13 @@ def test_json_mcp_replaces_the_old_named_entry(tmp_path):
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps({"mcpServers": {legacy.MCP_NAME: {"command": "old"}, "other": {"command": "o"}}}),
                     encoding="utf-8")
-    I.json_mcp(path, "x", I.Writer(apply=True))
+    integ.json_mcp(path, "x", integ.Writer(apply=True))
     servers = json.loads(path.read_text())["mcpServers"]
     assert set(servers) == {"trirouter", "other"} and servers["trirouter"]["command"] != "old"
-    I.json_mcp(path, "x", I.Writer(apply=True), uninstall=True)
+    integ.json_mcp(path, "x", integ.Writer(apply=True), uninstall=True)
     assert set(json.loads(path.read_text())["mcpServers"]) == {"other"}
     path.write_text(json.dumps({"mcpServers": {legacy.MCP_NAME: {}}}), encoding="utf-8")
-    I.json_mcp(path, "x", I.Writer(apply=True), uninstall=True)  # uninstall removes the old name too
+    integ.json_mcp(path, "x", integ.Writer(apply=True), uninstall=True)  # uninstall removes the old name too
     assert json.loads(path.read_text())["mcpServers"] == {}
 
 
@@ -284,16 +284,16 @@ def test_codex_mcp_replaces_the_old_section_in_place(tmp_path):
     cfg = tmp_path / "config.toml"
     cfg.write_text(f'model = "x"\n\n[mcp_servers.{legacy.MCP_NAME}]\ncommand = "old"\nargs = ["a"]\n\n'
                    f'# >>> agents block\n[agents.a]\n', encoding="utf-8")
-    I.codex_mcp(cfg, I.Writer(apply=True))
+    integ.codex_mcp(cfg, integ.Writer(apply=True))
     text = cfg.read_text()
     assert text.count("[mcp_servers.") == 1 and "[mcp_servers.trirouter]" in text and legacy.MCP_NAME not in text
     assert text.index("[mcp_servers.trirouter]") < text.index("# >>> agents block")
-    I.codex_mcp(cfg, I.Writer(apply=True))
+    integ.codex_mcp(cfg, integ.Writer(apply=True))
     assert cfg.read_text() == text  # idempotent
     cfg.write_text(f'[mcp_servers.{legacy.MCP_NAME}]\ncommand = "o"\n\n[mcp_servers.trirouter]\ncommand = "n"\n', encoding="utf-8")
-    I.codex_mcp(cfg, I.Writer(apply=True))
+    integ.codex_mcp(cfg, integ.Writer(apply=True))
     assert cfg.read_text().count("[mcp_servers.") == 1  # both present: one remains
-    I.codex_mcp(cfg, I.Writer(apply=True), uninstall=True)
+    integ.codex_mcp(cfg, integ.Writer(apply=True), uninstall=True)
     assert "mcp_servers" not in cfg.read_text()
 
 
@@ -343,49 +343,49 @@ def test_windows_path_old_entry_out_new_entry_in_with_one_write(monkeypatch, tmp
     monkeypatch.setattr(P, "IS_WINDOWS", True)
     monkeypatch.setattr(P, "python_exe", lambda: "C:/Python/python.exe")
     old_bin, new_bin = tmp_path / "old-bin", tmp_path / "bin"
-    monkeypatch.setattr(I, "BIN", new_bin)
-    monkeypatch.setattr(I, "LEGACY_BIN", old_bin)
+    monkeypatch.setattr(integ, "BIN", new_bin)
+    monkeypatch.setattr(integ, "LEGACY_BIN", old_bin)
     writes = []
-    monkeypatch.setattr(I, "user_path_read", lambda: (rf"C:\Windows;{old_bin};C:\Tools", 2))
-    monkeypatch.setattr(I, "user_path_write", lambda value, kind: writes.append((value, kind)))
-    monkeypatch.setattr(I, "broadcast_env_change", lambda: None)
-    I.install_launcher(I.Writer(apply=True))
+    monkeypatch.setattr(integ, "user_path_read", lambda: (rf"C:\Windows;{old_bin};C:\Tools", 2))
+    monkeypatch.setattr(integ, "user_path_write", lambda value, kind: writes.append((value, kind)))
+    monkeypatch.setattr(integ, "broadcast_env_change", lambda: None)
+    integ.install_launcher(integ.Writer(apply=True))
     assert len(writes) == 1
     value, kind = writes[0]
     assert str(old_bin) not in value and value.endswith(str(new_bin)) and "C:\\Tools" in value and kind == 2
     # uninstall removes whichever of the two entries is there
     writes.clear()
-    monkeypatch.setattr(I, "user_path_read", lambda: (rf"C:\Windows;{old_bin};{new_bin}", 2))
-    I.uninstall_launcher(I.Writer(apply=True))
+    monkeypatch.setattr(integ, "user_path_read", lambda: (rf"C:\Windows;{old_bin};{new_bin}", 2))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert writes == [(r"C:\Windows", 2)]
 
 
 def test_uninstall_removes_the_old_launcher_files_too(monkeypatch, tmp_path):
     monkeypatch.setattr(P, "IS_WINDOWS", True)
-    monkeypatch.setattr(I, "BIN", tmp_path / "bin")
-    monkeypatch.setattr(I, "LEGACY_BIN", tmp_path / "old-bin")
+    monkeypatch.setattr(integ, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(integ, "LEGACY_BIN", tmp_path / "old-bin")
     (tmp_path / "old-bin").mkdir()
     for name in ("trirouter.py", "trirouter.cmd"):
         (tmp_path / "old-bin" / name).write_text("x", encoding="utf-8")
-    I.uninstall_launcher(I.Writer(apply=True))
+    integ.uninstall_launcher(integ.Writer(apply=True))
     assert not list((tmp_path / "old-bin").iterdir())
 
 
 @POSIX_ONLY
 def test_posix_link_into_the_old_bin_folder_is_re_pointed(monkeypatch, tmp_path):
-    monkeypatch.setattr(I, "BIN", tmp_path / "bin")
-    monkeypatch.setattr(I, "LEGACY_BIN", tmp_path / "old-bin")
-    monkeypatch.setattr(I, "LOCAL_BIN", tmp_path / "local-bin")
+    monkeypatch.setattr(integ, "BIN", tmp_path / "bin")
+    monkeypatch.setattr(integ, "LEGACY_BIN", tmp_path / "old-bin")
+    monkeypatch.setattr(integ, "LOCAL_BIN", tmp_path / "local-bin")
     (tmp_path / "local-bin").mkdir()
     link = tmp_path / "local-bin" / "trirouter"
     link.symlink_to(tmp_path / "old-bin" / "trirouter")  # dangling: the old folder moved away
-    assert I._posix_link_state() == "legacy"
-    I.install_launcher(I.Writer(apply=True))
-    assert I._posix_link_state() == "ok" and os.path.realpath(link) == os.path.realpath(tmp_path / "bin" / "trirouter")
+    assert integ._posix_link_state() == "legacy"
+    integ.install_launcher(integ.Writer(apply=True))
+    assert integ._posix_link_state() == "ok" and os.path.realpath(link) == os.path.realpath(tmp_path / "bin" / "trirouter")
     # a foreign link is never touched
     link.unlink()
     link.symlink_to(tmp_path / "elsewhere")
-    assert I._posix_link_state() == "foreign"
+    assert integ._posix_link_state() == "foreign"
 
 
 # ---- remote-access services ----

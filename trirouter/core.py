@@ -502,12 +502,12 @@ def models_for(provider):
         selectable = (override or {}).get("selectable", model.get("selectable")) if isinstance(override, dict) \
             else model.get("selectable")
         if selectable and model.get("routable", True):
-            out[model["id"]] = dict(model, levels=[l for l in model.get("levels", []) if l not in banned])
+            out[model["id"]] = dict(model, levels=[lvl for lvl in model.get("levels", []) if lvl not in banned])
     known = {model["id"] for model in m.get("models", [])}
     for model_id, entry in local.items():
         mdef = None if model_id in known else _local_model(base, model_id, entry, cfg)
         if mdef and mdef["selectable"]:
-            out[model_id] = dict(mdef, levels=[l for l in mdef["levels"] if l not in banned])
+            out[model_id] = dict(mdef, levels=[lvl for lvl in mdef["levels"] if lvl not in banned])
     return out
 
 
@@ -537,8 +537,8 @@ def available_model(provider, model_id, models=None):
 
 def effort_levels_for(provider):
     models = models_for(provider)
-    levels = sorted({l for m in models.values() for l in m["levels"]},
-                    key=lambda l: EFFORT_ORDER.index(l) if l in EFFORT_ORDER else 99)
+    levels = sorted({lvl for m in models.values() for lvl in m["levels"]},
+                    key=lambda lvl: EFFORT_ORDER.index(lvl) if lvl in EFFORT_ORDER else 99)
     if not levels:
         return None
     return {"levels": levels, "excluded": sorted(excluded_efforts()),
@@ -557,7 +557,7 @@ def clamp_effort(effort, allowed):
 
 def _usable_levels(effort):
     """The levels of an effort_levels_for() answer that are not excluded."""
-    return [l for l in effort["levels"] if l not in set(effort.get("excluded", []))]
+    return [lvl for lvl in effort["levels"] if lvl not in set(effort.get("excluded", []))]
 
 
 def _short_desc(desc):
@@ -597,7 +597,7 @@ def build_questions(skills, effort=None, models=None):
         if effort.get("note"):
             instructions += " " + effort["note"]
         q["effort"] = {"type": "choice", "instructions": instructions,
-                       "criteria": {l: f"Use the '{l}' reasoning-effort level for this request." for l in usable}}
+                       "criteria": {lvl: f"Use the '{lvl}' reasoning-effort level for this request." for lvl in usable}}
     if models and len(models) > 1:
         q["model"] = {"type": "choice",
                       "instructions": "Which model of this provider fits this request best (capability vs. cost and speed)?",

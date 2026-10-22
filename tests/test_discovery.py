@@ -46,7 +46,7 @@ Options:
 def codex_json(*models):
     """`codex debug models` output: (slug, levels, visibility)."""
     return json.dumps({"models": [{"slug": s, "display_name": s.upper(), "description": f"{s} model.",
-                                   "visibility": vis, "supported_reasoning_levels": [{"effort": l} for l in levels]}
+                                   "visibility": vis, "supported_reasoning_levels": [{"effort": lvl} for lvl in levels]}
                                   for s, levels, vis in models]})
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from trirouter import core, daemon, hooks, integrations as I, platforms as P
+from trirouter import core, daemon, hooks, integrations as integ, platforms as P
 
 TOKEN = "t" * 43
 
@@ -222,55 +222,55 @@ def test_http_registration_and_back(tmp_path, capsys):
     settings.parent.mkdir(parents=True)
     foreign_http = {"type": "http", "url": "https://example.com/hook", "timeout": 5}
     settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [foreign_http]}]}}), encoding="utf-8")
-    I.claude_codex_hooks(settings, "claude", I.Writer(True), transport="command")
-    assert all(h["type"] == "command" for e, hs in _entries(settings).items() for h in hs if I.is_router_hook(h))
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="command")
+    assert all(h["type"] == "command" for e, hs in _entries(settings).items() for h in hs if integ.is_router_hook(h))
 
     write_config(tmp_path, {"hooks": {"transport": "http"}, "daemon": {"port": 50124}})
-    I.claude_codex_hooks(settings, "claude", I.Writer(True))  # the transport comes from config.json
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True))  # the transport comes from config.json
     entries, tok = _entries(settings), daemon.token(create=False)
-    for event in I.HOOK_EVENTS["claude"]:
-        ours = [h for h in entries[event] if I.is_router_hook(h)]
+    for event in integ.HOOK_EVENTS["claude"]:
+        ours = [h for h in entries[event] if integ.is_router_hook(h)]
         assert len(ours) == 1, event
-        if event in I.COMMAND_ONLY_EVENTS:
+        if event in integ.COMMAND_ONLY_EVENTS:
             assert ours[0]["type"] == "command"
         else:
             assert ours[0] == {"type": "http", "url": f"http://127.0.0.1:50124/hook/claude/{event}",
                                "headers": {daemon.TOKEN_HEADER: tok}, "timeout": 10}
-    assert foreign_http in entries["Stop"] and not I.is_router_hook(foreign_http)
-    assert I.http_hook_tokens(json.loads(settings.read_text(encoding="utf-8"))) == {tok}
-    assert I.has_router_hooks(settings) and I.configured_providers()[0][:1] == ["claude"]
+    assert foreign_http in entries["Stop"] and not integ.is_router_hook(foreign_http)
+    assert integ.http_hook_tokens(json.loads(settings.read_text(encoding="utf-8"))) == {tok}
+    assert integ.has_router_hooks(settings) and integ.configured_providers()[0][:1] == ["claude"]
 
-    I.claude_codex_hooks(settings, "claude", I.Writer(True), transport="command")
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="command")
     entries = _entries(settings)
-    assert not any(h["type"] == "http" for hs in entries.values() for h in hs if I.is_router_hook(h))
+    assert not any(h["type"] == "http" for hs in entries.values() for h in hs if integ.is_router_hook(h))
     assert foreign_http in entries["Stop"]
 
 
 def test_uninstall_removes_http_entries(tmp_path):
     settings = P.PATHS["claude_settings"]
-    I.claude_codex_hooks(settings, "claude", I.Writer(True), transport="http")
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="http")
     assert any(h["type"] == "http" for hs in _entries(settings).values() for h in hs)
-    I.claude_codex_hooks(settings, "claude", I.Writer(True), uninstall=True)
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True), uninstall=True)
     assert "hooks" not in json.loads(settings.read_text(encoding="utf-8"))
 
 
 def test_codex_never_gets_http_hooks(tmp_path):
     path = P.PATHS["codex_hooks"]
-    I.claude_codex_hooks(path, "codex", I.Writer(True), transport="http")
+    integ.claude_codex_hooks(path, "codex", integ.Writer(True), transport="http")
     assert all(h["type"] == "command" for hs in _entries(path).values() for h in hs)
 
 
 def test_dry_run_creates_no_token(tmp_path):
     settings = P.PATHS["claude_settings"]
-    I.claude_codex_hooks(settings, "claude", I.Writer(False), transport="http")
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(False), transport="http")
     assert not settings.exists() and daemon.token(create=False) is None
 
 
 def test_router_url_recognition():
-    assert I.is_router_url("http://127.0.0.1:47621/hook/claude/Stop")
-    assert I.is_router_url("http://localhost:9/hook/claude/PreToolUse")
-    assert not I.is_router_url("http://10.0.0.1:47621/hook/claude/Stop")
-    assert not I.is_router_url("https://example.com/hook/claude/Stop")
+    assert integ.is_router_url("http://127.0.0.1:47621/hook/claude/Stop")
+    assert integ.is_router_url("http://localhost:9/hook/claude/PreToolUse")
+    assert not integ.is_router_url("http://10.0.0.1:47621/hook/claude/Stop")
+    assert not integ.is_router_url("https://example.com/hook/claude/Stop")
 
 
 def test_enable_and_disable(tmp_path, monkeypatch, capsys):
@@ -284,7 +284,7 @@ def test_enable_and_disable(tmp_path, monkeypatch, capsys):
     assert "setup --yes" in capsys.readouterr().out
 
     write_config(tmp_path, {"keep": 1})
-    I.claude_codex_hooks(settings, "claude", I.Writer(True), transport="command")
+    integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="command")
     before = settings.read_text(encoding="utf-8")
     assert daemon.enable(apply=False) > 0  # dry run: nothing written, nothing started
     assert daemon.transport() == "command" and settings.read_text(encoding="utf-8") == before and started == [1]

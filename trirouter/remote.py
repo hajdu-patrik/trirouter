@@ -443,7 +443,7 @@ def status():
         return lines
     _, out = _ps(f'Get-ScheduledTask | ? {{ $_.TaskName -like "Trirouter*" -or $_.TaskName -like "{legacy.TASK_PATTERN}" }} '
                  '| % { $_.TaskName + "=" + $_.State }')
-    tasks = {task: state for task, sep, state in (l.partition("=") for l in out.splitlines()) if sep}
+    tasks = {task: state for task, sep, state in (line.partition("=") for line in out.splitlines()) if sep}
     _, out = _ps('Get-CimInstance Win32_Process | ? { $_.CommandLine -match "remote-control|app-server --remote-control" } '
                  '| % { $_.Name + "|" + $_.CommandLine }')
     procs = out.lower()

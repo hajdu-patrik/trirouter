@@ -35,7 +35,7 @@ def run_main(monkeypatch, capsys, event, payload, provider="claude"):
 
 
 def log_entries(tmp_path):
-    return [json.loads(l) for l in (tmp_path / "logs" / "routing.jsonl").read_text(encoding="utf-8").splitlines()]
+    return [json.loads(line) for line in (tmp_path / "logs" / "routing.jsonl").read_text(encoding="utf-8").splitlines()]
 
 
 # ---- M-1: nothing crashes the hook --------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_logs_rotate_to_their_newer_half_and_stay_owner_only(tmp_path):
     for i in range(200):
         assert P.append_line(log, json.dumps({"i": i, "pad": "x" * 100}), max_bytes=4000)
     lines = log.read_text(encoding="utf-8").splitlines()
-    assert log.stat().st_size <= 4000 and all(json.loads(l) for l in lines)
+    assert log.stat().st_size <= 4000 and all(json.loads(line) for line in lines)
     assert json.loads(lines[-1])["i"] == 199 and json.loads(lines[0])["i"] > 100
     if not P.IS_WINDOWS:
         assert stat.S_IMODE(log.stat().st_mode) == 0o600

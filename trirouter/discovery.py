@@ -194,9 +194,9 @@ def list_codex(exe):
         slug = m.get("slug") if isinstance(m, dict) else None
         if not isinstance(slug, str) or not core.MODEL_ID_RE.fullmatch(slug):
             continue
-        levels = [l.get("effort") for l in m.get("supported_reasoning_levels") or [] if isinstance(l, dict)]
+        levels = [entry.get("effort") for entry in m.get("supported_reasoning_levels") or [] if isinstance(entry, dict)]
         name, desc = m.get("display_name") or slug, (m.get("description") or "").strip().rstrip(".")
-        found[slug] = {"levels": [l for l in levels if l in LEVELS], "hidden": m.get("visibility") not in (None, "list"),
+        found[slug] = {"levels": [lvl for lvl in levels if lvl in LEVELS], "hidden": m.get("visibility") not in (None, "list"),
                        "description": f"{name} - {desc}" if desc else name}
     if not found:
         raise Unchecked("`codex debug models` listed no model")
@@ -250,8 +250,8 @@ def parse_claude_help(text):
     """(model names quoted in --model's help, effort levels of --effort's help)."""
     names = re.findall(r"'([^'\s]+)'", _option_block(text, "--model"))
     m = re.search(r"\(([^)]*)\)", _option_block(text, "--effort"))
-    levels = [l.strip() for l in m.group(1).split(",")] if m else []
-    return list(dict.fromkeys(n.lower() for n in names)), [l for l in levels if l in LEVELS]
+    levels = [lvl.strip() for lvl in m.group(1).split(",")] if m else []
+    return list(dict.fromkeys(n.lower() for n in names)), [lvl for lvl in levels if lvl in LEVELS]
 
 
 def list_claude(exe, catalog):
@@ -313,12 +313,12 @@ def infer_role(model_id, text=""):
 
 
 def clean_levels(levels, banned):
-    out = [l for l in levels or [] if l in LEVELS and l not in banned]
-    return out or [l for l in DEFAULT_LEVELS if l not in banned]
+    out = [lvl for lvl in levels or [] if lvl in LEVELS and lvl not in banned]
+    return out or [lvl for lvl in DEFAULT_LEVELS if lvl not in banned]
 
 
 def new_entry(provider, model_id, info, ok, today, banned):
-    levels = [l for l in info.get("levels") or [] if l in LEVELS and l not in banned]
+    levels = [lvl for lvl in info.get("levels") or [] if lvl in LEVELS and lvl not in banned]
     if provider != "antigravity":  # Antigravity: no suffix means one fixed setting, not "unknown"
         levels = clean_levels(levels, banned)
     entry = {"selectable": bool(ok), "listed": True, "discovered": today, "role": infer_role(model_id, info.get("description", "")),
@@ -522,7 +522,7 @@ def record(results, changed, mode):
                  results={r["provider"]: {k: r[k] for k in ("status", "reason", "added", "removed", "restored")}
                           for r in results})
     write_state(state)
-    _log(f"{state['last_run']} {mode}: " + " | ".join(" ".join(l.split()) for l in summary_lines(results)))
+    _log(f"{state['last_run']} {mode}: " + " | ".join(" ".join(line.split()) for line in summary_lines(results)))
     note = note_text(results)
     if note:
         P.atomic_write(note_file(), note + "\n")

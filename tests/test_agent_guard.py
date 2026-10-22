@@ -38,7 +38,7 @@ def run(monkeypatch, capsys, event, payload, provider="claude"):
 
 
 def jsonl(path):
-    return [json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines()] if Path(path).exists() else []
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines()] if Path(path).exists() else []
 
 
 def agent_call(prompt_id="p1", session="s", **tool_input):
@@ -317,7 +317,7 @@ for i in range(int(sys.argv[4])):
 
 def check_lines(path, writers, per_writer):
     lines = Path(path).read_text(encoding="utf-8").splitlines()
-    rows = [json.loads(l) for l in lines]  # a torn or interleaved line would not parse
+    rows = [json.loads(line) for line in lines]  # a torn or interleaved line would not parse
     assert len(rows) == writers * per_writer
     for w in range(writers):
         assert sorted(r["i"] for r in rows if r["w"] == str(w)) == list(range(per_writer))
@@ -378,7 +378,7 @@ def test_append_line_writes_through_a_held_lock_after_the_wait_but_never_rotates
     assert path.read_text(encoding="utf-8").splitlines() == lines  # every line, nothing cut
     assert P.append_line(path, lines[0], max_bytes=2000) is True  # the lock is free again: this one rotates
     kept = path.read_text(encoding="utf-8").splitlines()
-    assert path.stat().st_size <= 2000 and kept[-1] == lines[0] and all(json.loads(l) for l in kept)
+    assert path.stat().st_size <= 2000 and kept[-1] == lines[0] and all(json.loads(line) for line in kept)
 
 
 def test_append_line_opens_the_log_for_appending(tmp_path, monkeypatch):
