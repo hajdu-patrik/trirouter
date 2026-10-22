@@ -1,5 +1,5 @@
 {
-  "_comment": "Per provider: task + difficulty (0/1/2) -> tier. targets.json translates the tier into an agent/model/effort/text. Claude answers trivial work inline (a subagent for it costs an extra main-model turn, a fresh context and reading the result back: more than it saves); `#haiku` still delegates to the fast tier. '+verify:<tool>' adds an independent cross-check via cli-bridge (Claude only). cloud_replace applies in a cloud sandbox (ROUTER_MODE=cloud or CLAUDE_CODE_REMOTE=true), where neither Codex/Antigravity logins nor the user-level generated agents exist.",
+  "_comment": "Per provider: task + difficulty (0/1/2) -> tier; targets.json turns the tier into agent / model / effort / text. Claude answers trivial work inline (a subagent for it costs more than it saves); '+verify:<tool>' adds a cross-check through cli-bridge (Claude only); cloud_replace applies in a cloud sandbox (ROUTER_MODE=cloud or CLAUDE_CODE_REMOTE=true), where no Codex / Antigravity login and no user-level agents exist.",
   "claude": {
     "default": "main",
     "long_context_target": "cli:antigravity",
@@ -14,7 +14,7 @@
     },
     "cloud_replace": {"cli:antigravity": "main", "cli:codex": "main", "fast": "main", "fable": "main", "sonnet": "main", "test": "main", "deep": "main"},
     "cost_cap": {
-      "_comment": "Cost-aware cap on the model family a Claude subagent may run on. max_family: difficulty level -> the highest family; by_task overrides it per task. A tier or a model JEV picked above the cap is lowered to it (an explicit #opus/#fable override is never capped). short_chat_chars / short_chat_max_family: a plain prompt shorter than this (no code, path or file name) never runs above that family (only for short_chat_tasks: a short integral is still math); inline stays inline.",
+      "_comment": "Caps the model family of a Claude subagent: max_family (difficulty -> highest family), by_task overrides it per task; a tier or JEV-picked model above the cap is lowered (an explicit #opus / #fable is never capped). short_chat_*: a plain prompt shorter than short_chat_chars (no code, path or file name) in short_chat_tasks never runs above short_chat_max_family; inline stays inline.",
       "families": ["haiku", "sonnet", "opus", "fable"],
       "tier_family": {"fast": "haiku", "sonnet": "sonnet", "test": "sonnet", "deep": "opus", "fable": "fable"},
       "family_tier": {"haiku": "fast", "sonnet": "sonnet", "opus": "deep", "fable": "fable"},

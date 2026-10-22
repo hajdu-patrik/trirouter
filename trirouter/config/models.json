@@ -1,10 +1,10 @@
 {
-  "_comment": "Generic catalog of every model and reasoning-effort level the router may choose, per provider. 'selectable' is the DEFAULT availability; what a given account can really use differs by plan, so `python install.py models --probe` tests it and writes per-user overrides to ~/.trirouter/models.local.json (never committed). policy.excluded_efforts is removed from EVERY provider in code. Agents/roles enforcing a (model, effort) pair are generated from this file. 'role' (fast / balanced / deep) picks the worker template trirouter/templates/agents/<role>-worker.md for the model's generated agents; a model without one uses 'balanced'. 'routable': false marks a specialist model that is never a routing target: no probe, discovery or override makes it selectable. Models that appear later are found by the daily discovery (`trirouter models --discover`) and stored in models.local.json only.",
+  "_comment": "Model catalog per provider. 'selectable' is the default availability (per-account overrides and discovered models live in ~/.trirouter/models.local.json); 'role' (fast / balanced / deep) picks the worker template, 'routable': false marks a model that is never a routing target, policy.excluded_efforts is stripped from every provider in code.",
   "policy": {
     "excluded_efforts": [
       "ultra"
     ],
-    "note": "'ultra' (Codex: 'maximum reasoning with automatic task delegation', i.e. ultra/auto-delegation mode) is never selectable - not by JEV, not by the local mock, not via override. Stripped in core.py regardless of what an answer says."
+    "note": "'ultra' (Codex: automatic task delegation) is never offered: not by JEV, the local classifier or an override."
   },
   "claude": {
     "allowed_families": [
@@ -14,14 +14,7 @@
       "fable"
     ],
     "excluded_families": [],
-    "policy": "Always the family's generic Claude Code alias (haiku/sonnet/opus/fable), never a pinned/dated model ID; the alias always points at the family's latest version. Every family is routable; none is banned (excluded_families is empty and only exists so a family can be removed from routing without touching code). Cost order, cheapest first: haiku, sonnet, opus, fable.",
-    "current_reference": {
-      "haiku": "claude-haiku-5-5",
-      "sonnet": "claude-sonnet-5-5",
-      "opus": "claude-opus-5-5",
-      "fable": "claude-fable-5-1"
-    },
-    "verified": "2026-10-11, Claude Code 2.1.289: `claude --help` (--effort low|medium|high|xhigh|max; --model aliases fable/opus/sonnet, haiku accepted too) and live `claude -p --model haiku --effort low|max` runs; prices and capability order from the claude-api model table cached 2026-10-06.",
+    "policy": "Generic family aliases only (never a dated ID), every family routable, cost order haiku < sonnet < opus < fable; excluded_families only exists to drop a family without touching code.",
     "models": [
       {
         "id": "haiku",
@@ -78,7 +71,6 @@
     ]
   },
   "codex": {
-    "verified": "2026-09-24, Codex CLI 0.156.1, live `codex exec -m <model>` per model on a ChatGPT-plan login: gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna and gpt-reserve work; gpt-6-astra, gpt-6-sol and gpt-5.6-sol are rejected for ChatGPT-plan logins; gpt-5.5 returned 404. Those are therefore not selectable by default - API-key logins or other plans may differ: run `python install.py models --probe`. Note: `codex debug models` lists the CLI's full catalog, not what an account may use.",
     "models": [
       {
         "id": "gpt-6-astra",
@@ -228,13 +220,9 @@
         ],
         "description": "hidden; Codex's automatic approval-review model, not a general-purpose model"
       }
-    ],
-    "role_name_rule": "Codex agent roles are named <model>-<effort> with '.' replaced by '_' (TOML-safe), e.g. gpt-5_6-sol-high.",
-    "hook_trust": "Codex runs a new/changed hook only after it is trusted once: run `codex` (interactive) -> /hooks -> trust. Until then `codex exec` skips it silently (verified 2026-09-23).",
-    "agents_note": "Roles: [agents.<name>] in ~/.codex/config.toml with description + config_file (role TOML: model, model_reasoning_effort, developer_instructions). Verified: Codex lists the generated roles as spawnable agent types."
+    ]
   },
   "antigravity": {
-    "verified": "2026-09-24: `agy models` (Antigravity CLI 1.2.x). The effort is part of the model slug (…-low/-medium/-high); models without a suffix have a single fixed setting.",
     "models": [
       {
         "id": "gemini-3.8-flash",
@@ -311,20 +299,6 @@
         "slug": "{id}-{effort}",
         "description": "GPT-OSS 120B (Medium) - open-weight model"
       }
-    ],
-    "cli_home_note": "Antigravity CLI uses ~/.gemini/ (its own subfolder ~/.gemini/antigravity-cli/); global config in ~/.gemini/config/.",
-    "hook": {
-      "event": "PreInvocation (no prompt-submit event exists)",
-      "config_path": "global ~/.gemini/config/hooks.json",
-      "contract": "Fires before EVERY model call of a turn; stdin has no prompt text (conversationId, transcriptPath, invocationNum, ...); stdout {\"injectSteps\": [{\"ephemeralMessage\": ...}]}.",
-      "transcript_format": "VERIFIED 2026-09-23: transcriptPath = ~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl; the user turn is type=USER_INPUT with content '<USER_REQUEST>...</USER_REQUEST><ADDITIONAL_METADATA>...'; already written when PreInvocation fires.",
-      "windows_quoting": "VERIFIED: hook commands run via `cmd /c`, which breaks quoted paths with spaces - hooks call the space-free shim ~/.trirouter/bin/run_hook.py.",
-      "trust": "No trust gate: the hook ran on the first real call."
-    },
-    "skills": {
-      "mechanism": "~/.gemini/config/skills.json 'entries' list, each path scanned one level deep.",
-      "path_rule": "Verified 2026-09-23 (agy 1.2.9): skills.json entry paths must be ABSOLUTE ('~/.skills' is rejected at runtime despite the docs), and directory links inside an entry are not followed."
-    },
-    "agents": "Custom agents: ~/.gemini/config/agents/<name>/agent.md (YAML frontmatter + H1-delimited system prompt). Verified 2026-09-24 (agy 1.2.10): 'model' only accepts the tiers inherit / flash / pro / flash_lite (anything else makes agy ignore the agent: 'unsupported model'), no reasoning effort can be pinned; a pro-tier agent invoked as a subagent ran on gemini-3.1-pro-low, while `agy --agent <name>` for the main session keeps the session's model. Workspace .agents/agents/ was not picked up by `agy -p --agent`. 'agent_tier' marks the model an agent of that tier runs on; one agent per tier is generated."
+    ]
   }
 }
