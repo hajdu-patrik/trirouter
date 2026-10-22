@@ -33,7 +33,7 @@ Issues = "https://github.com/hajdu-patrik/trirouter/issues"
 Changelog = "https://github.com/hajdu-patrik/trirouter/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pyflakes>=3"]
 
 [project.scripts]
 trirouter = "trirouter.cli:main"
