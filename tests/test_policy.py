@@ -19,7 +19,7 @@ def main():
     settings = json.loads((ROOT / ".claude/settings.json").read_text(encoding="utf-8"))
     if "model" in settings:
         found.append((".claude/settings.json", settings["model"]))
-    for md in sorted((PKG / "templates" / "agents").glob("*.md")):
+    for md in sorted((PKG / "templates" / "agents").glob("*.md")) + sorted((ROOT / ".claude" / "agents").glob("*.md")):
         m = re.search(r"^model:\s*(\S+)\s*$", md.read_text(encoding="utf-8"), re.M)
         if m:
             found.append((str(md.relative_to(ROOT)).replace("\\", "/"), m.group(1)))
