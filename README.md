@@ -383,6 +383,12 @@ See **[docs/remote-access.md](docs/remote-access.md)**.
 | `ROUTER_MAX_EXTRA_AGENTS` | `4` | hard cap for parallel agents |
 | `ROUTER_QUEUE_TTL_MIN` | `120` | minutes after which an unfinished queue entry is ignored (a session whose transcript has been silent for 10 minutes is dropped earlier, also when it is another session in the same folder) |
 | `ROUTER_SKILL_CANDIDATES` | `5` | skills offered to JEV per request |
+| `ROUTER_DESTRUCTIVE_THRESHOLD` | `0.3` | JEV's destructive score from which a prompt gets the SAFETY line (the regex always applies) |
+| `ROUTER_LONG_CONTEXT_THRESHOLD` | `0.7` | JEV's long-context score from which a long input goes to the long-context target, and its needs-web score from which web search is advised |
+| `ROUTER_QUEUE_IDLE_MIN` | `10` | minutes of transcript silence after which a session no longer counts as working |
+| `ROUTER_DISTILLED` | on | `0` switches the local distilled model off |
+| `ROUTER_MODE` | unset | `cloud` for a cloud sandbox (`CLAUDE_CODE_REMOTE=true` is recognised too) |
+| `TRIROUTER_HOME` | `~/.trirouter` | the per-user state folder (set it to a scratch folder in tests) |
 | `ROUTER_LOG_PROMPTS` | unset | `1` = log full prompts (default: first 200 characters; secrets are redacted in the log, in the queue context and in what is sent to JEV: API keys and tokens by shape, values after a password / api key label, URL passwords, bearer tokens) |
 | `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | –, –, `1.8` | JEV endpoint (https only, except on the loopback interface; redirects are refused), pinned model version, the whole call's time budget in seconds (on timeout the local classifier decides; after 2 failures in a row JEV is paused for 60 s). A setting that is not a number falls back to its default |
 | `JEV_OPENROUTER_URL`, `JEV_OPENROUTER_MODEL` | OpenRouter System One, `jev-1.13` | the same through OpenRouter |
@@ -404,7 +410,10 @@ trirouter/                 the package
 ├── lang.py                Hungarian / English detection
 ├── catalog.py             skill catalog and pre-filter
 ├── hooks.py               hook entry point for all three tools (python -m trirouter.hooks)
-├── queue_state.py         queue protection
+├── daemon.py              the hook daemon: Claude Code's http hooks served by one resident process (python -m trirouter.daemon)
+├── hotreload.py           reloads the package in place when its sources or config change (daemon, MCP server)
+├── queue_state.py         queue protection and the other small per-session hook state
+├── distill.py             the local routing model trained on JEV's past decisions (`trirouter learn`)
 ├── mcp_server.py          MCP stdio server; reloads the package on source/config changes (python -m trirouter.mcp_server)
 ├── mcp_tools.py           MCP tools: route_prompt, list_skills, get_skill
 ├── hub.py                 shared skill folder, links, worker generation
@@ -414,15 +423,19 @@ trirouter/                 the package
 ├── skillscan.py           SkillSpector gate: scan, cache, quarantine before skills are linked
 ├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
 ├── platforms.py           OS abstraction (paths, links, executables, detection)
+├── secret.py              protected storage for the saved API key, secret redaction
+├── legacy.py              the pre-rename names and the state-folder migration
 ├── remote.py              optional remote access
 ├── doctor.py              health report
 ├── config/                models.json (catalog + policy), routes.json (task → tier), targets.json (tier → worker)
 ├── templates/agents/      role templates fast/balanced/deep/test-worker.md (rendered into
 │                          ~/.claude/agents, ~/.codex/agents and ~/.gemini/config/agents)
 └── skills/                skills bundled with trirouter (cli-bridge)
+jev_router/                compatibility package for shims written before the rename (remove after the next release)
 tests/                     unit tests, model-policy test
 eval/                      100 Hungarian + 100 English labelled prompts, 45 real-traffic shapes, evaluation script
 docs/                      cli.md (command reference, generated), speech-to-text and remote-access guides
+.claude/                   project hook settings, the `coding-principles` skill and agent
 ```
 
 ---
@@ -431,6 +444,7 @@ docs/                      cli.md (command reference, generated), speech-to-text
 
 ```bash
 pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
+python -m pyflakes trirouter tests eval install.py jev_router   # lint: must stay silent
 python -m pytest tests -q          # unit tests incl. the model-policy check
 python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
 python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, skill catalog, pre-commit hook
@@ -449,7 +463,7 @@ tier accuracy next to the best fixed-tier baseline: routing only pays off if it 
 the same tier. The test suite runs on Windows, macOS and Linux in CI.
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history and [CLAUDE.md](CLAUDE.md) for contributor
-conventions.
+conventions (module notes: [trirouter/CLAUDE.md](trirouter/CLAUDE.md), tests: [tests/CLAUDE.md](tests/CLAUDE.md)).
 
 ---
 

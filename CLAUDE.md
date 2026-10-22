@@ -37,6 +37,14 @@ details or absolute user paths. Per-user state belongs in `~/.trirouter/`, never
   `config/models.json` (`trirouter skills --apply`, or `python install.py skills --apply`) – edit the sources, never the generated files.
 - Installers are idempotent and dry-run by default; changed user config files get a `.bak` copy.
 
+## Code style
+
+- Comments and docstrings: at most two lines, only where the code cannot say it (a non-obvious why, a trap, an outside constraint). No
+  decision history: that is the commit message and `CHANGELOG.md`.
+- Less code beats clever code: remove what nothing calls, share a helper only when it reads at least as well. pyflakes stays silent.
+- Area notes: `trirouter/CLAUDE.md` (module map, traps, verified facts about the three tools) and `tests/CLAUDE.md`. The
+  `coding-principles` skill and agent in `.claude/` run a clean-code pass.
+
 ## Git
 
 - One branch: `main`. No feature branches, worktrees or stashes that outlive a session – finished
@@ -55,6 +63,7 @@ to ~2.5 minutes: give `git commit` a 10-minute Bash timeout. By hand:
 
 ```bash
 python -m trirouter sync --pre-commit   # or the pieces:
+python -m pyflakes trirouter tests eval install.py jev_router
 python -m pytest tests -q               # includes the model-policy test
 python eval/eval_router.py
 ```
