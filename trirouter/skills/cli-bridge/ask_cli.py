@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""Run the Codex or Antigravity CLI headless and print its answer.
-
-Usage:  python ask_cli.py codex       [--model M] [--effort E] [--prompt-file FILE] < prompt.txt
-        python ask_cli.py antigravity [--model M] [--effort E] [--prompt-file FILE] < prompt.txt
-The prompt comes from --prompt-file (deleted once read, so a secret pasted into it does not linger) or stdin.
-Exit codes: 0 success, 2 bad usage / not installed / cloud sandbox, 3 timeout,
-            anything else: the tool's own exit code.
-
-Codex runs in its read-only sandbox, Antigravity in plan mode, so neither can edit files. Codex reads the prompt
-from stdin; agy takes it only as the -p argument (its stdin mode is the stream-json protocol). The CLIs run with
-TRIROUTER_NESTED=1, so their own trirouter hooks do not route the prompt a second time.
-"""
+"""Runs the Codex or Antigravity CLI headless, read-only: `ask_cli.py codex|antigravity [--model M] [--effort E]
+[--prompt-file FILE]` (the file is deleted once read, else stdin). Exit 2: usage, missing CLI, cloud; 3: timeout."""
 import argparse
 import os
 import re
@@ -90,7 +80,7 @@ def main():
         return 2
     argv, stdin = build(a.tool, exe, a.model, a.effort, prompt)
     env = os.environ.copy()
-    env["TRIROUTER_NESTED"] = "1"
+    env["TRIROUTER_NESTED"] = "1"  # the CLI's own trirouter hooks must not route this prompt a second time
     try:
         r = subprocess.run(argv, input=stdin, capture_output=True, timeout=TIMEOUT_S + 30, env=env,
                            stdin=None if stdin is not None else subprocess.DEVNULL)

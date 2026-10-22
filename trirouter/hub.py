@@ -1,22 +1,5 @@
-"""Shared skill hub (~/.skills) + generated worker agents for Claude Code, Codex and Antigravity.
-
-    ~/.skills/<name>/SKILL.md            real folder, the single source of truth
-    ~/.skills/<bundled>     -> trirouter/skills/<name>
-    ~/.claude/skills/<name> -> ~/.skills/<name>          Claude Code
-    ~/.agents/skills/<name> -> ~/.skills/<name>          Codex
-    ~/.gemini/config/skills.json  absolute ~/.skills + trirouter/skills   Antigravity
-
-    ~/.claude/agents/<name>.md                    Claude Code subagents
-    ~/.codex/agents/<name>.toml + [agents.*]      Codex roles
-    ~/.gemini/config/agents/<name>/agent.md       Antigravity subagents
-
-Third-party hub skills pass the SkillSpector gate first (skillscan.py): a DO_NOT_INSTALL skill the
-user sends to ~/.trirouter/quarantine/ is linked nowhere.
-
-One link per skill, not one for the whole folder: ~/.claude/skills also holds app-managed content,
-and a fully linked skills directory is a known Claude Code regression. Never deletes a real
-directory: only links it can prove it owns are replaced, and a name collision is only reported.
-"""
+"""Shared skill hub (~/.skills: a link per skill into Claude and Codex, a skills.json entry for Antigravity) and the
+generated worker agents. Never deletes a real folder: only links it can prove it owns are replaced."""
 import itertools
 import json
 import os
@@ -48,10 +31,8 @@ GEN_MARKS = (GEN_MARK, legacy.GEN_MARK)
 
 APPLY = False
 SCAN = {"llm": False, "allow": ()}  # skillscan settings, set by the installer from config.json + flags
-# Catalog-only skills: hub skills whose folder name matches one of these fnmatch patterns stay in ~/.skills and in the
-# catalog but are not linked into Claude's or Codex's skill folders (their descriptions would load into every session).
-# Set by the installer from config.json skills.catalog_only. Antigravity reads the whole hub through skills.json, so
-# it keeps seeing them: there is no per-skill switch for it.
+# Catalog-only skills (config.json skills.catalog_only) are not linked into Claude or Codex, so their descriptions stay
+# out of every session; Antigravity reads the whole hub and keeps seeing them.
 LINK = {"catalog_only": ()}
 CHOOSE = lambda items: None  # noqa: E731 - the installer's quarantine question: names to quarantine, None: nobody to ask
 

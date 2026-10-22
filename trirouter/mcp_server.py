@@ -1,7 +1,5 @@
-"""MCP stdio server for modes that run no hooks (Claude desktop Chat and Cowork).
-
-The tools live in mcp_tools and reload on the next call after any package source or config change.
-"""
+"""MCP stdio server for modes that run no hooks (Claude desktop Chat and Cowork); the tools live in mcp_tools and reload
+on the next call after a package source or config change."""
 import json
 import sys
 from pathlib import Path

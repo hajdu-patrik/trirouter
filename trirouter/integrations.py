@@ -1,20 +1,5 @@
-"""Installs or removes the router's hooks and MCP server for Claude Code, Codex and Antigravity.
-
-Every entry calls a shim in ~/.trirouter/bin/, so moving the repository only requires re-running
-the installer. A changed file's original is kept once as `<file>.bak`; a config file that is not
-valid JSON is reported and left untouched.
-
-    claude       UserPromptSubmit, Stop, StopFailure, SessionEnd, SubagentStart,    ~/.claude/settings.json
-                 SessionStart, PostModelSwitch, PreToolUse (Agent)
-                 (+ the remembered model defaults: `model`, env.CLAUDE_CODE_SUBAGENT_MODEL;
-                 with config.json hooks.transport "http" the hooks go to the daemon, see daemon.py;
-                 SessionStart always stays a command hook: it starts the daemon)
-    codex        UserPromptSubmit + Stop    ~/.codex/hooks.json (trust once via /hooks)
-    antigravity  PreInvocation + Stop       ~/.gemini/config/hooks.json
-
-It also installs the `trirouter` command: a launcher in ~/.trirouter/bin (Windows: trirouter.cmd, with
-that folder added to the USER PATH; macOS / Linux: an executable plus a link in ~/.local/bin).
-"""
+"""Installs or removes the hooks and MCP server for Claude Code, Codex and Antigravity, and the `trirouter` launcher.
+Every entry calls a shim in ~/.trirouter/bin, so moving the repository only means re-running setup."""
 import json
 import ntpath
 import os
@@ -139,9 +124,8 @@ def is_router_hook(hook):
     return is_router_cmd(hook.get("command")) or (hook.get("type") == "http" and is_router_url(hook.get("url")))
 
 
-# The http transport (config.json hooks.transport == "http"): which providers and events may use it. Every other
-# event of an http provider in HOOK_EVENTS goes over http; SessionStart stays a command hook because it starts
-# the daemon. Codex and Antigravity have no http hooks.
+# http transport (config.json hooks.transport): all events of an http provider except SessionStart, which starts the
+# daemon. Codex and Antigravity have no http hooks.
 HTTP_PROVIDERS = ("claude",)
 COMMAND_ONLY_EVENTS = frozenset({"SessionStart"})
 HTTP_HOOK_TIMEOUT_S = 10
@@ -200,12 +184,8 @@ def _strip_router(groups):
 
 
 HOOK_EVENTS = {
-    # StopFailure / SessionEnd release the queue when a turn dies on an API error or the session ends;
-    # SubagentStart records which worker the model really delegated to.
-    # SessionStart purges expired quarantine entries (at most every 6 hours) and starts the daily model check;
-    # it prints only a one-line note when that check changed the model list. SessionStart (when it carries `model`)
-    # and PostModelSwitch record the family the session runs; PreToolUse (the Agent tool only, see HOOK_MATCHERS)
-    # holds subagent calls to the routed budget and gives a general-purpose call the routed worker's model
+    # Stop, StopFailure, SessionEnd release the queue; SubagentStart logs the delegate; SessionStart starts the daemon
+    # and the daily checks; PostModelSwitch records the model; PreToolUse (Agent tool) guards the subagent budget
     "claude": ("UserPromptSubmit", "Stop", "StopFailure", "SessionEnd", "SubagentStart", "SessionStart",
                "PostModelSwitch", "PreToolUse"),
     "codex": ("UserPromptSubmit", "Stop"),
@@ -219,9 +199,8 @@ ROUTER_EVENTS = tuple(dict.fromkeys(e for events in HOOK_EVENTS.values() for e i
 
 
 def claude_codex_hooks(path, provider, w, uninstall=False, claude_models=None, transport=None):
-    """transport: "http" or "command"; None reads config.json hooks.transport (only Claude has http hooks).
-    claude_models (Claude only): the remembered (main, subagent) model defaults, re-applied in the same write
-    (see apply_claude_models); on uninstall the values trirouter set are removed."""
+    """transport "http" or "command" (None: config.json hooks.transport; only Claude has http hooks). claude_models: the
+    (main, subagent) model defaults, re-applied in the same write; uninstall removes the values trirouter set."""
     cfg = load(path)
     hooks = cfg.setdefault("hooks", {})
     wanted = () if uninstall else HOOK_EVENTS[provider]
@@ -271,9 +250,8 @@ def _check_family(value, what):
 
 
 def apply_claude_models(cfg, main_model=None, subagent_model=None):
-    """Sets, in a parsed settings.json, the main session's default family (`model`) and the family of subagents that
-    pin none (env.CLAUDE_CODE_SUBAGENT_MODEL; a worker agent's own `model:` still wins - verified live). "off"
-    removes the key, None leaves it as it is. Both values are validated before anything changes: ValueError."""
+    """Sets, in a parsed settings.json, the default family of the main session (`model`) and of subagents that pin none
+    (env.CLAUDE_CODE_SUBAGENT_MODEL). "off" removes the key, None leaves it; ValueError before anything changes."""
     main_model = _check_family(main_model, "main model")
     subagent_model = _check_family(subagent_model, "subagent model")
     if main_model == "off":
@@ -294,9 +272,8 @@ def apply_claude_models(cfg, main_model=None, subagent_model=None):
 
 
 def claude_model_settings(w, main_model=None, subagent_model=None, path=None):
-    """Writes the Claude model defaults into ~/.claude/settings.json through the Writer (dry-run unless w.apply,
-    the original kept once as `.bak`). main_model / subagent_model: a selectable family, "off" (remove the key) or
-    None (leave it). ValueError for an unknown family, BadConfig for a settings.json that is not a JSON object."""
+    """Writes the Claude model defaults into ~/.claude/settings.json through the Writer: a selectable family, "off"
+    (remove) or None (leave); ValueError for an unknown family, BadConfig for a settings.json that is not an object."""
     path = Path(path or P.PATHS["claude_settings"])
     cfg = apply_claude_models(load(path), main_model, subagent_model)
     w.write_json(path, cfg, "claude model defaults")
@@ -374,9 +351,8 @@ def json_mcp(path, label, w, uninstall=False):
 
 def codex_mcp(path, w, uninstall=False):
     text = Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
-    # the section ends at the next table or comment line (our generated agents block starts with one)
-    # A pre-rename [mcp_servers.<old name>] section is ours too: the first section found is replaced in place by
-    # the new one (other generated blocks may follow it), any further one is dropped.
+    # The section ends at the next table or comment line (our agents block starts with one). A pre-rename section is
+    # ours too: the first one found is replaced in place by the new one, any further one is dropped.
     pat = re.compile(r"\[mcp_servers\.(?:" + re.escape(MCP_NAME) + "|" + re.escape(legacy.MCP_NAME) + r")\]\n"
                      r"(?:\n|[^\[#\n].*(?:\n|\Z))*")
     block = (f'[mcp_servers.{MCP_NAME}]\ncommand = {json.dumps(fwd(P.python_exe_windowless()))}\n'

@@ -1,15 +1,5 @@
-"""Shell tab completion for the `trirouter` command, generated from manual.py (commands, subcommands, flags and
-flag values), like `gh completion -s bash`.
-
-Internal module, no command of its own: `trirouter setup` installs the scripts (install()), `--no-completion`
-skips it, `trirouter uninstall` removes them (remove()).
-
-Installing writes the script to ~/.trirouter/completion/trirouter.<ext> and one marked block that loads it
-into the shell's profile: ~/.bashrc (macOS: ~/.bash_profile), ~/.zshrc (or $ZDOTDIR/.zshrc), the PowerShell
-$PROFILE of every installed edition (Windows PowerShell and pwsh, on any OS). fish autoloads
-$XDG_CONFIG_HOME/fish/completions/trirouter.fish (default ~/.config), so no profile is edited. Idempotent: an up-to-date block is left alone, a changed one is replaced in place;
-a profile that is changed keeps its original once as `<file>.bak`; the file's line endings are kept.
-"""
+"""Shell tab completion for `trirouter`, generated from manual.py: setup installs a script and one marked block in the
+shell's profile (fish autoloads its folder), uninstall removes them; a changed profile keeps a `.bak`."""
 import os
 import re
 from pathlib import Path
@@ -456,9 +446,8 @@ def script_path(shell):
 
 
 def powershell_function():
-    """`trirouter` as a PowerShell function that starts the launcher's Python directly. Going through
-    trirouter.cmd makes cmd.exe ask "Terminate batch job (Y/N)?" after Ctrl+C. All arguments are passed on and
-    $LASTEXITCODE (130 interrupted, 2 usage error) is left as the program set it. trirouter.cmd stays for cmd.exe."""
+    """`trirouter` as a PowerShell function that starts the launcher's Python directly: going through trirouter.cmd
+    makes cmd.exe ask "Terminate batch job (Y/N)?" after Ctrl+C. Arguments and $LASTEXITCODE pass through."""
     if P.IS_WINDOWS:
         python = "'" + str(P.python_exe()).replace("'", "''") + "'"
         target = f'& {python} "$HOME/.trirouter/bin/trirouter.py" @args'

@@ -1,12 +1,5 @@
-"""The command-line manual: every command, flag and help text as data.
-
-One source of truth: `cliparse` validates arguments against these definitions, `render_help` prints the
-man-page-like pages (`trirouter help <command>`, `<command> --help`), `render_overview` the short
-command list, and `render_markdown` the wiki-style reference in docs/cli.md (`trirouter help --markdown`).
-Edit the texts here, then run `trirouter sync`: it regenerates docs/cli.md and the installed tab completion
-(the git pre-commit hook does it too; a test fails when docs/cli.md is out of date). `{prog}` in a text stands for the program name:
-`trirouter`, or `python install.py` when run from the checkout.
-"""
+"""The command-line manual as data: one source for cliparse, the help pages and docs/cli.md. After editing run
+`trirouter sync` (a test fails when docs/cli.md is stale); `{prog}` is the program name."""
 import textwrap
 from dataclasses import dataclass
 

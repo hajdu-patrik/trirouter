@@ -1,19 +1,5 @@
-"""trirouter command line: `trirouter <command> [subcommand] [flags]`, or `python install.py ...` /
-`python -m trirouter ...` (same commands; without a command these two run the interactive setup).
-
-The commands, flags and help texts live in manual.py (one source for the parser, the help pages and
-docs/cli.md); argument validation is in cliparse.py; this module does the work.
-
-    trirouter help [command]     manual page; `trirouter <command> --help` too
-    trirouter setup | models | skills | quarantine | remote | sync | doctor | route | uninstall | help
-    trirouter --version | -V     the version
-
-Ctrl+C (and Ctrl+D) stop a command at once: exit status 130, files are written atomically (interrupt.py).
-
-`python install.py --help` prints the command list generated from manual.py. Other programs call the
-route command through the installer's shim: python ~/.trirouter/bin/route.py --json "<text>"
-Requires Python 3.10+ and nothing else.
-"""
+"""trirouter command line (`trirouter <command>`, `python install.py`, `python -m trirouter`; the last two run setup
+without a command). Commands and help texts live in manual.py, flag validation in cliparse.py."""
 import difflib
 import json
 import os
@@ -48,9 +34,8 @@ def configure(inv):
     DRY = "--dry-run" in FLAGS
 
 
-# Commands that write per-user state (config.json, models.local.json, quarantine, remote-access scripts) or
-# rewrite the tools' configs: they migrate a pre-rename ~/.jev-router first, so nothing is ever written to a
-# half-migrated pair of folders.
+# Commands that write per-user state or rewrite the tools' configs: they migrate a pre-rename ~/.jev-router first, so
+# nothing is ever written to a half-migrated pair of folders.
 STATE_WRITERS = ("setup", "keys", "skills", "models", "remote", "uninstall", "quarantine restore", "quarantine purge")
 
 
@@ -101,9 +86,8 @@ def rebase_state(state):
 
 
 def repoint_install(apply):
-    """After the state folder moved: the shims in the old bin folder are gone, so every hook, MCP entry, the PATH
-    entry and every remote-access service that points at them is rewritten (old entries are recognized as ours and
-    replaced, never duplicated). Only tools that already have router entries are touched."""
+    """After the state folder moved: rewrites the hooks, MCP entries, PATH entry and remote-access services that point
+    into the old bin folder (old entries are replaced, never duplicated)."""
     providers, has_old = integrations.configured_providers()
     if providers:
         say(f"\nRe-pointing the existing hooks and MCP entries ({', '.join(providers)}) to {integrations.BIN}:")
@@ -375,9 +359,8 @@ def set_model_auto(value):
 
 
 def set_claude_models(main, sub):
-    """`models --main / --subagent-model`: Claude Code's default model for new sessions (settings.json `model`) and
-    for subagents that name none (env CLAUDE_CODE_SUBAGENT_MODEL); remembered as config.json claude.*, re-applied
-    by setup. "off" removes the setting."""
+    """`models --main / --subagent-model`: Claude Code's default model for new sessions (settings.json `model`) and for
+    subagents that name none (env CLAUDE_CODE_SUBAGENT_MODEL); remembered and re-applied by setup, "off" removes it."""
     try:
         w = integrations.Writer(not DRY)
         integrations.claude_model_settings(w, main, sub)

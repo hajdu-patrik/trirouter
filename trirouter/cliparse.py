@@ -1,9 +1,5 @@
-"""Argument parsing against the command definitions in manual.py.
-
-Every command declares the flags it accepts: an unknown or not-applicable flag, a value flag without a
-value and a boolean flag given a value are usage errors (exit status 2) with a "did you mean" hint.
-`route` is not parsed here: its prompt text is free-form (cli.parse_route_args).
-"""
+"""Argument parsing against manual.py: an unknown or misplaced flag, a value flag without a value or a boolean flag
+given one is a usage error (exit 2) with a "did you mean" hint. `route` is parsed in cli."""
 import difflib
 from dataclasses import dataclass, field
 

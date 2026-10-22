@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""Router quality through the full core.route pipeline.
-
-    python eval/eval_router.py [eval/en_prompts.csv ...]
-
-Sets: hu_prompts / en_prompts (curated) and real_prompts (anonymized shapes of real traffic: typos,
-missing accents, pasted blocks, go-aheads). Optional columns: `lang` (expected reply language, else
-taken from the file name) and `previous` (an earlier prompt of the same session, routed first).
-
-Besides task accuracy the report shows the share of "routing uncertain" decisions and the tier
-accuracy next to the best fixed-tier baseline: a router is only useful if it beats always picking the
-same tier. Exits 1 if any target is missed. Details: eval/results_<name>.csv.
-"""
+"""Router quality through the full core.route pipeline: `python eval/eval_router.py [csv ...]` on the hu / en / real
+prompt sets; exits 1 if a target (task and tier accuracy, safety recall, reply language) is missed."""
 import csv
 import operator
 import os
@@ -51,9 +41,8 @@ def model_family(model):
 
 
 def delegation_of(d):
-    """Final routing outcome from the decision core.route returns (render() records target_agent /
-    target_model on it): ('inline', '', '') or ('delegated', agent, family). ('unknown', '', '') when
-    the decision lacks what the outcome is built from (core.py changed under us)."""
+    """The final outcome of a core.route decision (render() records target_agent / target_model): ('inline', '', '') or
+    ('delegated', agent, family); ('unknown', '', '') when the decision lacks what the outcome is built from."""
     if not isinstance(d, dict) or "primary" not in d:
         return "unknown", "", ""
     agent, model = d.get("target_agent") or "", d.get("target_model") or ""
