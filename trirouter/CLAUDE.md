@@ -12,13 +12,13 @@ Module map, the traps the code does not show, and what was verified about the th
 - `cli.py` runs the commands; `manual.py` is their only definition (parser, help pages, completion, `docs/cli.md`); `cliparse.py` validates.
 - `hub.py` (skills, worker agents), `integrations.py` (hooks, MCP entries, shims, launcher), `skillscan.py` (SkillSpector gate and
   quarantine), `discovery.py` (daily model check), `remote.py`, `completion.py`, `sync.py`, `doctor.py`, `secret.py` (key protection).
-- `platforms.py` is the only place for OS differences (paths, links, processes, atomic writes, locked appends). `legacy.py` and the
+- `platforms.py` is the OS abstraction (paths, links, executables, processes, atomic writes, locked appends). `legacy.py` and the
   top-level `jev_router/` package exist for installs from before the rename; remove them together after the next release.
 
 ## Traps
 
-- A hook must never fail the host: every entry point is `guarded`, the shim exits 0, errors are logged by type. No raw exception text in
-  anything the model or the user's prompt log sees.
+- A hook must never fail the host: every entry point is `guarded`, the shim exits 0, an error is logged and the prompt just gets no
+  router context.
 - The daemon and the MCP server re-import the package when a file changes: module-level state must survive that, and `keep=` in
   `HotReloader` names the modules that are never purged. State folders come from `legacy.state_dir()`; set `TRIROUTER_HOME` in tests.
 - `store.Store` rewrites a state file only under its lock. Without the lock a hook works on what it read: a lost update is fine, a

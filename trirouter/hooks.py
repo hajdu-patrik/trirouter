@@ -428,8 +428,8 @@ def agent_guard(payload):
     family = entry.get("family")
     if family and agent_type == "general-purpose" and not tool_input.get("model"):
         log({**record, "action": "model", "model": family}, GUARD_LOG)
-        # no permissionDecision: the normal permission rules still apply to the call (verified live: the
-        # subagent runs on the model in updatedInput without an "allow")
+        # No permissionDecision (the normal rules still apply; verified live: the model in updatedInput takes effect without
+        # an "allow"). updatedInput replaces the whole input, hence the copy of every original field.
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "model": family}}}
     return None
 
