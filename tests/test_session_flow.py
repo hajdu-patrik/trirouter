@@ -151,6 +151,22 @@ def test_delegation_compliance_counts():
     assert doctor.delegation_compliance(routed, subagents) == {"followed": 1, "elsewhere": 1, "in_session": 1}
 
 
+def test_doctor_activity_leaves_out_log_rows_that_belong_to_no_provider(tmp_path, monkeypatch, capsys):
+    """A swallowed hook error is logged as just a time and a message, and a line need not be an object at all:
+    neither may stop the report."""
+    from trirouter import doctor
+    rows = [{"ts": "2026-10-20T10:00:00", "provider": "codex"}, {"ts": "2026-10-21T10:00:00", "provider": "claude"},
+            {"ts": "2026-10-21T11:00:00", "error": "on_prompt: ValueError: boom"}]
+    log = tmp_path / "logs" / "routing.jsonl"
+    log.parent.mkdir()
+    log.write_text("\n".join([*map(json.dumps, rows), "[1, 2]", "7", "{broken"]) + "\n", encoding="utf-8")
+    monkeypatch.setattr(doctor, "STATE", tmp_path)
+    assert doctor.last_prompts(log) == {"codex": "2026-10-20T10:00:00", "claude": "2026-10-21T10:00:00"}
+    doctor.report_activity()
+    out = capsys.readouterr().out
+    assert "last claude prompt" in out and "last codex prompt" in out and "None" not in out
+
+
 class _Resp(io.BytesIO):
     def __enter__(self):
         return self

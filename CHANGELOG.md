@@ -134,6 +134,9 @@ dates are ISO 8601.
 - `trirouter doctor` no longer registers, runs and deletes the scheduled task `Trirouter - Setup` on Windows to read
   Antigravity's autostart entry: it reads the registry value directly, so the report is strictly read-only (and no
   longer waits 30 seconds when agy has no autostart entry).
+- `trirouter doctor` no longer stops with a TypeError in its "Router activity" section: a hook error that was
+  swallowed is logged to `routing.jsonl` as just a time and a message, and a row without a provider could not be
+  sorted with the provider names. Such rows, and log lines that are not JSON objects, are left out of the report.
 - The Claude `SessionStart` hook no longer deletes expired quarantine entries itself (a large skill takes seconds
   to remove): it stamps the time and starts `python -m trirouter.skillscan --purge-expired` detached, like the
   daily model check. The Antigravity prompt is read from the last 256 KB of the transcript, not the whole file.

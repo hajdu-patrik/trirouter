@@ -272,18 +272,22 @@ def report_remote(cfg):
 
 
 def last_prompts(log):
-    """{provider: time of its newest routed prompt} over the log's last 500 lines."""
-    return {e.get("provider"): e.get("ts") for e in _jsonl(log, 500)}
+    """{provider: time of its newest routed prompt} over the log's last 500 lines. A row without a provider (a
+    swallowed hook error is logged as just a time and a message) is no provider's prompt and is left out."""
+    return {e["provider"]: e.get("ts") for e in _jsonl(log, 500) if isinstance(e.get("provider"), str)}
 
 
 def _jsonl(path, limit):
+    """The JSON objects among the file's last `limit` lines; a line that is not one is skipped."""
     rows = []
     if path.exists():
         for raw in path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]:
             try:
-                rows.append(json.loads(raw))
+                row = json.loads(raw)
             except ValueError:
                 continue
+            if isinstance(row, dict):
+                rows.append(row)
     return rows
 
 
