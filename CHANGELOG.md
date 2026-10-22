@@ -67,6 +67,11 @@ dates are ISO 8601.
   earlier requests of the session, other sessions in the folder); another session in the same folder whose
   transcript has been silent for 10 minutes no longer counts as working there. SkillSpector's install hint pins
   v2.12.0; the MCP server reports the package version; `catalog-index.json` follows `TRIROUTER_HOME`.
+- Housekeeping, no change in behaviour: unused functions and names removed (`hooks.on_prompt` / `on_session_start`,
+  `distill.available`, `completion.stale`, `manual.key_of`, `cli.COMMAND`, `cli.MODELS_LOCAL`, `hub.parse_catalog_only`),
+  `platforms.PKG` / `REPO` replace seven copies, docstrings and comments are at most two lines, `config/models.json` keeps
+  only keys the code reads (the notes about the tools moved to `trirouter/CLAUDE.md`), the library modules lost their
+  shebang, CI runs pyflakes, and `.claude/` has a `coding-principles` skill and agent.
 
 ### Security
 - **A hook can no longer fail the host tool.** Every hook entry point (`hooks.main`, `handle`, the handlers that
