@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from test_skillscan import REPORTS, all_of, apply_act, make_skills, scans  # noqa: F401 - `scans` is a fixture
+from skillscan_helpers import REPORTS, all_of, apply_act, make_skills
 
 from trirouter import cli, hooks as run_hook, platforms as P, skillscan
 

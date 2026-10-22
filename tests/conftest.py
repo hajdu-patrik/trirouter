@@ -60,3 +60,21 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(catalog, "HUB", base / "skills")
     monkeypatch.setattr(catalog, "CATALOG", base / "skills" / "catalog.json")
     monkeypatch.setattr(catalog, "SOURCES", [(base / "skills", False, catalog.PROVIDERS, None)])
+
+
+@pytest.fixture
+def scans(tmp_path, monkeypatch):
+    """A fake scanner: verdict by skill name; returns the list of scanned names."""
+    from skillscan_helpers import REPORTS
+    from trirouter import skillscan
+    calls = []
+    monkeypatch.setattr(skillscan, "QUARANTINE", tmp_path / "quarantine")
+    monkeypatch.setattr(skillscan, "CACHE", tmp_path / "state" / "skillscan.json")
+    monkeypatch.setattr(skillscan, "find_scanner", lambda: "skillspector")
+    monkeypatch.setattr(skillscan, "scanner_version", lambda exe: "2.12.0")
+
+    def fake(exe, skill_dir, llm):
+        calls.append(skill_dir.name)
+        return dict(REPORTS[skill_dir.name], llm_available=llm)
+    monkeypatch.setattr(skillscan, "run_scan", fake)
+    return calls

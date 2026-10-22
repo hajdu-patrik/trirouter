@@ -2,47 +2,9 @@
 import json
 
 import pytest
+from skillscan_helpers import REPORTS, all_of, apply_act, make_skills
 
 from trirouter import cli, hub, platforms as P, skillscan
-
-REPORTS = {"evil": {"recommendation": "DO_NOT_INSTALL", "score": 100, "max_severity": "CRITICAL"},
-           "risky": {"recommendation": "CAUTION", "score": 40, "max_severity": "HIGH"},
-           "fine": {"recommendation": "SAFE", "score": 0, "max_severity": None},
-           "broken": {"error": "exit 2: unreadable"}}
-
-
-@pytest.fixture
-def scans(tmp_path, monkeypatch):
-    """A fake scanner: verdict by skill name; returns the list of scanned names."""
-    calls = []
-    monkeypatch.setattr(skillscan, "QUARANTINE", tmp_path / "quarantine")
-    monkeypatch.setattr(skillscan, "CACHE", tmp_path / "state" / "skillscan.json")
-    monkeypatch.setattr(skillscan, "find_scanner", lambda: "skillspector")
-    monkeypatch.setattr(skillscan, "scanner_version", lambda exe: "2.12.0")
-
-    def fake(exe, skill_dir, llm):
-        calls.append(skill_dir.name)
-        return dict(REPORTS[skill_dir.name], llm_available=llm)
-    monkeypatch.setattr(skillscan, "run_scan", fake)
-    return calls
-
-
-def make_skills(root, *names):
-    out = []
-    for n in names:
-        (root / n).mkdir(parents=True)
-        (root / n / "SKILL.md").write_text(f"---\nname: {n}\ndescription: test\n---\n", encoding="utf-8")
-        out.append(root / n)
-    return out
-
-
-def apply_act(msg, fn=None):
-    if fn:
-        fn()
-
-
-def all_of(items):
-    return {i["name"] for i in items}
 
 
 def test_do_not_install_is_quarantined_on_yes_and_caution_is_linked(tmp_path, scans, capsys):
