@@ -86,3 +86,14 @@ def test_only_the_sessions_own_drive_is_probed(tmp_path, monkeypatch):
     other = "Z:" if core.Path(str(here)).drive.upper() != "Z:" else "Y:"
     core.foreign_project_note(f"see {other}\\projects\\x\\file.py please", str(here))
     assert not any(p.upper().startswith(other) for p in probed)
+
+
+@pytest.mark.parametrize("name", ["NUL", "con", "COM1", "lpt1.txt", "AUX.log", "PRN", "CONOUT$", "nul.tar.gz"])
+def test_a_dos_device_name_in_any_component_is_never_probed(tmp_path, monkeypatch, name):
+    """Windows resolves C:/NUL or C:/logs/COM1.txt to the device: exists() would open it (a serial port blocks)."""
+    here = _make_project(tmp_path, "here")
+    probed = []
+    monkeypatch.setattr(core.Path, "exists", lambda self: probed.append(str(self)) or False)
+    for text in (f"{here / name}", f"{here / name / 'file.py'}", f"{here}\\{name}", f"{here.drive}\\{name}"):
+        assert core.foreign_project_note(f"look at {text} now", str(here)) is None
+    assert not any(core._DOS_DEVICE_RE.fullmatch(part) for p in probed for part in core.Path(p).parts[1:])

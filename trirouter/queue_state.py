@@ -61,7 +61,7 @@ def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
     now = time.time()
     key = f"{provider}:{session_id}"
     norm_cwd = os.path.normcase(os.path.abspath(cwd)) if cwd else ""
-    with INFLIGHT.lock(path):
+    with INFLIGHT.lock(path) as lock:
         data = _prune(store.load(path), now, key, transcript)
         ahead = list(data.get(key, []))
         others = [e for k, v in data.items() if k != key for e in v[:1] if norm_cwd and e.get("cwd") == norm_cwd]
@@ -69,7 +69,8 @@ def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
         if transcript:
             entry["transcript"] = str(transcript)
         data.setdefault(key, []).append(entry)
-        store.save(path, data)
+        if lock.held:
+            store.save(path, data)
     return {"ahead": ahead, "others": others}
 
 

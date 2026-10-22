@@ -350,11 +350,25 @@ def test_append_line_never_raises(tmp_path):
     assert (tmp_path / "ok.jsonl").read_text(encoding="utf-8") == "line\n"
 
 
-def test_append_line_writes_through_a_held_lock_after_the_wait(tmp_path, monkeypatch):
-    monkeypatch.setattr(P, "_lock_file", lambda f, deadline: False)  # someone holds the lock past the wait
-    t0 = time.monotonic()
-    assert P.append_line(tmp_path / "a.jsonl", "x") is True
-    assert time.monotonic() - t0 < 1 and (tmp_path / "a.jsonl").read_text(encoding="utf-8") == "x\n"
+def test_append_line_writes_through_a_held_lock_after_the_wait_but_never_rotates(tmp_path, monkeypatch):
+    """A writer that keeps the lock past the wait must not lose the line, and the file must not be rewritten next
+    to it: the rotation waits for an append that holds the lock."""
+    monkeypatch.setattr(P, "APPEND_LOCK_WAIT_S", 0.05)
+    path = tmp_path / "a.jsonl"
+    lines = [json.dumps({"i": i, "pad": "x" * 100}) for i in range(60)]
+    with open(path, "w+b") as holder:
+        assert P._lock_file(holder, time.monotonic() + 1)
+        try:
+            t0 = time.monotonic()
+            for line in lines:
+                assert P.append_line(path, line, max_bytes=2000) is True
+            assert time.monotonic() - t0 < 30
+        finally:
+            P._unlock_file(holder)
+    assert path.read_text(encoding="utf-8").splitlines() == lines  # every line, nothing cut
+    assert P.append_line(path, lines[0], max_bytes=2000) is True  # the lock is free again: this one rotates
+    kept = path.read_text(encoding="utf-8").splitlines()
+    assert path.stat().st_size <= 2000 and kept[-1] == lines[0] and all(json.loads(l) for l in kept)
 
 
 def test_wrong_type_json_in_a_state_file_counts_as_empty(isolated, monkeypatch, capsys):

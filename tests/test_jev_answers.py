@@ -79,9 +79,34 @@ def test_a_banned_effort_is_lowered_and_an_unknown_model_dropped():
     out = core.validate_answers({**ANSWERS, "effort": {"choice": "ultra", "confidence": 0.8},
                                  "model": {"choice": "gpt-6-sol", "confidence": 0.9}}, questions)
     assert out["effort"] == {"choice": "max", "confidence": 0.8} and "model" not in out
+    assert core.validate_answers({**ANSWERS, "effort": {"choice": "low", "confidence": 0.4}}, questions)["effort"]         == {"choice": "low", "confidence": 0.4}
     assert core.validate_answers({**ANSWERS, "model": {"choice": "haiku", "confidence": 0.9}}, questions)["model"]["choice"] == "haiku"
     with pytest.raises(ValueError):
         core.validate_answers(["not", "an", "object"], questions)
+
+
+@pytest.mark.parametrize("effort", [
+    {"choice": "low", "confidence": "bad"}, {"choice": "low", "confidence": -1}, {"choice": "ultra", "confidence": 2},
+    {"choice": "ultra", "confidence": None}, {"choice": ["ultra"], "confidence": 0.9}, "ultra",
+])
+def test_a_malformed_effort_answer_is_dropped_not_raised_to_the_top(effort):
+    """Lowering a banned level is for a well-formed answer only: a malformed one must not come back as the
+    highest level offered with a made-up confidence."""
+    questions = core.build_questions({}, core.effort_levels_for("claude"), core.models_for("claude"))
+    assert "effort" not in core.validate_answers({**ANSWERS, "effort": effort}, questions)
+
+
+@pytest.mark.parametrize("model, kept", [
+    ("jev-1.13.0", True), ("google/gemini-2.5-flash:free", True), ("x" * 80, True),
+    ("x" * 81, False), ("jev 1.13", False), ("-m", False), (None, False), (7, False), ("", False),
+    ("sk-abcdefghijklmnopqrstuvwxyz123456", False), ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlMTIz", False),
+])
+def test_the_model_jev_names_is_checked_before_it_is_cached_or_logged(monkeypatch, model, kept):
+    monkeypatch.setattr(core, "ask_jev", lambda prompt, questions: {"answers": json.loads(json.dumps(ANSWERS)), "model": model})
+    d, _, _, error = core.route(PROMPT, "claude", backend="jev")
+    assert error is None and d.get("jev_model") == (model if kept else None)
+    cached = json.loads((core.STATE_DIR / "state" / "answer_cache.json").read_text(encoding="utf-8"))
+    assert all(entry["answers"].get("_jev_model") == (model if kept else None) for entry in cached.values())
 
 
 def test_only_validated_answers_are_cached_and_a_damaged_entry_is_a_miss(monkeypatch):
@@ -240,3 +265,16 @@ def test_two_failures_pause_jev_and_a_success_resets(monkeypatch):
     d, _, _, error = core.route("Design the data model of the booking service", "claude", backend="jev")
     assert d["backend"] == "jev" and error is None
     assert core.BREAKER.get(core.STATE_DIR, "jev") is None  # reset after the success
+
+
+def test_concurrent_failures_are_all_counted(monkeypatch):
+    """Two hooks failing at once each saw failures=0 and both wrote 1, so the breaker never opened."""
+    monkeypatch.setattr(store, "LOCK_WAIT_S", 30.0)  # the test is about the count, never about a lock timeout
+    monkeypatch.setattr(core, "JEV_FAILURES", 1000)
+    threads = [threading.Thread(target=lambda: [core._jev_failed() for _ in range(5)]) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert core.BREAKER.get(core.STATE_DIR, "jev")["failures"] == 40
+    assert not core.BREAKER.path(core.STATE_DIR).with_suffix(".lock").exists()

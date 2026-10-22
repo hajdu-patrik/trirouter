@@ -63,6 +63,9 @@ DIFFICULTY = [
     "'Design the data model and API of a ride-sharing platform'",
 ]
 EFFORT_ORDER = ["low", "medium", "high", "xhigh", "max", "ultra"]
+# A model id reaches a CLI as `-m <id>` / `--model <id>` and the routing log as data: one plain word, never an
+# option, a space or a shell character.
+MODEL_ID_RE = re.compile(r"(?!-)[\w.:/-]{1,80}")
 
 
 # A pasted block (a log, a README, CI output) is not the user's own words: it must not decide the
@@ -771,7 +774,9 @@ def _jev_answers(prompt, candidates, effort, models):
         raise
     _jev_recovered()
     answers["_backend"] = "jev"
-    answers["_jev_model"] = result.get("model")
+    model = result.get("model")  # named by the service, so checked like any other answer before it is cached or logged
+    if isinstance(model, str) and MODEL_ID_RE.fullmatch(model) and secret.redact(model) == model:
+        answers["_jev_model"] = model
     _cache_put(key, answers)
     return answers
 
@@ -807,12 +812,13 @@ def _checked_answer(answer, question):
 
 
 def _lowered_effort(answer, question):
-    """A banned effort level (ultra) lowered to the highest level offered; the policy stands in code, never
-    trusting the answer alone."""
+    """The effort answer with a banned level (ultra) lowered to the highest level offered, for _checked_answer to
+    check like any other (a malformed answer stays malformed); the policy stands in code, never trusting the
+    answer alone."""
     usable = list(question["criteria"])
-    if isinstance(answer, dict) and answer.get("choice") in EFFORT_ORDER and usable:
-        return {"choice": usable[-1], "confidence": _unit(answer.get("confidence", 0)) or 0.5}
-    return None
+    if isinstance(answer, dict) and usable and answer.get("choice") in EFFORT_ORDER and answer["choice"] not in usable:
+        return {**answer, "choice": usable[-1]}
+    return answer
 
 
 def validate_answers(answers, questions):
@@ -823,9 +829,8 @@ def validate_answers(answers, questions):
         raise ValueError("JEV answers are not an object")
     out = {}
     for name, question in questions.items():
-        checked = _checked_answer(answers.get(name), question)
-        if checked is None and name == "effort":
-            checked = _lowered_effort(answers.get(name), question)
+        answer = answers.get(name)
+        checked = _checked_answer(_lowered_effort(answer, question) if name == "effort" else answer, question)
         if checked is not None:
             out[name] = checked
         elif name in REQUIRED_ANSWERS:
@@ -865,9 +870,10 @@ def _jev_paused():
 
 
 def _jev_failed():
-    failures = int((BREAKER.get(STATE_DIR, "jev") or {}).get("failures") or 0) + 1
-    paused_until = time.time() + JEV_COOLDOWN_S if failures >= JEV_FAILURES else 0
-    BREAKER.put(STATE_DIR, "jev", {"failures": failures, "paused_until": paused_until})
+    def count(entry):
+        entry["failures"] = int(entry.get("failures") or 0) + 1
+        entry["paused_until"] = time.time() + JEV_COOLDOWN_S if entry["failures"] >= JEV_FAILURES else 0
+    BREAKER.update(STATE_DIR, "jev", count, missing={})  # one locked step: two hooks failing at once count twice
 
 
 def _jev_recovered():
@@ -1173,6 +1179,9 @@ FOREIGN_PATH_START_RE = re.compile(r'[A-Za-z]:[\\/]|(?<![:\w])/(?=\S)')
 # A UNC share (//host/share, \\host\share), an extended (\\?\) or a device (\\.\) path: never touched, because on
 # Windows exists() would contact the host (an SMB round trip with the user's credentials, seconds per probe).
 _REMOTE_PATH_RE = re.compile(r"[\\/]{2}")
+# A DOS device name as a path component (C:\NUL, C:\logs\COM1.txt, with or without an extension): Windows opens the
+# device instead of a file (a serial port can block), so such a path is never probed on any platform.
+_DOS_DEVICE_RE = re.compile(r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[0-9¹²³])\s*(?:\..*)?", re.I)
 # Bounds that keep a pathological prompt from slowing the hook down.
 FOREIGN_PATH_MAX_CHARS = 200
 FOREIGN_PATH_MAX_WORDS = 12
@@ -1210,9 +1219,10 @@ def _longest_existing_prefix(text, drive=""):
         candidate = f"{candidate} {word}".strip() if candidate else word
         trimmed = candidate.rstrip(".,;:'\")]}")
         path = Path(trimmed)
-        if not path.anchor or _REMOTE_PATH_RE.match(trimmed) or path.drive.lower() != drive.lower():
-            # Not rooted on this OS ("C:\..." on POSIX: its only existing ancestor is the cwd), a remote path, or
-            # another drive (a mapped network drive is remote too).
+        if not path.anchor or _REMOTE_PATH_RE.match(trimmed) or path.drive.lower() != drive.lower() \
+                or any(_DOS_DEVICE_RE.fullmatch(part) for part in path.parts[1:]):
+            # Not rooted on this OS ("C:\..." on POSIX: its only existing ancestor is the cwd), a remote path,
+            # another drive (a mapped network drive is remote too) or a device name.
             break
         try:
             ancestor = _deepest_existing_ancestor(path)

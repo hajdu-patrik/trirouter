@@ -14,12 +14,15 @@ LOCK_WAIT_S = 2.0   # a hook waits this long for a store lock, then proceeds wit
 
 
 class FileLock:
-    """An O_EXCL lock file. `acquire()` takes it once (True when this process holds it now; a file older than
-    `stale_s` is considered abandoned and taken over). As a context manager it retries for `wait_s`, then proceeds
-    WITHOUT the lock (`held` says which): a hook must never block on one. Only a lock this object took is released."""
+    """An O_EXCL lock file holding its owner's token. `acquire()` takes it once (True when this process holds it
+    now; a file older than `stale_s` is considered abandoned and taken over). As a context manager it retries for
+    `wait_s`, then proceeds WITHOUT the lock (`held` says which): a hook must never block on one, but it must not
+    rewrite the shared file either. `release()` removes the file only while it still holds this object's token:
+    a holder that was taken over as stale never deletes the new holder's lock."""
 
-    def __init__(self, path, stale_s, wait_s=0.0, content=""):
-        self.path, self.stale_s, self.wait_s, self.content = Path(path), stale_s, wait_s, content
+    def __init__(self, path, stale_s, wait_s=0.0):
+        self.path, self.stale_s, self.wait_s = Path(path), stale_s, wait_s
+        self.token = f"{os.getpid()} {os.urandom(8).hex()}\n"
         self.held = False
 
     def acquire(self):
@@ -41,7 +44,7 @@ class FileLock:
             except OSError:
                 return False
             with os.fdopen(fd, "w") as f:
-                f.write(self.content)
+                f.write(self.token)
             self.held = True
             return True
         return False
@@ -51,7 +54,8 @@ class FileLock:
             return
         self.held = False
         try:
-            self.path.unlink()
+            if self.path.read_text(encoding="utf-8") == self.token:
+                self.path.unlink()
         except OSError:
             pass
 
@@ -84,7 +88,9 @@ def stamp(entry):
 
 class Store:
     """One small JSON map in <state>/state/<name>.json, rewritten under its own lock file. Entries carry a "ts" stamp:
-    one older than `ttl` seconds is expired, and with `limit` only the newest entries are kept."""
+    one older than `ttl` seconds is expired, and with `limit` only the newest entries are kept. A hook that could
+    not take the lock within LOCK_WAIT_S works on what it read and leaves the file alone: a lost update is
+    acceptable, a file rewritten from a stale read is not."""
 
     def __init__(self, name, ttl=None, limit=None):
         self.name, self.ttl, self.limit = name, ttl, limit
@@ -107,7 +113,9 @@ class Store:
     def put(self, state_dir, key, entry):
         """Stores `entry`, stamped now, under `key` and drops the expired entries; None removes the key instead."""
         path, now = self.path(state_dir), time.time()
-        with self.lock(path):
+        with self.lock(path) as lock:
+            if not lock.held:
+                return
             data = {k: v for k, v in load(path).items() if self._fresh(v, now)}
             if entry is not None:
                 data[key] = {**entry, "ts": now}
@@ -119,20 +127,27 @@ class Store:
 
     def pop(self, state_dir, key):
         path = self.path(state_dir)
-        with self.lock(path):
+        with self.lock(path) as lock:
+            if not lock.held:
+                return
             data = load(path)
             if data.pop(key, None) is not None:
                 save(path, data)
 
-    def update(self, state_dir, key, change):
-        """Runs change(entry) on the key's fresh entry under the lock and saves what it changed in place.
-        -> (change's result, a copy of the entry), or (None, None) when the key is unknown or expired."""
-        path = self.path(state_dir)
-        with self.lock(path):
+    def update(self, state_dir, key, change, missing=None):
+        """Runs change(entry) on the key's fresh entry under the lock and saves what it changed in place; with
+        `missing` (a dict) an unknown or expired key starts from a stamped copy of it, so a counter is created and
+        incremented in one locked step. -> (change's result, a copy of the entry), or (None, None) when the key is
+        unknown or expired and nothing says what it starts from."""
+        path, now = self.path(state_dir), time.time()
+        with self.lock(path) as lock:
             data = load(path)
             entry = data.get(key)
-            if not self._fresh(entry, time.time()):
-                return None, None
+            if not self._fresh(entry, now):
+                if missing is None:
+                    return None, None
+                entry = data[key] = {**missing, "ts": now}
             result = change(entry)
-            save(path, data)
+            if lock.held:
+                save(path, data)
             return result, dict(entry)

@@ -279,8 +279,9 @@ def append_line(path, text, max_bytes=None):
     """Appends `text` plus a newline to `path` in one write under an exclusive OS file lock, so two processes logging
     at once never interleave a line (on Windows an append is a seek plus a write, not one atomic step). Creates the
     folder owner-only and the file with mode 0o600; True when written, never raises. A lock still held after
-    APPEND_LOCK_WAIT_S is ignored: the line is written anyway rather than lost. With `max_bytes`, a file grown past
-    it is cut to its newer half (from a line start) under the same lock."""
+    APPEND_LOCK_WAIT_S is not waited for: the line is written anyway (one write of a whole line) rather than lost.
+    With `max_bytes`, a file grown past it is cut to its newer half (from a line start), only under the lock: a
+    rewrite next to another writer would lose its lines."""
     try:
         path = Path(path)
         ensure_dir(path.parent)
@@ -290,7 +291,7 @@ def append_line(path, text, max_bytes=None):
             try:
                 f.seek(0, os.SEEK_END)
                 f.write((text.rstrip("\n") + "\n").encode("utf-8"))
-                if max_bytes and f.tell() > max_bytes:
+                if locked and max_bytes and f.tell() > max_bytes:
                     _keep_newer_half(f, max_bytes)
                 f.flush()
             finally:

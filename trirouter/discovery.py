@@ -51,10 +51,6 @@ LOG_MAX = 64 * 1024          # model_discovery.log is cut to its newer half beyo
 REJECT_MARKERS = ("not supported", "does not exist", "model_not_found", "not_found_error", "no such model",
                   "unknown model", "invalid model", "may not exist", "issue with the selected model",
                   '"status":404', "status 404", "404 not found")
-# A model id reaches a CLI as `-m <id>` / `--model <id>`: one plain word, never an option, a space or a shell character.
-_MODEL_ID = re.compile(r"(?!-)[\w.:/-]+")
-
-
 class Unchecked(Exception):
     """The provider could not be checked; nothing about it is changed."""
 
@@ -121,7 +117,7 @@ _held = None  # the lock this process holds, while it does
 def acquire_lock():
     """True when this process now holds the lock; a lock older than LOCK_STALE_S is taken over."""
     global _held
-    lock = store.FileLock(lock_file(), LOCK_STALE_S, content=f"{os.getpid()} {time.time():.0f}\n")
+    lock = store.FileLock(lock_file(), LOCK_STALE_S)
     if lock.acquire():
         _held = lock
     return _held is lock
@@ -220,7 +216,7 @@ def list_codex(exe):
     found = {}
     for m in (data.get("models") if isinstance(data, dict) else None) or []:
         slug = m.get("slug") if isinstance(m, dict) else None
-        if not isinstance(slug, str) or not _MODEL_ID.fullmatch(slug):
+        if not isinstance(slug, str) or not core.MODEL_ID_RE.fullmatch(slug):
             continue
         levels = [l.get("effort") for l in m.get("supported_reasoning_levels") or [] if isinstance(l, dict)]
         name, desc = m.get("display_name") or slug, (m.get("description") or "").strip().rstrip(".")
@@ -312,7 +308,7 @@ def verdict(code, out):
 
 def _try_model(model_id, argv):
     """verdict() of the probe call `argv` (it carries model_id); False, without any call, for an unsafe id."""
-    if not _MODEL_ID.fullmatch(model_id):
+    if not core.MODEL_ID_RE.fullmatch(model_id):
         return False
     return verdict(*P.run(argv, timeout=PROBE_TIMEOUT_S, env=child_env()))
 
