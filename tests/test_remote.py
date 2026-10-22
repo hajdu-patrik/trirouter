@@ -1,6 +1,5 @@
-"""Remote access (trirouter/remote.py): Claude's Remote Control server only holds the connection at logon (no
-pre-created session) unless --start-session=on, on every OS; old Claude Code versions keep the classic `--name`.
-Nothing here registers a real task or service: _ps and the help text are fakes."""
+"""Remote access: Claude's Remote Control server only holds the connection at logon unless --start-session=on, on every
+OS; old Claude Code versions keep `--name`. _ps and the help text are fakes."""
 import contextlib
 import json
 import plistlib

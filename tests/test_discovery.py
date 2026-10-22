@@ -1,6 +1,5 @@
-"""The daily model discovery (trirouter/discovery.py): new models are added, retired ones removed, a check that
-cannot run changes nothing, the Claude and effort policies hold, the 24-hour throttle and the lock work, and the
-hooks never fail. Every CLI call is faked: no test runs codex, agy or claude."""
+"""The daily model discovery: new models are added, retired ones removed, a check that cannot run changes nothing,
+policies hold, throttle and lock work, hooks never fail. Every CLI call is faked."""
 import io
 import json
 import os

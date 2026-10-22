@@ -1,6 +1,5 @@
-"""trirouter/store.py: the lock file and the JSON map store behind the hook state. A hook never waits past
-LOCK_WAIT_S, but without the lock it must not rewrite the shared file, and neither a holder taken over as stale nor
-a second taker of a stale lock may remove the new holder's lock."""
+"""The lock file and the JSON map store behind the hook state: a hook never waits past LOCK_WAIT_S nor rewrites the
+shared file without the lock, and no taker of a stale lock removes the new holder's lock."""
 import json
 import os
 import threading
@@ -22,9 +21,8 @@ def _age(path, seconds):
 
 
 def _replay_before(monkeypatch, path, step, action):
-    """Runs `action` once, right before the first os.open / os.replace / os.unlink (`step`) whose target is `path` or
-    starts with it (a file moved from it); -> a list that is empty until it ran. The store has to call these as
-    `os.<step>` itself: Path.unlink would not be seen on Python 3.10, where pathlib binds os.unlink once at import."""
+    """Runs `action` once, right before the first os.open / os.replace / os.unlink (`step`) on `path` or a file moved
+    from it; -> a list, empty until it ran. The store must call `os.<step>` itself (Path.unlink is unseen on 3.10)."""
     real, replayed = getattr(os, step), []
 
     def hooked(target, *args, **kwargs):
@@ -55,9 +53,8 @@ def test_the_lock_holds_its_owners_token_and_a_stale_takeover_keeps_the_new_hold
 
 @pytest.mark.parametrize("step", ["replace", "unlink"])
 def test_release_never_removes_the_lock_of_a_taker_that_arrives_mid_release(tmp_path, monkeypatch, step):
-    """A stale takeover between the release's check and its removal must not make the old holder delete the new
-    holder's lock. The takeover is replayed right before the release's first move and right before its first
-    removal, whichever file that is."""
+    """A stale takeover between the release's check and its removal must not make the old holder delete the new holder's
+    lock: the takeover is replayed before the first move and before the first removal."""
     path = tmp_path / "x.lock"
     first, taker = store.FileLock(path, stale_s=10), store.FileLock(path, stale_s=10)
     assert first.acquire()

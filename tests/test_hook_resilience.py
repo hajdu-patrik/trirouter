@@ -1,6 +1,5 @@
-"""The hook never fails the host tool (trirouter/hooks.py, queue_state.py, platforms.py, store.py): damaged state
-files heal, bad settings and payload types are tolerated, the shim exits 0, logs rotate and are owner-only, long
-prompts stay fast, a nested cli-bridge run is not routed twice, and the routing log says why a prompt was queued."""
+"""The hook never fails the host tool: damaged state heals, bad settings and payload types are tolerated, the shim exits
+0, logs rotate and are owner-only, nested cli-bridge runs are not routed twice."""
 import io
 import json
 import os

@@ -1,6 +1,5 @@
-"""The model policy (config/models.json) against every place a model or effort is named: Claude only
-via generic family aliases, never a dated ID, every tier effort supported by its model, never an
-excluded effort."""
+"""The model policy (config/models.json) against every place a model or effort is named: Claude only via generic family
+aliases, every tier effort supported by its model, never an excluded effort."""
 import json
 import re
 from pathlib import Path

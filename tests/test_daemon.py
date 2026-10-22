@@ -1,6 +1,5 @@
-"""The hook daemon (http transport for Claude Code): token, health, hook round trips, limits, lifecycle helpers,
-hook registration for http and back, and the pooled JEV connection. Every server runs on an ephemeral port
-with a temporary state folder; nothing reaches the real ~/.claude or ~/.trirouter."""
+"""The hook daemon: token, health, hook round trips, limits, lifecycle, hook registration for http and back, the pooled
+JEV connection. Servers run on ephemeral ports with a temporary state folder."""
 import http.client
 import io
 import json

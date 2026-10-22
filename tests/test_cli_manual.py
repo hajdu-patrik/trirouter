@@ -1,8 +1,5 @@
-"""The command-line manual: flag validation, help pages, docs/cli.md in sync, and the `trirouter` launcher.
-
-Nothing here runs a command that changes the machine, and the launcher tests never touch the real PATH or
-registry (the PATH-editing functions are replaced by fakes).
-"""
+"""The command-line manual: flag validation, help pages, docs/cli.md in sync and the `trirouter` launcher. Nothing here
+changes the machine: the PATH-editing functions are faked."""
 import io
 import os
 import sys

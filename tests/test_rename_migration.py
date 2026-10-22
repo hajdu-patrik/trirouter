@@ -1,9 +1,5 @@
-"""The rename from jev-router to trirouter: migration of the per-user state folder, recognition of the old
-hook / MCP / task / marker names, and the compatibility package that keeps an un-migrated install routing.
-
-Everything runs in tmp dirs with monkeypatching: nothing here touches the real home folder, registry, PATH,
-scheduled tasks or the tools' configs (tests/conftest.py isolates the shim folders and the PATH as well).
-"""
+"""The rename from jev-router: state-folder migration, recognition of the old hook / MCP / task / marker names and the
+compatibility package. Everything runs in tmp dirs; nothing touches the real home or configs."""
 import json
 import os
 import subprocess

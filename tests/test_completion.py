@@ -1,7 +1,5 @@
-"""Shell tab completion (trirouter/completion.py): the scripts cover every command, subcommand, flag and flag value
-of the manual; the shell and profile choice per OS (simulated); install is idempotent, keeps a .bak and the line
-endings, honours --dry-run and can be removed; setup installs it unless --no-completion. Where bash or PowerShell
-is installed the generated script is also checked by the real shell."""
+"""Shell tab completion: scripts cover the whole manual; shell and profile choice per OS (simulated); install is
+idempotent, keeps a .bak and honours --dry-run. A real bash / PowerShell checks the scripts when present."""
 import re
 import shutil
 import subprocess

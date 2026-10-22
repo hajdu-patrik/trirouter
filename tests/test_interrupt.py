@@ -1,8 +1,5 @@
-"""Clean interruption: Ctrl+C / Ctrl+D end any command with exit status 130 and one line on stderr, children are
-killed, files are written atomically, and the Ctrl+D key watcher only exists on an interactive terminal.
-
-No real terminal and no real child process is used: input(), the key backend and the process objects are fakes.
-"""
+"""Clean interruption: Ctrl+C / Ctrl+D end any command with exit 130 and one stderr line, kill children, leave no
+half-written file. input(), the key backend and processes are fakes."""
 import io
 import os
 import threading

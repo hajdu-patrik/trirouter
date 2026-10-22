@@ -1,7 +1,5 @@
-"""What reaches JEV and what comes back (trirouter/core.py): the prompt goes redacted, the answer is checked against
-the questions before it is used or cached, the circuit breaker pauses JEV after repeated failures, the endpoint must
-be https, redirects are refused, the answer size and the whole call time are bounded. Nothing here opens a network
-connection to the outside: JEV is a fake or a local echo server."""
+"""What reaches JEV and what comes back: the prompt goes redacted, answers are validated before use or caching, the
+breaker pauses JEV after failures, https only, bounded size and time. JEV is a fake."""
 import http.client
 import json
 import threading

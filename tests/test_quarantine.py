@@ -1,7 +1,4 @@
-"""Tests for the batch quarantine question, sidecars, the automatic purge and the restore.
-
-Everything runs in tmp dirs: nothing here touches the real ~/.trirouter or ~/.skills.
-"""
+"""The batch quarantine question, sidecars, the automatic purge and the restore; everything runs in tmp dirs."""
 import io
 import json
 import os

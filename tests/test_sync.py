@@ -1,7 +1,5 @@
-"""`trirouter sync` (trirouter/sync.py): docs/cli.md, the git pre-commit hook setting, the installed tab completion,
-the generated agents and the skill catalog follow the sources; --check changes nothing; --pre-commit stages the
-regenerated reference and stops on failure. Every test works on a temporary checkout and home; nothing touches the
-real ones."""
+"""`trirouter sync`: docs/cli.md, the pre-commit hook setting, tab completion, generated agents and the skill catalog
+follow the sources; --check changes nothing; --pre-commit stages and gates. Temporary checkout and home only."""
 import shutil
 import subprocess
 from pathlib import Path
