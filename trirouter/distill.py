@@ -499,14 +499,6 @@ def predict(text):
         return None
 
 
-def available():
-    """True when a model file exists, is enabled and ROUTER_DISTILLED does not switch it off."""
-    if disabled_by_env():
-        return False
-    model = load()
-    return bool(model and model.get("enabled"))
-
-
 # ---- background retraining ----------------------------------------------------------------------------------
 
 def count_new_jev(path, saved):

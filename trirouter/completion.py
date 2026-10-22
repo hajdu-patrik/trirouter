@@ -589,11 +589,6 @@ def _stale_scripts():
     return out
 
 
-def stale():
-    """Installed shells whose script no longer matches the commands of manual.py (`trirouter sync` rewrites them)."""
-    return list(_stale_scripts())
-
-
 def refresh(apply=True, say=print):
     """Rewrites the installed scripts that are out of date; profiles are left alone. Returns the shells changed."""
     old = _stale_scripts()

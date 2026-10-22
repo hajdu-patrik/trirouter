@@ -262,7 +262,7 @@ def test_nothing_is_loaded_without_a_model_file(state, jev, monkeypatch):
     assert not distill.model_file().exists()
     d, _, _, _ = core.route(SURE, "claude")
     assert len(jev) == 1 and d["backend"] == "jev"
-    assert distill._cache == {} and not distill.available()
+    assert distill._cache == {} and distill.load() is None
 
 
 def test_fast_path_not_taken_without_jev_access(log, monkeypatch):

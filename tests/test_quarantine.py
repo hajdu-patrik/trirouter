@@ -284,25 +284,24 @@ def test_quarantine_list_shows_the_purge_date(q, capsys):
     assert "evil" in out and "100 (HIGH)" in out and "NAME" in out
 
 
-def test_session_start_hook_starts_the_purge_detached_at_most_every_six_hours(q, tmp_path, monkeypatch, capsys):
+def test_session_start_hook_starts_the_purge_detached_at_most_every_six_hours(q, tmp_path, monkeypatch):
     """The hook only stamps and starts `python -m trirouter.skillscan --purge-expired`: deleting a large skill takes
     seconds, and a SessionStart hook must answer at once."""
     monkeypatch.setattr(run_hook.core, "STATE_DIR", tmp_path / "state-dir")
     started = []
     monkeypatch.setattr(P, "spawn_detached", lambda argv, env=None, cwd=None:
                         ("trirouter.skillscan" in argv and started.append(argv)) or True)  # the model check also spawns
-    run_hook.on_session_start("claude", b"{}")
+    assert run_hook.session_start_output("claude", b"{}") == ""
     assert len(started) == 1 and started[0][1:] == ["-m", "trirouter.skillscan", "--purge-expired"]
-    assert capsys.readouterr().out == ""
-    run_hook.on_session_start("claude", b"{}")  # inside the 6 hours
+    run_hook.session_start_output("claude", b"{}")  # inside the 6 hours
     assert len(started) == 1
     stamp = tmp_path / "state-dir" / "state" / "quarantine_purge.txt"
     stamp.write_text(str(time.time() - 7 * 3600), encoding="utf-8")
-    run_hook.on_session_start("claude", b"{}")
+    run_hook.session_start_output("claude", b"{}")
     assert len(started) == 2
     monkeypatch.setattr(run_hook.core, "STATE_DIR", stamp)  # a file where a folder is needed: swallowed
-    run_hook.on_session_start("claude", b"{}")
-    assert len(started) == 2 and capsys.readouterr().out == ""
+    assert run_hook.session_start_output("claude", b"{}") == ""
+    assert len(started) == 2
 
 
 def test_the_detached_purge_deletes_expired_entries_and_exits_zero(q, capsys):

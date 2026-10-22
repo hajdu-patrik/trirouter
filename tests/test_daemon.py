@@ -2,8 +2,10 @@
 hook registration for http and back, and the pooled JEV connection. Every server runs on an ephemeral port
 with a temporary state folder; nothing reaches the real ~/.claude or ~/.trirouter."""
 import http.client
+import io
 import json
 import socket
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -92,7 +94,8 @@ def test_output_matches_the_command_hook(server, monkeypatch, capsys):
     monkeypatch.setattr(hooks, "route_and_log", lambda *a, **k: "[router] fixed")
     raw = json.dumps({"prompt": "Explain TCP slow start", "session_id": "m"}).encode()
     via_http = call(server, "POST", "/hook/codex/UserPromptSubmit", raw)[1].decode()
-    hooks.on_prompt("codex", "UserPromptSubmit", raw)
+    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(raw)))
+    assert hooks.main(["codex", "UserPromptSubmit"]) == 0
     assert via_http == capsys.readouterr().out.strip() and "[router] fixed" in via_http
 
 
@@ -195,18 +198,17 @@ def test_start_reports_a_failed_spawn(tmp_path, monkeypatch):
     assert daemon.token(create=False)  # created before the spawn
 
 
-def test_session_start_starts_the_daemon_only_for_http(tmp_path, monkeypatch, capsys):
+def test_session_start_starts_the_daemon_only_for_http(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(daemon, "ensure_running", lambda: calls.append(1) or True)
-    hooks.on_session_start("claude", b"{}")
+    assert hooks.session_start_output("claude", b"{}") == ""
     assert calls == []
     write_config(tmp_path, {"hooks": {"transport": "http"}})
-    hooks.on_session_start("claude", b"{}")
-    hooks.on_session_start("codex", b"{}")
+    hooks.session_start_output("claude", b"{}")
+    hooks.session_start_output("codex", b"{}")
     assert calls == [1]
     monkeypatch.setattr(daemon, "ensure_running", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
-    hooks.on_session_start("claude", b"{}")  # swallowed
-    assert capsys.readouterr().out == ""
+    assert hooks.session_start_output("claude", b"{}") == ""  # swallowed
 
 
 # ---- hook registration ----------------------------------------------------------------------------------------

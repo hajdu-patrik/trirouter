@@ -18,13 +18,12 @@ import base64
 import json
 import os
 import re
-import sys
 from pathlib import Path
 
 from . import platforms as P
 
 KEY_FIELDS = ("openrouter_api_key", "typesafe_api_key")
-IS_WINDOWS = sys.platform.startswith("win")
+IS_WINDOWS = P.IS_WINDOWS
 DPAPI = "dpapi"
 
 PLAIN, PROTECTED, UNREADABLE, NONE = "plaintext", "protected", "unreadable", "none"
@@ -180,7 +179,6 @@ def backups_with_plaintext(config_path):
 
 def scrub_backups(config_path, apply):
     """[(path, fields)] of the backups that hold a plaintext key; with `apply` the keys are removed from them."""
-    from . import platforms as P
     found = []
     for p in backups_with_plaintext(config_path):
         cfg = _load(p)
@@ -195,7 +193,6 @@ def migrate(config_path, apply):
 
     Returns [(ok, message)]. Order: the (scrubbed) backup first, then config.json, then older backups. The new
     value is decrypted again before anything is written; if that does not give the original key, nothing changes."""
-    from . import platforms as P
     path, out = Path(config_path), []
     cfg = _load(path)
     if cfg is None:

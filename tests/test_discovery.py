@@ -430,15 +430,13 @@ def test_scheduled_run_logs_an_unexpected_error_and_exits_zero(fake, monkeypatch
 
 # ---- hooks never fail -----------------------------------------------------------------------------------------
 
-def test_session_start_shows_the_note_once_and_never_raises(spawned, capsys):
+def test_session_start_shows_the_note_once_and_never_raises(spawned):
     P.atomic_write(D.note_file(), "[trirouter] Model list updated - new model available: Codex gpt-new.\n")
-    hooks.on_session_start("claude", b"{}")
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(hooks.session_start_output("claude", b"{}"))
     assert "gpt-new" in out["hookSpecificOutput"]["additionalContext"]
     assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     assert [argv[1:] for argv, _ in spawned if "trirouter.discovery" in argv] == [["-m", "trirouter.discovery", "--scheduled"]]
-    hooks.on_session_start("claude", b"{}")
-    assert capsys.readouterr().out == ""
+    assert hooks.session_start_output("claude", b"{}") == ""
 
 
 def test_hooks_survive_a_broken_discovery(spawned, monkeypatch, capsys):
@@ -446,7 +444,7 @@ def test_hooks_survive_a_broken_discovery(spawned, monkeypatch, capsys):
         raise RuntimeError("boom")
     monkeypatch.setattr(D, "maybe_start", boom)
     monkeypatch.setattr(D, "pending_note", boom)
-    hooks.on_session_start("claude", b"{}")
+    hooks.session_start_output("claude", b"{}")
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(b'{"session_id": "x"}')))
     assert hooks.main(["claude", "SessionStart"]) == 0
     assert capsys.readouterr().out == ""
@@ -458,12 +456,12 @@ def test_maybe_start_with_an_unusable_state_folder_returns_false(spawned, monkey
     monkeypatch.setattr(core, "STATE_DIR", blocker)
     monkeypatch.setattr(P, "spawn_detached", lambda *a, **k: (_ for _ in ()).throw(OSError("no")))
     assert D.maybe_start() is False
-    hooks.on_session_start("claude", b"{}")
+    hooks.session_start_output("claude", b"{}")
 
 
 def test_codex_and_antigravity_prompts_start_the_check_too(spawned, monkeypatch):
     monkeypatch.setattr(hooks, "route_and_log", lambda *a, **k: "[router] ok")
-    hooks.on_prompt("codex", "UserPromptSubmit", json.dumps({"prompt": "hello there", "session_id": "s"}).encode())
+    hooks.prompt_output("codex", "UserPromptSubmit", json.dumps({"prompt": "hello there", "session_id": "s"}).encode())
     assert len(spawned) == 1
 
 
@@ -586,7 +584,7 @@ def test_removed_tier_model_falls_back_to_the_closest_selectable_one(fake):
     retire("codex", "gpt-a")
     assert core.available_model("codex", "gpt-a") == "gpt-b"
     d = tier_decision("deep")
-    text, effort, model, agent = core.resolve_tier(d, CODEX_TARGETS, core.models_for("codex"), provider="codex")
+    text, effort, model, agent, _ = core.resolve_tier(d, CODEX_TARGETS, core.models_for("codex"), provider="codex")
     assert (model, agent, effort) == ("gpt-b", "gpt-b-high", "high") and "gpt-b-high" in text
     assert d["notes"] == ["gpt-a is not available, using gpt-b"]
 
@@ -605,7 +603,7 @@ def test_fallback_prefers_the_same_role_then_the_stronger_neighbour(fake):
 def test_cli_tier_checks_the_other_tools_models(fake):
     retire("codex", "gpt-a")
     targets = {"tiers": {"cli:codex": {"model": "gpt-a", "efforts": ["high"], "text": "Codex --model {model}"}}}
-    text, _, model, _ = core.resolve_tier(tier_decision("cli:codex"), targets, core.models_for("claude"),
+    text, _, model, _, _ = core.resolve_tier(tier_decision("cli:codex"), targets, core.models_for("claude"),
                                           provider="claude")
     assert model == "gpt-b" and text == "Codex --model gpt-b"
 
@@ -618,7 +616,7 @@ def test_literal_tier_agent_follows_the_substitutes_agent_tier(fake):
     retire("antigravity", "gem-pro")
     targets = {"agent_template": "gemini-{tier}-worker", "tiers": {"deep": {
         "model": "gem-pro", "efforts": ["high"], "agent": "gemini-pro-worker", "text": "Delegate to `{agent}` ({slug})."}}}
-    text, _, model, agent = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
+    text, _, model, agent, _ = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
                                               provider="antigravity")
     assert (model, agent, text) == ("gem-flash", "gemini-flash-worker", "Delegate to `gemini-flash-worker` (gem-flash-high).")
 
@@ -628,7 +626,7 @@ def test_literal_tier_agent_without_a_substitute_tier_uses_model_pick(fake):
     targets = {"agent_template": "gemini-{tier}-worker", "model_pick": {"text": "Best-fit model: `{slug}`."},
                "tiers": {"deep": {"model": "gem-pro", "efforts": ["high"], "agent": "gemini-pro-worker",
                                   "text": "Delegate to `{agent}`."}}}
-    text, _, model, agent = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
+    text, _, model, agent, _ = core.resolve_tier(tier_decision("deep"), targets, core.models_for("antigravity"),
                                               provider="antigravity")
     assert (model, agent, text) == ("gem-flash", None, "Best-fit model: `gem-flash-high`.")
 

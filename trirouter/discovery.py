@@ -48,6 +48,8 @@ LOG_MAX = 64 * 1024          # model_discovery.log is cut to its newer half beyo
 REJECT_MARKERS = ("not supported", "does not exist", "model_not_found", "not_found_error", "no such model",
                   "unknown model", "invalid model", "may not exist", "issue with the selected model",
                   '"status":404', "status 404", "404 not found")
+
+
 class Unchecked(Exception):
     """The provider could not be checked; nothing about it is changed."""
 

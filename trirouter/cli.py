@@ -26,7 +26,6 @@ from . import (__version__, cliparse, completion, core, discovery, doctor, hooks
 
 STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (prepare_state)
 CONFIG = STATE / "config.json"
-MODELS_LOCAL = STATE / "models.local.json"
 ALL = ("claude", "codex", "antigravity")
 
 FLAGS, POSITIONAL, COMMAND, YES, DRY = {}, [], "setup", False, False
@@ -92,8 +91,8 @@ def save_config(cfg):
 
 def rebase_state(state):
     """Points every module that captured the state folder at import time to `state` (after a migration)."""
-    global STATE, CONFIG, MODELS_LOCAL
-    STATE, CONFIG, MODELS_LOCAL = state, state / "config.json", state / "models.local.json"
+    global STATE, CONFIG
+    STATE, CONFIG = state, state / "config.json"
     core.STATE_DIR = state
     doctor.STATE = state
     remote.STATE, remote.BIN, remote.CONFIG = state, state / "bin", state / "config.json"

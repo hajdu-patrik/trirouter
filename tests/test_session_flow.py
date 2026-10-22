@@ -156,7 +156,7 @@ def test_doctor_activity_leaves_out_log_rows_that_belong_to_no_provider(tmp_path
     neither may stop the report."""
     from trirouter import doctor
     rows = [{"ts": "2026-10-20T10:00:00", "provider": "codex"}, {"ts": "2026-10-21T10:00:00", "provider": "claude"},
-            {"ts": "2026-10-21T11:00:00", "error": "on_prompt: ValueError: boom"}]
+            {"ts": "2026-10-21T11:00:00", "error": "prompt_output: ValueError: boom"}]
     log = tmp_path / "logs" / "routing.jsonl"
     log.parent.mkdir()
     log.write_text("\n".join([*map(json.dumps, rows), "[1, 2]", "7", "{broken"]) + "\n", encoding="utf-8")

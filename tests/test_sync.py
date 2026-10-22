@@ -111,11 +111,11 @@ def test_completion_scripts_are_refreshed_profiles_untouched(user_home):
     path.parent.mkdir(parents=True)
     path.write_text("# an old script without the newest commands\n", encoding="utf-8")
     profile = user_home / ".bashrc"
-    assert C.stale() == ["bash"]
+    assert C.refresh(apply=False) == ["bash"]
     stale, detail = by_label(sync.items(apply=True, repo=False))["tab completion"]
     assert stale and "rewritten: bash" in detail
     assert path.read_text(encoding="utf-8") == C.script("bash") and " sync" in path.read_text(encoding="utf-8")
-    assert not profile.exists() and C.stale() == []
+    assert not profile.exists() and C.refresh(apply=False) == []
     assert not by_label(sync.items(apply=True, repo=False))["tab completion"][0]
 
 

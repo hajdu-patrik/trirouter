@@ -165,7 +165,7 @@ def test_merge_leaves_no_old_folder_when_everything_moved(tmp_path):
 @pytest.fixture
 def rebasable(monkeypatch):
     """prepare_state rewrites module-level paths: register each so monkeypatch restores it."""
-    for mod, names in ((cli, ("STATE", "CONFIG", "MODELS_LOCAL")), (core, ("STATE_DIR",)), (doctor, ("STATE",)),
+    for mod, names in ((cli, ("STATE", "CONFIG")), (core, ("STATE_DIR",)), (doctor, ("STATE",)),
                        (remote, ("STATE", "BIN", "CONFIG", "LOG")),
                        (skillscan, ("STATE", "CONFIG", "QUARANTINE", "CACHE"))):
         for name in names:

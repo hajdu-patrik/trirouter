@@ -226,10 +226,6 @@ def session_start_output(provider, raw):
     return render(note, "SessionStart", provider) if note else ""
 
 
-def on_session_start(provider, raw):
-    _print(session_start_output(provider, raw))
-
-
 @guarded(None)
 def _purge_quarantine():
     """The purge runs detached (skillscan.main): deleting a large quarantined skill takes seconds, and a SessionStart
@@ -273,10 +269,6 @@ def prompt_output(provider, hook_event_name, raw):
     if queue_text:  # #norouter / #privat: never sent to TypeSafe, only queue-protected
         return render(queue_text, hook_event_name, provider)
     return ""
-
-
-def on_prompt(provider, hook_event_name, raw):
-    _print(prompt_output(provider, hook_event_name, raw))
 
 
 def route_and_log(prompt, provider, payload, cwd, queue):

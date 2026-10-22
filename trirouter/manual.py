@@ -514,10 +514,6 @@ TASKS = (
 )
 
 
-def key_of(*words):
-    return " ".join(words)
-
-
 def all_flags(cmd):
     return cmd.flags + (HELP_FLAG,)
 
@@ -602,7 +598,7 @@ def anchor(key):
 def _md_command(c, level):
     p = DOC_PROG
     out = [f"{'#' * level} {c.key}", "", f"{_fmt(c.summary, p)}.", "", "```", *(_fmt(s, p) for s in c.synopsis), "```", ""]
-    out += [_fmt(c.description, p).replace("\n\n", "\n\n"), ""]
+    out += [_fmt(c.description, p), ""]
     if c.positional:
         out += [f"Arguments: {_fmt(c.positional, p)}.", ""]
     out += ["| Flag | Value | Default | Remembered | Description |", "| --- | --- | --- | --- | --- |"]

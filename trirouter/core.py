@@ -1045,15 +1045,10 @@ def extra_agents(ans, level):
 
 
 def resolve_tier(d, targets, models=None, session_model=None, provider=None):
-    """(text, effort, model, agent). A plain-text tier answers in-session (model and agent None).
+    """(text, effort, model, agent, in_session) of the decision's tier. A plain-text tier answers in-session (model
+    and agent None); in_session is also True when the session already runs the tier's model (`same_model_text`).
     Placeholders in agent/text: {model}, {model_} (TOML-safe), {effort}, {slug}, {agent}.
     With `provider`, a tier whose model is no longer selectable falls back to the closest one that is."""
-    return _resolve_tier(d, targets, models, session_model, provider)[:4]
-
-
-def _resolve_tier(d, targets, models=None, session_model=None, provider=None):
-    """resolve_tier plus a fifth value: True when the tier's model is the one the session already runs and the tier
-    has a `same_model_text`, so the work stays in-session (no agent)."""
     spec = _tier_spec(d, targets)
     if isinstance(spec, str):
         return spec, d.get("effort"), None, None, False
@@ -1139,7 +1134,7 @@ def machine_route(targets, models, provider, model, effort, session_model=None):
 
 
 def render(d, destructive_hit, targets, provider="claude", lang_code="hu", models=None, session_model=None):
-    text, effort, model, agent, in_session = _resolve_tier(d, targets, models, session_model, provider)
+    text, effort, model, agent, in_session = resolve_tier(d, targets, models, session_model, provider)
     d["effort"] = effort
     if model and not in_session:  # in-session on the right model: nothing is delegated
         d["target_model"] = model
