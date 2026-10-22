@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shell tab completion for the `trirouter` command, generated from manual.py (commands, subcommands, flags and
 flag values), like `gh completion -s bash`.
 

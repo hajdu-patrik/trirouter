@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """trirouter command line: `trirouter <command> [subcommand] [flags]`, or `python install.py ...` /
 `python -m trirouter ...` (same commands; without a command these two run the interactive setup).
 

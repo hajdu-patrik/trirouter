@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """OS abstraction: config locations, directory links, executables, tool detection.
 
 Windows uses directory junctions, which need no admin rights or Developer Mode.

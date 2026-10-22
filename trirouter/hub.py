@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared skill hub (~/.skills) + generated worker agents for Claude Code, Codex and Antigravity.
 
     ~/.skills/<name>/SKILL.md            real folder, the single source of truth

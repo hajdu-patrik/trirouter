@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Provider-independent router core: (prompt, provider) -> decision -> instruction text.
 
 JEV (TypeSafe) classifies when a token is set; otherwise, or when the call fails, the local keyword

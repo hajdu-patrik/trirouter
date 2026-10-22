@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Read-only health report (`trirouter doctor`)."""
 import json
 import re

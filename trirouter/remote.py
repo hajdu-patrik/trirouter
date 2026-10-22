@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Remote access from a phone or another device through each tool's own remote feature, started at
 logon under one machine name.
 

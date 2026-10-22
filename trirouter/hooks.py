@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared "before prompt" hook for Claude Code, Codex CLI and Antigravity CLI. Always exits 0.
 
 Antigravity has no prompt-submit event, only PreInvocation, which fires before every model call of a

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """A small local model distilled from JEV's own answers, so most prompts need no network call.
 
 The routing log holds every prompt JEV classified (task + difficulty). A multinomial Naive Bayes over word

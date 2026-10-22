@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Hungarian vs English: Hungarian-only letters plus a stopword vote. The unaccented stopwords
 catch accent-less typing ("irj egy fuggvenyt")."""
 import functools

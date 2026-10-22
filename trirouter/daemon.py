@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Hook daemon: serves Claude Code's http hooks from one long-running process.
 
 A command hook starts a new Python process for every prompt (0.4-0.5 s on Windows before any work is done)

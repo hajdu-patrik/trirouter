@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Model discovery: which models each harness offers today, compared with what the router knows.
 
     trirouter models --discover          the daily check, by hand (--dry-run: report only)

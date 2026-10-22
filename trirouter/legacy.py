@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Names the project had before it was renamed to trirouter, and the migration of an existing install.
 
 Before the rename the project was called jev-router (package `jev_router`, state folder

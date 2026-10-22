@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Installs or removes the router's hooks and MCP server for Claude Code, Codex and Antigravity.
 
 Every entry calls a shim in ~/.trirouter/bin/, so moving the repository only requires re-running

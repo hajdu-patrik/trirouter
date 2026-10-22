@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Queue protection: a new prompt must never stop, restart or overwrite work still in progress.
 
 The tools queue messages typed while the agent is busy, but never tell the model that earlier work is

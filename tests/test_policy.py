@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """The model policy (config/models.json) against every place a model or effort is named: Claude only
 via generic family aliases, never a dated ID, every tier effort supported by its model, never an
 excluded effort."""

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Catalog of every skill on this machine (~/.skills/catalog.json) + a cheap pre-filter.
 
 A skill native to one tool can be used by another: the router then points at its SKILL.md.
