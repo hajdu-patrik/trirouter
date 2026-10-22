@@ -145,7 +145,10 @@ def test_cli_bridge_rejects_option_injection_and_removes_its_prompt_file(tmp_pat
 # ---- K-3: log rotation and private files ---------------------------------------------------------------------
 
 def test_logs_rotate_to_their_newer_half_and_stay_owner_only(tmp_path):
-    log = tmp_path / "logs" / "a.jsonl"
+    base = tmp_path / "base"
+    base.mkdir()
+    base.chmod(0o755)  # an existing folder that is not owner-only (pytest's tmp_path already is)
+    log = base / "logs" / "a.jsonl"
     for i in range(200):
         assert P.append_line(log, json.dumps({"i": i, "pad": "x" * 100}), max_bytes=4000)
     lines = log.read_text(encoding="utf-8").splitlines()
@@ -154,7 +157,7 @@ def test_logs_rotate_to_their_newer_half_and_stay_owner_only(tmp_path):
     if not P.IS_WINDOWS:
         assert stat.S_IMODE(log.stat().st_mode) == 0o600
         assert stat.S_IMODE(log.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(tmp_path.stat().st_mode) != 0o700  # an existing folder keeps its mode
+        assert stat.S_IMODE(base.stat().st_mode) == 0o755  # an existing folder keeps its mode
 
 
 def test_state_files_are_written_owner_only(tmp_path):
