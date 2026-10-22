@@ -276,24 +276,23 @@ def _unlock_file(f):
 
 
 def append_line(path, text, max_bytes=None):
-    """Appends `text` plus a newline to `path` in one write under an exclusive OS file lock, so two processes logging
-    at once never interleave a line (on Windows an append is a seek plus a write, not one atomic step). Creates the
-    folder owner-only and the file with mode 0o600; True when written, never raises. A lock still held after
-    APPEND_LOCK_WAIT_S is not waited for: the line is written anyway (one write of a whole line) rather than lost.
+    """Appends `text` plus a newline to `path` as one unbuffered write to an O_APPEND file, under an exclusive OS
+    file lock, so two processes logging at once never interleave a line. Creates the folder owner-only and the
+    file with mode 0o600; True when written, never raises. A lock still held after APPEND_LOCK_WAIT_S is not
+    waited for: the line is written anyway rather than lost, and O_APPEND still puts it at the file's current end
+    (atomic on POSIX; on Windows the CRT seeks and then writes, so only the lock keeps two writers apart).
     With `max_bytes`, a file grown past it is cut to its newer half (from a line start), only under the lock: a
     rewrite next to another writer would lose its lines."""
     try:
         path = Path(path)
         ensure_dir(path.parent)
-        fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
-        with os.fdopen(fd, "r+b") as f:
+        fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "r+b", buffering=0) as f:
             locked = _lock_file(f, time.monotonic() + APPEND_LOCK_WAIT_S)
             try:
-                f.seek(0, os.SEEK_END)
                 f.write((text.rstrip("\n") + "\n").encode("utf-8"))
-                if locked and max_bytes and f.tell() > max_bytes:
+                if locked and max_bytes and os.fstat(fd).st_size > max_bytes:
                     _keep_newer_half(f, max_bytes)
-                f.flush()
             finally:
                 if locked:
                     _unlock_file(f)
@@ -305,9 +304,8 @@ def append_line(path, text, max_bytes=None):
 def _keep_newer_half(f, max_bytes):
     f.seek(0)
     tail = f.read()[-max_bytes // 2:]
-    f.seek(0)
-    f.write(tail[tail.find(b"\n") + 1:])
-    f.truncate()
+    f.truncate(0)
+    f.write(tail[tail.find(b"\n") + 1:])  # O_APPEND: lands at the new end, offset 0
 
 
 def _copy_mode(path, tmp):

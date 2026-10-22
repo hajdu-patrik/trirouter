@@ -22,7 +22,9 @@ class FileLock:
 
     def __init__(self, path, stale_s, wait_s=0.0):
         self.path, self.stale_s, self.wait_s = Path(path), stale_s, wait_s
-        self.token = f"{os.getpid()} {os.urandom(8).hex()}\n"
+        nonce = os.urandom(8).hex()
+        self.token = f"{os.getpid()} {nonce}\n"
+        self._aside = self.path.with_name(f"{self.path.name}.{nonce}")
         self.held = False
 
     def acquire(self):
@@ -50,12 +52,26 @@ class FileLock:
         return False
 
     def release(self):
+        """Reading the token and then unlinking would leave a window for a taker to replace the lock in between, so
+        the file is first moved to a name only this object knows: what is checked there is what is removed. A file
+        with another token (a taker's, after a stale takeover) is moved straight back; a lock that cannot be moved
+        stays until it is stale."""
         if not self.held:
             return
         self.held = False
         try:
-            if self.path.read_text(encoding="utf-8") == self.token:
-                self.path.unlink()
+            os.replace(self.path, self._aside)
+        except OSError:
+            return
+        try:
+            mine = self._aside.read_text(encoding="utf-8") == self.token
+        except (OSError, ValueError):
+            mine = False
+        try:
+            if mine:
+                self._aside.unlink()
+            else:
+                os.replace(self._aside, self.path)
         except OSError:
             pass
 

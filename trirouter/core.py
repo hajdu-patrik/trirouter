@@ -1179,9 +1179,10 @@ FOREIGN_PATH_START_RE = re.compile(r'[A-Za-z]:[\\/]|(?<![:\w])/(?=\S)')
 # A UNC share (//host/share, \\host\share), an extended (\\?\) or a device (\\.\) path: never touched, because on
 # Windows exists() would contact the host (an SMB round trip with the user's credentials, seconds per probe).
 _REMOTE_PATH_RE = re.compile(r"[\\/]{2}")
-# A DOS device name as a path component (C:\NUL, C:\logs\COM1.txt, with or without an extension): Windows opens the
-# device instead of a file (a serial port can block), so such a path is never probed on any platform.
-_DOS_DEVICE_RE = re.compile(r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[0-9¹²³])\s*(?:\..*)?", re.I)
+# A DOS device name as a path component, bare or followed by an extension, a colon or a stream (C:\NUL,
+# C:\logs\COM1.txt, C:\NUL:, C:\NUL:stream): Windows opens the device instead of a file (a serial port can block),
+# so such a path is never probed on any platform.
+_DOS_DEVICE_RE = re.compile(r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[0-9¹²³])\s*(?:[.:].*)?", re.I)
 # Bounds that keep a pathological prompt from slowing the hook down.
 FOREIGN_PATH_MAX_CHARS = 200
 FOREIGN_PATH_MAX_WORDS = 12

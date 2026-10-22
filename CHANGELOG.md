@@ -84,8 +84,8 @@ dates are ISO 8601.
   are cached, a damaged cache entry is a miss, and the cache key includes the channel and model. No text of JEV's
   reaches the `[router]` context verbatim any more (an injected task or skill name was rendered as is).
 - A DOS device name in any component of a path in the prompt (`C:\NUL`, `C:\logs\COM1.txt`, `CON`, `PRN`, `AUX`,
-  `LPT1`, with or without an extension) is never passed to `exists()` either: Windows opens the device instead of
-  a file, and a serial port can block the hook.
+  `LPT1`, with or without an extension, a colon or a stream: `C:\NUL:`, `C:\COM1:\x`) is never passed to `exists()`
+  either: Windows opens the device instead of a file, and a serial port can block the hook.
 - The model name JEV reports with its answer is checked before it is cached or written to the routing log: only a
   plain model id (`[\w.:/-]`, at most 80 characters, no leading `-`, nothing the secret redaction would mask) is
   kept, anything else is dropped. The same pattern now guards the ids that reach `codex exec -m` / `claude --model`.
@@ -117,11 +117,15 @@ dates are ISO 8601.
   read-modify-write (`Store.update` with a starting entry).
 - A hook that could not take a store lock within 2 s still proceeds at once, but no longer rewrites the shared
   state file from its stale read (the answer cache, the last decision, the session models, the agent budget and the
-  in-flight queue are left as they are; the hook works on what it read). A lock file carries its owner's token and
-  `release()` removes it only while the token is still there, so a hook that was taken over as stale after hanging
-  never deletes the lock a newer hook holds.
-- A log append that could not take the file lock within 2 s still writes its line (one write of a whole line) but
-  never rotates the file: a rewrite next to another writer lost that writer's lines or tore a JSONL line.
+  in-flight queue are left as they are; the hook works on what it read). A lock file carries its owner's token, and
+  `release()` moves the file to a name only that hook knows before it looks at the token, so what it checks is what
+  it removes: a hook that was taken over as stale after hanging never deletes the lock a newer hook holds, not even
+  one that took the lock between the check and the removal (a read followed by an unlink left that window).
+- A log append that could not take the file lock within 2 s still writes its line but never rotates the file: a
+  rewrite next to another writer lost that writer's lines or tore a JSONL line. The log is opened for appending
+  (`O_APPEND`, one unbuffered write per line), so such an unlocked write lands at the end of the file instead of
+  over another writer's line, which a seek to the end followed by a buffered write allowed (on Windows only the
+  lock serialises writers: its append is the C runtime's seek plus write).
 - The daily model check no longer sends a paid prompt every day for a Claude alias that `claude --help` does not
   name. The help lists aliases as examples only (`haiku` works but is not named), so an alias it leaves out stays
   selectable and is neither tried nor removed; a Claude alias is tried only when the help names it for the first

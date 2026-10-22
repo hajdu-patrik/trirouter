@@ -2,6 +2,7 @@
 append. Everything runs in temp folders."""
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -330,7 +331,16 @@ def test_append_line_concurrent_processes(tmp_path):
     check_lines(path, 4, 150)
 
 
-def test_append_line_concurrent_threads(tmp_path):
+@pytest.mark.parametrize("locked", [
+    pytest.param(True, id="locked"),
+    pytest.param(False, id="lock-not-obtained", marks=pytest.mark.skipif(
+        P.IS_WINDOWS, reason="the CRT appends there with a seek and then a write: only the lock keeps writers apart")),
+])
+def test_append_line_concurrent_threads(tmp_path, monkeypatch, locked):
+    """Without the lock (a holder kept it past the wait) the line is still appended whole: a seek to the end plus a
+    write lets two writers overwrite each other, O_APPEND puts every write at the end the file has at that moment."""
+    if not locked:
+        monkeypatch.setattr(P, "_lock_file", lambda f, deadline: False)
     path = tmp_path / "shared.jsonl"
 
     def write(tag):
@@ -369,6 +379,15 @@ def test_append_line_writes_through_a_held_lock_after_the_wait_but_never_rotates
     assert P.append_line(path, lines[0], max_bytes=2000) is True  # the lock is free again: this one rotates
     kept = path.read_text(encoding="utf-8").splitlines()
     assert path.stat().st_size <= 2000 and kept[-1] == lines[0] and all(json.loads(l) for l in kept)
+
+
+def test_append_line_opens_the_log_for_appending(tmp_path, monkeypatch):
+    """A log is always opened with O_APPEND (the lock-less thread test above cannot run on Windows)."""
+    flags = []
+    real_open = os.open
+    monkeypatch.setattr(os, "open", lambda p, f, *a, **k: flags.append(f) or real_open(p, f, *a, **k))
+    assert P.append_line(tmp_path / "a.jsonl", "x") is True
+    assert flags and all(f & os.O_APPEND for f in flags)
 
 
 def test_wrong_type_json_in_a_state_file_counts_as_empty(isolated, monkeypatch, capsys):
