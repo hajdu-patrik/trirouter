@@ -23,7 +23,8 @@ def _age(path, seconds):
 
 def _replay_before(monkeypatch, path, step, action):
     """Runs `action` once, right before the first os.open / os.replace / os.unlink (`step`) whose target is `path` or
-    starts with it (a file moved from it); -> a list that is empty until it ran."""
+    starts with it (a file moved from it); -> a list that is empty until it ran. The store has to call these as
+    `os.<step>` itself: Path.unlink would not be seen on Python 3.10, where pathlib binds os.unlink once at import."""
     real, replayed = getattr(os, step), []
 
     def hooked(target, *args, **kwargs):

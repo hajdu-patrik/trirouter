@@ -63,7 +63,7 @@ class FileLock:
             return False
         try:
             if self._stale():
-                self.path.unlink()
+                os.unlink(self.path)
                 return True
         except OSError:
             pass
@@ -89,7 +89,7 @@ class FileLock:
             mine = False
         try:
             if mine:
-                self._aside.unlink()
+                os.unlink(self._aside)
             else:
                 os.replace(self._aside, self.path)
         except OSError:
