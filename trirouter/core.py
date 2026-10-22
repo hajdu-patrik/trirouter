@@ -1,9 +1,5 @@
-"""Provider-independent router core: (prompt, provider) -> decision -> instruction text.
-
-JEV (TypeSafe) classifies when a token is set; otherwise, or when the call fails, the local keyword
-classifier does. Config is read from this package, never from the current project: the hook runs
-globally inside arbitrary other projects.
-"""
+"""Provider-independent router core: (prompt, provider) -> decision -> instruction text. Config is read from this
+package, never from the current project: the hook runs inside arbitrary other projects."""
 import json
 import os
 import re
@@ -14,7 +10,7 @@ from pathlib import Path
 from . import catalog, lang, legacy, platforms, secret, store
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
-# ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it (hooks and the MCP server only read)
+# ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it
 STATE_DIR = legacy.state_dir()
 
 API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
@@ -34,7 +30,7 @@ CACHE_MAX = 128  # decision cache entries (classifier answers by prompt hash)
 CACHE_TTL_S = 24 * 3600
 JEV_FAILURES = 2      # failures in a row that open the circuit breaker ...
 JEV_COOLDOWN_S = 60   # ... for this long: every prompt is decided locally instead of each paying the timeout
-LOCAL_CONFIDENT = 0.9  # local task confidence at which the network call is skipped (replayed on real traffic: 0.8 agreed with JEV on 3 of 4, 0.9 on 2 of 2)
+LOCAL_CONFIDENT = 0.9  # local task confidence at which the network call is skipped
 LOCAL_FAST_MAX_CHARS = 400  # longer prompts are not decided on keywords alone
 BACKEND = os.environ.get("ROUTER_BACKEND", "auto").lower()
 
@@ -120,7 +116,7 @@ ACTION_OBJECTS = {
     "changes", "the", "ezt", "azt", "ezeket", "azokat", "mindet", "mindent", "mind", "osszeset", "most", "kerlek", "is",
     "el", "fel", "ki", "be", "valtozasokat", "valtoztatasokat", "ugyanezt", "ujra", "right", "away", "meg",
 }
-# A pronoun-only follow-up ("and this?", "ezt is", "ugyanezt a masikra"): only words from this closed set, one a pronoun.
+# A pronoun-only follow-up ("and this?", "ezt is", "ugyanezt a masikra"): words from this closed set, one a pronoun.
 FOLLOWUP_PRONOUNS = {"this", "that", "it", "those", "these", "them", "same", "other", "another", "ez", "ezt", "azt",
                      "ezzel", "azzal", "ugyanezt", "ugyanaz", "ugyanigy", "masik", "masikat", "masikra", "ezek", "azok"}
 FOLLOWUP_WORDS = FOLLOWUP_PRONOUNS | {
@@ -158,9 +154,8 @@ CONTINUATION_LANG_WORDS = {
 
 
 def is_continuation(prompt):
-    """A bare go-ahead ("mehet", "Mehetnek igen mind", "yes, do it", "igen torold!"), an action on the previous work
-    ("commit it") or a pronoun-only follow-up ("and this?"), or a status check ("hogy allunk?"): at most one word
-    beyond the go-ahead and filler words, so "ok, most irj teszteket" is new work."""
+    """A bare go-ahead ("mehet", "yes, do it"), an action on the previous work ("commit it"), a pronoun-only follow-up
+    or a status check: at most one word beyond go-ahead and filler words, so "ok, most irj teszteket" is new work."""
     own, pasted = split_pasted(prompt)
     if pasted:
         return False
@@ -418,7 +413,8 @@ def jev_key():
 
 
 def model_overrides():
-    """Per-account model availability written by `models --probe`; models.json is only the catalog."""
+    """Per-account model availability (models.local.json, written by `models` and the daily check); models.json is the
+    catalog."""
     return platforms.read_json(STATE_DIR / "models.local.json", {}, kind=dict)
 
 
@@ -469,9 +465,8 @@ def same_model(session_model, model, provider=None):
 
 
 def claude_alias_allowed(alias, cfg=None):
-    """The Claude policy: only a generic family alias (one plain word such as `opus` or `haiku`), never a pinned
-    or dated model ID (`claude-opus-4-1-20250805`), never a mode alias (`opusplan`, `default`). Families listed
-    in the catalog's optional `excluded_families` are refused (none by default)."""
+    """Only a generic family alias (one plain word such as `opus`), never a dated model ID or a mode alias (`opusplan`,
+    `default`); families in the catalog's `excluded_families` are refused."""
     claude = (cfg if cfg is not None else load_json("models.json", {})).get("claude", {})
     a = str(alias or "").strip().lower()
     if any(x in a for x in claude.get("excluded_families", [])):
@@ -493,9 +488,8 @@ def _local_model(provider, model_id, entry, cfg):
 
 
 def models_for(provider):
-    """Selectable models of the provider, with the excluded effort levels already stripped: the catalog's, with
-    the per-account availability of models.local.json, plus the models only models.local.json knows. A model
-    marked `"routable": false` in the catalog is never selectable, whatever a probe recorded."""
+    """Selectable models of the provider with the excluded efforts stripped: the catalog's, adjusted by
+    models.local.json, plus the models only that file knows. `"routable": false` is never selectable."""
     cfg = load_json("models.json", {})
     base = base_provider(provider)
     m = for_provider(cfg, provider, {})
@@ -530,9 +524,8 @@ def _catalog_role(provider, model_id):
 
 
 def available_model(provider, model_id, models=None):
-    """`model_id` while it is selectable. Once it is not (a tier in targets.json names a model the daily discovery
-    removed), the closest selectable model of the provider: the same role first, then the nearest role (ties go to
-    the stronger one), in catalog order. With no selectable model at all, `model_id` unchanged."""
+    """`model_id` while it is selectable, else the closest selectable model of the provider: the same role first, then
+    the nearest role (ties to the stronger), in catalog order; with none selectable, `model_id` unchanged."""
     models = models_for(provider) if models is None else models
     if not model_id or not models or model_id in models:
         return model_id
@@ -617,9 +610,8 @@ LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
 
 def ask_jev(prompt, questions):
-    """JEV's raw answer object for `prompt` (sent redacted). The endpoint must be https (the token travels with
-    every request), except on the loopback interface; redirects are refused and the answer size is capped; the
-    whole call, DNS lookup included, is bounded by TIMEOUT_S."""
+    """JEV's raw answer for `prompt` (sent redacted). https only (the token travels with it) except on loopback;
+    redirects refused, answer size capped, the whole call bounded by TIMEOUT_S."""
     endpoint = jev_endpoint()
     if not endpoint:
         raise RuntimeError("no JEV access (a TypeSafe token or an OpenRouter key: trirouter setup --jev-token-stdin)")
@@ -680,9 +672,8 @@ def _post_once(url, body, headers):
         return _read_capped(resp)
 
 
-# Keep-alive for the long-running hook daemon (daemon.py sets KEEPALIVE): a short-lived command hook pays a new TLS
-# handshake per call anyway. Idle connections are pooled per (scheme, host, port); a request takes one out under
-# the lock, so parallel prompts never share a connection.
+# Keep-alive for the hook daemon (daemon.py sets KEEPALIVE; a command hook pays a TLS handshake per call anyway). Idle
+# connections are pooled per (scheme, host, port) and taken out under the lock: parallel prompts never share one.
 KEEPALIVE = False
 _IDLE = {}
 _IDLE_LOCK = threading.Lock()
@@ -811,9 +802,8 @@ def _checked_answer(answer, question):
 
 
 def _lowered_effort(answer, question):
-    """The effort answer with a banned level (ultra) lowered to the highest level offered, for _checked_answer to
-    check like any other (a malformed answer stays malformed); the policy stands in code, never trusting the
-    answer alone."""
+    """The effort answer with a banned level (ultra) lowered to the highest offered one, so _checked_answer validates it
+    like any other: the policy stands in code, not in the answer."""
     usable = list(question["criteria"])
     if isinstance(answer, dict) and usable and answer.get("choice") in EFFORT_ORDER and answer["choice"] not in usable:
         return {**answer, "choice": usable[-1]}
@@ -821,9 +811,8 @@ def _lowered_effort(answer, question):
 
 
 def validate_answers(answers, questions):
-    """JEV's answers checked against the questions they answer. A required answer that is missing or malformed
-    raises ValueError (the local classifier decides instead); a malformed optional one (skill, agents, effort,
-    model) is dropped; nothing outside the questions is kept, so no text of JEV's ever reaches the context verbatim."""
+    """JEV's answers checked against their questions: a missing or malformed required one raises ValueError (the local
+    classifier decides), an optional one is dropped, nothing else is kept."""
     if not isinstance(answers, dict):
         raise ValueError("JEV answers are not an object")
     out = {}
@@ -837,9 +826,8 @@ def validate_answers(answers, questions):
     return out
 
 
-# Decision cache: the classifier's answers by hash of the exact request (channel, model, state text, questions),
-# so a repeated prompt costs no network call. Bounded, expiring, atomically written, and never a reason for a
-# hook to fail.
+# Decision cache: the classifier's answers by hash of the exact request (channel, model, state text, questions), so a
+# repeated prompt costs no network call.
 ANSWERS = store.Store("answer_cache", ttl=CACHE_TTL_S, limit=CACHE_MAX)
 
 
@@ -1044,10 +1032,8 @@ def extra_agents(ans, level):
 
 
 def resolve_tier(d, targets, models=None, session_model=None, provider=None):
-    """(text, effort, model, agent, in_session) of the decision's tier. A plain-text tier answers in-session (model
-    and agent None); in_session is also True when the session already runs the tier's model (`same_model_text`).
-    Placeholders in agent/text: {model}, {model_} (TOML-safe), {effort}, {slug}, {agent}.
-    With `provider`, a tier whose model is no longer selectable falls back to the closest one that is."""
+    """(text, effort, model, agent, in_session). A plain-text tier answers in-session, as does a tier on the model the
+    session already runs; with `provider`, an unselectable tier model falls back to the closest selectable one."""
     spec = _tier_spec(d, targets)
     if isinstance(spec, str):
         return spec, d.get("effort"), None, None, False
@@ -1111,10 +1097,8 @@ def _tier_effort(d, spec, mdef):
 
 
 def machine_route(targets, models, provider, model, effort, session_model=None):
-    """(model, effort) for machine readers (the header fields, `route --json`, the MCP Decision). A tier that names
-    a model keeps it; a tier that answers in-session names none, so the model the session runs stands in when it is
-    known (`session_model`; Claude: its family), else targets.json `machine_default_model` (Claude: sonnet), with
-    the effort clamped to its levels. The instruction text is never changed by this."""
+    """(model, effort) for machine readers (header fields, `route --json`, MCP): a tier that names a model keeps it, an
+    in-session tier reports the session's model, else `machine_default_model`, effort clamped."""
     if model:
         return model, effort
     pool = models if models is not None else models_for(provider)
@@ -1173,9 +1157,8 @@ FOREIGN_PATH_START_RE = re.compile(r'[A-Za-z]:[\\/]|(?<![:\w])/(?=\S)')
 # A UNC share (//host/share, \\host\share), an extended (\\?\) or a device (\\.\) path: never touched, because on
 # Windows exists() would contact the host (an SMB round trip with the user's credentials, seconds per probe).
 _REMOTE_PATH_RE = re.compile(r"[\\/]{2}")
-# A DOS device name as a path component, bare or followed by an extension, a colon or a stream (C:\NUL,
-# C:\logs\COM1.txt, C:\NUL:, C:\NUL:stream): Windows opens the device instead of a file (a serial port can block),
-# so such a path is never probed on any platform.
+# A DOS device name as a path component (C:\NUL, C:\logs\COM1.txt, C:\NUL:stream): Windows opens the device instead of
+# a file (a serial port can block), so such a path is never probed on any platform.
 _DOS_DEVICE_RE = re.compile(r"(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[0-9¹²³])\s*(?:[.:].*)?", re.I)
 # Bounds that keep a pathological prompt from slowing the hook down.
 FOREIGN_PATH_MAX_CHARS = 200
@@ -1259,9 +1242,8 @@ def foreign_project_note(prompt, cwd):
 
 
 def route(prompt, provider, backend=None, session_model=None, previous=None):
-    """-> (decision, rendered_text, destructive_hit, error). session_model: the model the calling
-    session already runs, so a tier can say "stay in-session". previous: this session's last
-    decision, re-used when the prompt only continues it."""
+    """-> (decision, rendered_text, destructive_hit, error). session_model: the model the session runs (a tier can then
+    say "stay in-session"); previous: its last decision, re-used when the prompt only continues it."""
     routes_all, targets_all = load_json("routes.json", {}), load_json("targets.json", {})
     routes = for_provider(routes_all, provider, {"default": "main", "table": {}})
     targets = for_provider(targets_all, provider, {"tiers": {"main": "Answer directly in this session."}})

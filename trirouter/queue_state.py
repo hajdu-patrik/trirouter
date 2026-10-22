@@ -1,14 +1,5 @@
-"""Queue protection: a new prompt must never stop, restart or overwrite work still in progress.
-
-The tools queue messages typed while the agent is busy, but never tell the model that earlier work is
-unfinished. This module tracks work in flight and adds QUEUE: / CONCURRENCY: context. Entries expire
-after a TTL, or when the session's transcript goes quiet: Claude runs no Stop hook on Esc, and a
-cancelled or crashed turn must never make the next prompt resume old work.
-
-It also keeps the other small per-session hook state (store.Store, each file bounded, expiring and replaced
-atomically): the last decision (a go-ahead continues it), the model a Claude session runs, and each prompt's
-subagent budget for the PreToolUse agent guard.
-"""
+"""Queue protection: a new prompt never stops or overwrites work in flight (QUEUE: / CONCURRENCY: context); entries
+expire after a TTL or a silent transcript. Also the per-session state: last decision, model, subagent budget."""
 import os
 import time
 
@@ -32,7 +23,8 @@ def _fresh_entries(value, now):
 
 
 def _idle(transcript, now):
-    """True when the session's transcript has been silent for IDLE_S: its turn was cancelled or crashed."""
+    """True when the session's transcript has been silent for IDLE_S: its turn was cancelled or crashed (Claude runs no
+    Stop hook on Esc)."""
     try:
         return bool(transcript) and now - os.stat(transcript).st_mtime > IDLE_S
     except (OSError, TypeError):
@@ -51,9 +43,8 @@ def _prune(data, now, key, transcript):
 
 
 def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
-    """{"ahead": unfinished entries of this session, "others": other sessions in the same folder}.
-    transcript: the session's transcript path, stored with the entry so that later prompts of other sessions can
-    tell a silent session from a working one."""
+    """{"ahead": unfinished entries of this session, "others": other sessions in the same folder}. `transcript` is
+    stored with the entry, so other sessions can tell a silent session from a working one."""
     if not session_id:
         return {"ahead": [], "others": []}
     path = INFLIGHT.path(state_dir)

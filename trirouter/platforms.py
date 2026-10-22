@@ -1,7 +1,5 @@
-"""OS abstraction: config locations, directory links, executables, tool detection.
-
-Windows uses directory junctions, which need no admin rights or Developer Mode.
-"""
+"""OS abstraction: config locations, directory links, executables, tool detection. Windows uses directory junctions,
+which need no admin rights or Developer Mode."""
 import json
 import os
 import re
@@ -204,11 +202,8 @@ def read_json(path, default=None, encoding="utf-8", kind=None):
 
 
 def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
-    """Writes `text` (str, or bytes) to `path` so that an interrupt (Ctrl+C, a crash, a full disk) never leaves a half-written
-    file: the content goes to a temporary file in the same folder, which then replaces the target in one step
-    (os.replace). The old file stays intact until that last step. `mode` (e.g. 0o600) is applied to the new
-    file before it is put in place; `newline` is passed to open() ("" keeps the line ends exactly). A symlink
-    target is written through, the link itself is kept."""
+    """Writes `text` (str or bytes) through a temporary file in the same folder and os.replace, so an interrupt never
+    leaves a half-written file. `mode` is applied before the swap; a symlink target is written through."""
     path = Path(path)
     if path.is_symlink():
         path = Path(os.path.realpath(path))
@@ -277,13 +272,8 @@ def _unlock_file(f):
 
 
 def append_line(path, text, max_bytes=None):
-    """Appends `text` plus a newline to `path` as one unbuffered write to an O_APPEND file, under an exclusive OS
-    file lock, so two processes logging at once never interleave a line. Creates the folder owner-only and the
-    file with mode 0o600; True when written, never raises. A lock still held after APPEND_LOCK_WAIT_S is not
-    waited for: the line is written anyway rather than lost, and O_APPEND still puts it at the file's current end
-    (atomic on POSIX; on Windows the CRT seeks and then writes, so only the lock keeps two writers apart).
-    With `max_bytes`, a file grown past it is cut to its newer half (from a line start), only under the lock: a
-    rewrite next to another writer would lose its lines."""
+    """Appends `text` + newline as one O_APPEND write under an exclusive OS lock (parallel processes never interleave; a
+    lock held past APPEND_LOCK_WAIT_S is skipped). `max_bytes` cuts the file to its newer half."""
     try:
         path = Path(path)
         ensure_dir(path.parent)
@@ -376,9 +366,8 @@ def _forget(proc):
 
 
 def run(argv, timeout=30, env=None):
-    """(returncode, combined output); never raises, except for KeyboardInterrupt (Ctrl+C), which first ends the
-    child and its whole process tree. The wait polls in short sleeps: unlike a lock wait, a sleep is
-    interrupted by Ctrl+C on Windows too."""
+    """(returncode, combined output); never raises except for KeyboardInterrupt, which first ends the child's process
+    tree. The wait polls in short sleeps: unlike a lock wait, a sleep is interrupted by Ctrl+C on Windows too."""
     try:
         proc = _popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
                       encoding="utf-8", errors="replace", env=env)
@@ -432,10 +421,8 @@ def call(argv):
 
 
 def spawn_detached(argv, env=None, cwd=None):
-    """Starts argv in the background, fully detached: no console window, no inherited stdin/stdout/stderr (a
-    hook's host waits for its output pipes to close, so they must never reach the child), its own process
-    group / session, and on Windows out of the host's job object when the job allows it. True when started;
-    never raises."""
+    """Starts argv fully detached: no console window, no inherited stdio (a hook's host waits for its pipes to close),
+    own process group, on Windows out of the host's job object when allowed. True when started; never raises."""
     common = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
                   env=env, cwd=cwd)
     try:

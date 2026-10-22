@@ -1,10 +1,5 @@
-"""Catalog of every skill on this machine (~/.skills/catalog.json) + a cheap pre-filter.
-
-A skill native to one tool can be used by another: the router then points at its SKILL.md.
-Asking JEV about ~170 skills at once is too much, so prefilter() narrows them first with an
-IDF-weighted keyword overlap. Descriptions are English while prompts are often Hungarian, hence
-the small HU->EN glossary.
-"""
+"""Skill catalog of this machine (~/.skills/catalog.json) and a cheap pre-filter: IDF-weighted keyword overlap narrows
+~170 skills before JEV is asked (a small HU->EN glossary bridges Hungarian prompts and English descriptions)."""
 import fnmatch
 import json
 import math
@@ -187,9 +182,8 @@ def is_catalog_only(skill_dir, patterns, bundled=None):
 
 
 def build_catalog(catalog_only=None):
-    """First source wins a name clash: the hub beats app-managed copies. Hub skills matching `catalog_only`
-    (default: config.json) are native to Antigravity only: it reads the whole hub through skills.json, while
-    Claude and Codex get no link and are pointed at the SKILL.md instead."""
+    """First source wins a name clash (the hub beats app-managed copies). Catalog-only hub skills (default: config.json)
+    are native to Antigravity alone: it reads the whole hub, while Claude and Codex are pointed at their SKILL.md."""
     patterns = catalog_only_patterns() if catalog_only is None else parse_patterns(catalog_only)
     seen, items = set(), []
     for root, recursive, native_in, prefix in SOURCES:

@@ -1,19 +1,5 @@
-"""Protected storage for the API keys in ~/.trirouter/config.json (named `secret`, not `secrets`: stdlib).
-
-A stored key is either
-
-  * a plain string          - written by an older version, or on macOS / Linux; still read as is, or
-  * {"dpapi": "<base64>"}   - Windows only: encrypted with the Windows Data Protection API for the current
-                              user (CryptProtectData). The blob opens only on this account of this machine.
-
-macOS and Linux have no standard-library keystore, so the key stays a string there and the protection is the
-file mode: config.json (and its backups) are owner-only, 0600.
-
-`reveal` never raises: whatever cannot be read (a blob copied from another machine or user, a damaged value)
-is "no key", so a hook can never crash on it. Standard library only; the hook path imports this module.
-
-`redact` masks the secrets a prompt may carry before the text is logged or sent to JEV.
-"""
+"""Protected storage for the API keys in config.json (named `secret`, not `secrets`: stdlib): a plain string (macOS /
+Linux, file mode 0600) or {"dpapi": "<base64>"} on Windows; `reveal` never raises."""
 import base64
 import json
 import os
@@ -28,9 +14,8 @@ DPAPI = "dpapi"
 
 PLAIN, PROTECTED, UNREADABLE, NONE = "plaintext", "protected", "unreadable", "none"
 
-# Each pattern keeps its `keep` group (a label, "Bearer", the URL's user) and masks the `secret` after it: a value
-# after a password / api key label, a bearer token, the password of a URL (postgres://user:pass@host), and tokens by
-# their shape (OpenAI / OpenRouter, GitHub, Google, Slack, AWS access keys, JWTs, long mixed-character strings).
+# Each pattern keeps its `keep` group (a label, "Bearer", the URL user) and masks the `secret` after it: values after a
+# password / key label, bearer tokens, URL passwords, tokens by shape (OpenAI, GitHub, Google, Slack, AWS, JWT).
 _SECRET_RES = (
     re.compile(r"(?P<keep>\b(?:password|passwd|pwd|api[_-]?key|secret[_-]?key|access[_-]?key|auth[_-]?token"
                r"|api[_-]?token)\b\s*[=:]\s*[\"']?)(?P<secret>[^\s\"']{4,})", re.I),
@@ -43,6 +28,7 @@ _SECRET_RES = (
 
 
 def redact(text):
+    """Masks the secrets a prompt may carry before the text is logged or sent to JEV."""
     for pattern in _SECRET_RES:
         text = pattern.sub(lambda m: m.group("keep") + "[redacted]", text)
     return text
@@ -189,10 +175,8 @@ def scrub_backups(config_path, apply):
 
 
 def migrate(config_path, apply):
-    """Protects the plaintext keys in config.json and keeps no plaintext copy anywhere.
-
-    Returns [(ok, message)]. Order: the (scrubbed) backup first, then config.json, then older backups. The new
-    value is decrypted again before anything is written; if that does not give the original key, nothing changes."""
+    """Protects the plaintext keys in config.json and keeps no plaintext copy: -> [(ok, message)]. The new value is
+    decrypted again before anything is written; if that does not give the original key, nothing changes."""
     path, out = Path(config_path), []
     cfg = _load(path)
     if cfg is None:

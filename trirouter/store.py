@@ -1,7 +1,5 @@
-"""Small per-user state files shared by the hook state (queue_state.py), the JEV answer cache and circuit breaker
-(core.py) and the daily model check (discovery.py): an O_EXCL lock file and a JSON map with expiring entries.
-Nothing here raises into a hook: a lock that cannot be taken is skipped, a file that cannot be read counts as
-empty, a file that cannot be written is left as it was."""
+"""Small per-user state files shared by queue_state, the JEV cache and breaker (core) and discovery: an O_EXCL lock file
+and a JSON map with expiring entries. Never raises into a hook: a failed lock is skipped."""
 import json
 import os
 import time
@@ -14,12 +12,8 @@ LOCK_WAIT_S = 2.0   # a hook waits this long for a store lock, then proceeds wit
 
 
 class FileLock:
-    """An O_EXCL lock file holding its owner's token. `acquire()` takes it once (True when this process holds it
-    now; a file older than `stale_s` is considered abandoned and taken over). As a context manager it retries for
-    `wait_s`, then proceeds WITHOUT the lock (`held` says which): a hook must never block on one, but it must not
-    rewrite the shared file either. `release()` removes the file only while it still holds this object's token:
-    a holder that was taken over as stale never deletes the new holder's lock. The takers of a stale file go one
-    at a time (a second lock file guards the takeover), so two of them never delete each other's fresh lock."""
+    """An O_EXCL lock file with its owner's token. As a context manager it waits `wait_s`, then goes on WITHOUT the lock
+    (`held` says which): a hook must not block. Stale files are taken over one taker at a time."""
 
     def __init__(self, path, stale_s, wait_s=0.0):
         self.path, self.stale_s, self.wait_s = Path(path), stale_s, wait_s
@@ -55,9 +49,8 @@ class FileLock:
             return False
 
     def _take_over(self):
-        """Removes the stale lock file, True when it did. The takers go one at a time through a second lock file
-        (one left behind by a taker that died goes stale and is taken over the same way), and the file is looked at
-        again under it: a taker that was late finds the quicker one's fresh lock there and leaves it alone."""
+        """Removes the stale lock file, True when it did. Takers go one at a time through a second lock file and
+        re-check under it: a late taker finds the quicker one's fresh lock and leaves it alone."""
         guard = FileLock(self.path.with_name(f"{self.path.name}.break"), self.stale_s)
         if not guard.acquire():
             return False
@@ -72,10 +65,8 @@ class FileLock:
         return False
 
     def release(self):
-        """Reading the token and then unlinking would leave a window for a taker to replace the lock in between, so
-        the file is first moved to a name only this object knows: what is checked there is what is removed. A file
-        with another token (a taker's, after a stale takeover) is moved straight back; a lock that cannot be moved
-        stays until it is stale."""
+        """Moves the file to a name only this object knows, then checks and removes it there (read-then-unlink leaves a
+        window for a taker); a file with another token, a taker's after a stale takeover, is moved straight back."""
         if not self.held:
             return
         self.held = False
@@ -123,10 +114,8 @@ def stamp(entry):
 
 
 class Store:
-    """One small JSON map in <state>/state/<name>.json, rewritten under its own lock file. Entries carry a "ts" stamp:
-    one older than `ttl` seconds is expired, and with `limit` only the newest entries are kept. A hook that could
-    not take the lock within LOCK_WAIT_S works on what it read and leaves the file alone: a lost update is
-    acceptable, a file rewritten from a stale read is not."""
+    """One small JSON map in <state>/state/<name>.json under its own lock; entries carry a "ts" and expire after `ttl`,
+    `limit` keeps the newest. Without the lock a hook works on what it read: a lost update beats a stale rewrite."""
 
     def __init__(self, name, ttl=None, limit=None):
         self.name, self.ttl, self.limit = name, ttl, limit
@@ -171,10 +160,8 @@ class Store:
                 save(path, data)
 
     def update(self, state_dir, key, change, missing=None):
-        """Runs change(entry) on the key's fresh entry under the lock and saves what it changed in place; with
-        `missing` (a dict) an unknown or expired key starts from a stamped copy of it, so a counter is created and
-        incremented in one locked step. -> (change's result, a copy of the entry), or (None, None) when the key is
-        unknown or expired and nothing says what it starts from."""
+        """Runs change(entry) on the key's fresh entry under the lock and saves it; with `missing` an unknown key starts
+        from that dict (a counter is created and bumped in one step). -> (result, entry copy), or (None, None)."""
         path, now = self.path(state_dir), time.time()
         with self.lock(path) as lock:
             data = load(path)
