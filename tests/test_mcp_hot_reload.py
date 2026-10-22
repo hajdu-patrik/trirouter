@@ -1,4 +1,5 @@
 """The MCP server picks up source and config changes without a restart and survives a broken edit."""
+import itertools
 import os
 import sys
 
@@ -7,10 +8,14 @@ import pytest
 from trirouter import mcp_server
 from trirouter.hotreload import HotReloader
 
+_steps = itertools.count(1)
+
 
 def bump(path):
+    """A modification time that no earlier bump gave: a file system clock that has not ticked between two quick edits
+    stamps them alike, and the reloader would take the second edit of the same size for no change at all."""
     st = path.stat()
-    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + next(_steps) * 5_000_000_000))
 
 
 @pytest.fixture
