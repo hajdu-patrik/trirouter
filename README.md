@@ -2,10 +2,6 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat&logo=python&logoColor=white)
 ![Stdlib Only](https://img.shields.io/badge/Dependencies-None-2E7D32?style=flat)
-![Claude Code](https://img.shields.io/badge/Claude_Code-supported-D97757?style=flat&logo=anthropic&logoColor=white)
-![Codex](https://img.shields.io/badge/OpenAI_Codex-supported-412991?style=flat&logo=openai&logoColor=white)
-![Antigravity](https://img.shields.io/badge/Google_Antigravity-supported-4285F4?style=flat&logo=google&logoColor=white)
-![MCP](https://img.shields.io/badge/MCP-stdio_server-000000?style=flat)
 ![Platforms](https://img.shields.io/badge/Platforms-Windows_%7C_macOS_%7C_Linux-555555?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)
 
@@ -18,16 +14,12 @@ in every project, in the desktop apps and in remote sessions – and decides for
 * whether the request is **irreversible** (then the model must ask before acting),
 * **which language** to answer in (the language of the prompt).
 
-It also **protects running work**: a prompt sent while an earlier one is still being processed is
-queued behind it and must not stop or overwrite it.
+It also **protects running work**: a prompt sent while an earlier one is still being processed is told to
+finish that work first, never stop or overwrite it. Decisions come from **JEV (TypeSafe)** when you configure a
+TypeSafe token or an OpenRouter key; without one a built-in local classifier decides, so everything works out
+of the box.
 
-Decisions come from **JEV (TypeSafe)** when you configure a TypeSafe token or an **OpenRouter key**
-(JEV is on OpenRouter since September 2026). Without one, a built-in local
-classifier with the same answer format decides – everything works out of the box.
-
----
-
-## 🚀 Quick Start
+## Quick start
 
 Requirements: Python 3.10+ and at least one of [Claude Code](https://code.claude.com/docs/en/quickstart),
 [Codex CLI](https://developers.openai.com/codex) or [Antigravity CLI](https://antigravity.google/docs/cli/install/).
@@ -35,429 +27,134 @@ Requirements: Python 3.10+ and at least one of [Claude Code](https://code.claude
 ```bash
 git clone https://github.com/hajdu-patrik/trirouter.git trirouter
 cd trirouter
-python install.py          # first run: the `trirouter` command does not exist yet
+python install.py --dry-run   # preview every change
+python install.py             # interactive setup
 ```
 
-Setup also installs the **`trirouter` command** (a launcher in `~/.trirouter/bin`, put on your PATH).
-Open a new terminal afterwards and use `trirouter <command>` from any folder – `trirouter help` lists
-the commands, `trirouter help <command>` shows a man-page-like page, and **[docs/cli.md](docs/cli.md)**
-is the full reference. `python install.py <command>` and `python -m trirouter <command>` keep working
-and do the same (use them for the first run, or when the launcher is not on PATH).
+Setup detects the tools, takes an optional JEV key, connects hooks and the MCP server, installs the `trirouter`
+command with tab completion, moves every tool's skills into the shared `~/.skills` folder (scanned with
+SkillSpector when installed), generates the worker agents and offers remote access. Every change is shown first,
+changed config files keep a `.bak`, re-running is safe.
 
-The installer walks you through five steps:
-
-1. **Detect** which of Claude Code, Codex and Antigravity are installed and logged in, and tell you
-   how to log in to the ones that are not.
-2. **JEV access** – paste a TypeSafe token or an OpenRouter key (`sk-or-…`; the input is hidden, and
-   `--jev-token-stdin` reads it from standard input for unattended runs), or press Enter to use the
-   built-in local classifier.
-3. **Hooks + MCP server** for every logged-in tool, and the `trirouter` command.
-4. **Shared skill folder** `~/.skills` – existing skills of every tool are moved there, scanned with
-   [SkillSpector](#skill-security-scan-skillspector) when it is installed (a risky one can be
-   quarantined), and linked back, so each
-   tool sees all of them; worker agents are generated for every model × effort.
-5. **Optional extras** – remote access from your phone, speech-to-text.
-
-Every change is shown first, changed config files get a `.bak` copy, and re-running is safe.
-Preview without changing anything: `python install.py --dry-run` (later: `trirouter setup --dry-run`).
+Open a new terminal afterwards: `trirouter help` lists the commands, `trirouter help <command>` shows a page, and
+**[docs/cli.md](docs/cli.md)** is the full reference. The everyday ones:
 
 | Command | Purpose |
 | --- | --- |
-| `trirouter setup [--dry-run] [--jev-token-stdin]` | the interactive setup (what `python install.py` runs); `--jev-token-stdin` reads the JEV key from standard input |
-| `trirouter models [--discover] [--auto=on\|off] [--dry-run]` | find new models, drop retired ones, test which ones your accounts may use (stored per user; also runs by itself once a day) |
-| `trirouter models --main=<family> [--subagent-model=<family>]` | Claude Code's default session model and the model of subagents that name none ([cost](#-cost-and-speed)) |
-| `trirouter daemon [status\|enable\|disable\|start\|stop]` | Claude Code hooks over HTTP to a resident router: no Python start per prompt ([speed](#-cost-and-speed)) |
-| `trirouter learn [--dry-run]` | train the local routing model on JEV's past decisions; it skips JEV when it is sure |
-| `trirouter remote --name "My PC" [--workdir <folder>] [--start-session=on\|off]` | remote access from other devices: at logon only the connection opens, sessions start when you open one ([guide](docs/remote-access.md)) |
-| `trirouter sync [--check]` | after a pull or a change: refresh tab completion, worker agents, the skill catalog and (in the checkout) docs/cli.md + the pre-commit hook |
-| `trirouter uninstall` | remove hooks, MCP entries, remote access and the launcher (skills stay) |
-| `trirouter skills [--apply] [--allow-skill=<name>] [--scan-llm=on\|off] [--accept-flagged] [--quarantine-days=N] [--catalog-only=<pattern>,...]` | scan + re-link skills, regenerate workers, rebuild the catalog |
-| `trirouter quarantine [list \| restore <name>... \| purge [--all]]` | see, restore or delete the skills the scan quarantined |
-| `trirouter doctor` | health report (also: which tools are installed, their version, logged in or not) |
-| `trirouter route [--provider claude] [--json] <text>` | routing decision for one prompt or sub-task, side-effect free ([details](#routing-decision-on-demand)) |
-| `trirouter help [<command>]`, `trirouter --version` | the manual pages, the version |
+| `trirouter doctor` | health report: tools, hooks, MCP, skills, agents, keys, remote access |
+| `trirouter skills --apply` | re-scan and re-link skills after adding some to `~/.skills` |
+| `trirouter models` | find new models, drop retired ones; `--main=sonnet` sets Claude Code's session model |
+| `trirouter sync` | after a pull or a change: tab completion, agents, skill catalog, docs |
+| `trirouter route --json "<text>"` | the routing decision for one prompt, from a script |
 
-**Tab completion:** setup installs it for your shell – PowerShell (Windows PowerShell and pwsh), bash
-(`~/.bashrc`; macOS: `~/.bash_profile`), zsh (`~/.zshrc`, the macOS default) or fish – as one marked block
-in the profile (with a `.bak` of the original; skip it with `--no-completion`; `trirouter uninstall` removes it). In a new terminal type
-`mo` + Tab after `trirouter` completes to `models`; after `trirouter models`, `--` + Tab lists its flags and `--auto=` + Tab offers `on` / `off`.
-New commands and flags reach the installed scripts through `trirouter sync` (also run by the git pre-commit hook and the
-daily background check); `trirouter doctor` says when they are out of date.
+One-time steps: Codex runs a new hook only after you trust it (`codex` → `/hooks`). For Claude desktop *Chat/Cowork*
+(no hooks there) restart the app and add to *Settings → Profile → Personal preferences*: *"Before answering any new
+request, call the trirouter route_prompt tool with my message and follow its instructions."*
 
-**Interrupting:** Ctrl+C (and Ctrl+D, also at a question) stops any command at once: it prints `Interrupted: nothing was
-left half-written.`, ends the programs it started and exits with status 130. Config files are written atomically
-(temporary file, then rename), so an interrupt never leaves a half-written file.
-
-Every command validates its flags (an unknown or misplaced one is an error with a "did you mean"
-hint) and has its own page: `trirouter help skills`, `trirouter skills --help`. The same pages, with a
-getting-started guide and common tasks, are in **[docs/cli.md](docs/cli.md)**.
-
-**One-time steps after installing:** Codex runs a new hook only after you trust it (`codex` → `/hooks`).
-For Claude desktop *Chat/Cowork*, restart the app and add to *Settings → Profile → Personal preferences*:
-*"Before answering any new request, call the trirouter route_prompt tool with my message and follow its instructions."*
-
----
-
-## 🧭 How It Works
+## How it works
 
 ```
 prompt ─► hook / MCP tool ─► trirouter/core.route()
-                               ├─ is_continuation()         "mehet" / "yes, do it" / "commit it" → keep the last decision (inline when there is none)
-                               ├─ split_pasted()            pasted blocks never decide language or task
-                               ├─ lang.detect()             answer language
-                               ├─ is_destructive()          regex safety net (+ JEV verdict)
-                               ├─ catalog.prefilter()       shared skill catalog → ≤ 5 candidates
-                               ├─ classify()                JEV (TypeSafe / OpenRouter, 1.8 s timeout, cached) or built-in classifier
-                               ├─ decide()                  routes.json: task × difficulty → tier, then the cost cap (model family by level)
-                               └─ render()                  targets.json: tier → worker, model, effort
+                               ├─ is_continuation()   a go-ahead ("mehet", "yes, do it") keeps the last decision
+                               ├─ split_pasted()      pasted blocks never decide language or task
+                               ├─ is_destructive()    regex safety net (+ JEV verdict)
+                               ├─ catalog.prefilter() shared skill catalog → ≤ 5 candidates
+                               ├─ classify()          JEV (1.8 s timeout, cached) or the built-in classifier
+                               ├─ decide()            routes.json: task × difficulty → tier, then the cost cap
+                               └─ render()            targets.json: tier → worker, model, effort
        + queue_state            earlier work still running? → "finish it first"
 ─► "[router] … lang=en model=opus effort=xhigh. Delegate to `opus-worker-xhigh` (opus, effort xhigh). Respond in English."
 ```
 
-The header ends with machine-readable `model=<family>` and `effort=<level>` fields (omitted when unknown), so a
-program can read the decision without parsing the sentence. A tier that answers in-session names no model; its
-`model=` is the Claude default `sonnet` (`machine_default_model` in `targets.json`) with the effort clamped to
-Sonnet's levels. The instruction text itself is not changed by that.
-
-Cost control: a tier that answers in-session (`main`) never delegates, whatever model JEV would pick. For Claude,
-`routes.json` → `cost_cap` limits the model family by difficulty (level 0 never reaches Opus or Fable) and keeps
-short plain prompts (under 40 characters, no code, path or file name) on Haiku at most; `#opus` / `#fable` and the other
-overrides are never capped. A go-ahead ("mehet", "yes do all", "commit it") or a question about the session or the
-model needs the parent's context: it re-uses the previous decision, or stays inline when there is none. Very short
-prompts and prompts the local classifier is sure about skip the network call (never for `general` and `math`, whose tier depends on the trivial-vs-moderate guess); JEV's answers are cached by prompt
-hash in `~/.trirouter/state/`. When there is no parallelism, the `[router]` text has no `Parallelism:` line.
-
 | Surface | Mechanism |
 | --- | --- |
-| Claude Code (CLI, desktop *Code*, Remote Control) | `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd`, `SubagentStart` hooks; `SessionStart` only purges expired quarantine entries |
-| Codex (CLI, ChatGPT app in Codex mode) | `UserPromptSubmit` + `Stop` hooks |
-| Antigravity (CLI, desktop app) | `PreInvocation` + `Stop` hooks (prompt read from the transcript, injected once per turn) |
-| Claude desktop *Chat / Cowork* (no hooks there) | MCP tool `route_prompt` |
-| Claude Code on the web (cloud sandbox) | project hook with `--cloud-only` |
-| Scripts, other agents and projects (per sub-task) | `route` command via the shim `~/.trirouter/bin/route.py` |
+| Claude Code (CLI, desktop *Code*, Remote Control) | `UserPromptSubmit`, `Stop`, `SessionStart`, `SubagentStart`, `PostModelSwitch`, `PreToolUse` hooks |
+| Codex (CLI, ChatGPT app) | `UserPromptSubmit` + `Stop` hooks |
+| Antigravity (CLI, desktop app) | `PreInvocation` + `Stop` hooks (prompt read from the transcript, once per turn) |
+| Claude desktop *Chat / Cowork* | MCP tool `route_prompt` |
+| Claude Code on the web | the project hook with `--cloud-only` |
+| Scripts and other agents | `trirouter route` (shim `~/.trirouter/bin/route.py`) |
 
-### Model and effort are enforced, not suggested
+**Model and effort are enforced, not suggested.** No tool lets a hook switch the running model, so trirouter
+generates one worker agent per (model, effort) pair – Claude `<model>-worker-<effort>`, Codex roles
+`<model>-<effort>`, Antigravity `gemini-flash-worker` / `gemini-pro-worker` – and the router delegates to the
+right one. The catalog is `trirouter/config/models.json`; Claude is addressed by generic family aliases only
+(haiku, sonnet, opus, fable), the `ultra` effort is never offered, and a daily background check picks up new
+and retired models (`trirouter models`).
 
-No tool lets a hook switch the running model. trirouter therefore generates one **worker agent per
-(model, effort) pair** – Claude subagents `<model>-worker-<effort>` (plus `test-worker-<effort>`),
-Codex roles `<model>-<effort>` – and the router delegates to the right one. Antigravity agents can
-pin only a model tier (flash / pro), not an effort, and only as subagents: trirouter generates
-`gemini-flash-worker` and `gemini-pro-worker` (`~/.gemini/config/agents/`), and hard requests are
-delegated to the Pro one; otherwise the model choice is advisory (or enforced through `cli-bridge`).
+**Cost.** Most prompts are answered in the session itself, so the session's own model is the biggest lever:
+`trirouter models --main=sonnet --subagent-model=sonnet` starts new Claude Code sessions on Sonnet and the router
+escalates hard work to Opus / Fable workers. A `PreToolUse` guard holds each prompt to its routed subagent budget
+(a retry passes). `trirouter daemon enable` serves Claude's hooks from one resident process (tens of milliseconds
+instead of a Python start per prompt). `trirouter learn` trains a local model on JEV's past decisions; when it
+routes like JEV, confident prompts skip the network call.
 
-Each agent's instructions come from the template of its model's **role** in `models.json` –
-`fast`, `balanced`, `deep` (`trirouter/templates/agents/<role>-worker.md`), plus `test-worker` for
-the test tier – so a new model needs one line in `models.json`, not a new template.
+**Parallel agents:** 0 by default; +1 for two independent substantial parts, up to +4 for a from-scratch feature
+with custom tooling. **Overrides:** Claude `#haiku #sonnet #opus #fable #codex #antigravity`, Codex / Antigravity
+`#fast #main #deep`; `#norouter` / `#privat` skip routing entirely (nothing is sent to TypeSafe).
 
-| Provider | Models (catalog: `trirouter/config/models.json`) | Effort levels |
-| --- | --- | --- |
-| Claude | haiku, sonnet, opus, fable – generic family aliases only, cheapest first | low · medium · high · xhigh · max |
-| Codex | gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, gpt-reserve by default; more after `trirouter models` | low … max (per model) |
-| Antigravity | Gemini 3.8 / 3.7 / 3.6 Flash, Gemini 3.1 Pro, Claude Sonnet/Opus 4.6, GPT-OSS 120B | part of the model name |
+**Skills.** `~/.skills` is the one skill folder: Claude Code and Codex see it through per-skill links, Antigravity
+through its `skills.json`; app-managed skills stay where they are but are indexed too, so a skill of one tool can be
+handed to another. Before a third-party skill is linked, [SkillSpector](https://github.com/NVIDIA/SkillSpector)
+(optional, `uv tool install git+https://github.com/NVIDIA/skillspector.git`) scans it: `SAFE` and `CAUTION` are
+linked, `DO_NOT_INSTALL` skills are listed once and you choose which go to quarantine (`~/.trirouter/quarantine`,
+deleted after 3 days; `trirouter quarantine` lists and restores them). Static analysis flags legitimate skills
+too (7 of the 19 `anthropics/skills`), hence the question; `--allow-skill` and `--accept-flagged` remember your
+answer. `--catalog-only=gke-*` keeps rarely used skills out of every session while the router still finds them.
 
-The `ultra` effort level is never offered, stripped from any answer and has no worker.
-
-No Claude family is banned. The catalog lists them cheapest first (haiku, sonnet, opus, fable) with a
-cost-aware description, so JEV's own model pick weighs capability against cost across all four. Without a
-model pick the routing table decides: trivial everyday requests are answered in-session (delegating a one-liner
-to Haiku costs more than it saves); everything else keeps its tier (`main`, `sonnet`, `test`, `deep` = opus).
-`#haiku` forces the `fast` tier and `#fable` the `fable` tier (same efforts as before: low to high).
-
-**New and retired models are picked up by themselves.** Once a day (at most every 24 hours, started in the
-background by a Claude Code session start or a Codex / Antigravity prompt; the hook itself returns at
-once) trirouter compares what each tool offers with what it knows: `codex debug models`, `agy models`, and the
-model aliases `claude --help` names. A model seen for the first time is tried with a one-word prompt and
-becomes selectable when it answers – Claude only as a generic family alias, never a dated ID or a mode alias; a
-Codex or Antigravity model no longer offered leaves the selection (`claude --help` names its aliases as examples
-only, so a Claude alias it does not name stays). Results go to `~/.trirouter/models.local.json` (never into the
-repository), the worker agents are regenerated, the next Claude Code session gets a one-line note, and
-`trirouter doctor` shows the last check. A check that cannot run (tool missing, logged out, offline) changes
-nothing. Run it by hand with `trirouter models --discover [--dry-run]`; switch it off with
-`trirouter models --auto=off`. Cost: on an ordinary day no model is prompted at all – only the model lists
-are read; each newly listed Codex or Claude model costs one short prompt, once.
-
-### Follow-ups and pasted text
-
-A bare go-ahead or status check – "mehet", "igen, töröld!", "yes, do it", "hogy állunk?" – keeps the
-previous decision of the same session (model, effort, worker) instead of being classified on its own,
-where it would look trivial. At most one word beyond the go-ahead is allowed, so "ok, most írj
-teszteket" is routed as new work. The safety check always runs on the new prompt.
-
-Pasted blocks (`<pasted_content>`: logs, CI output, a README) are not the user's own words: they never
-decide the answer language or the task type. JEV still sees them as context, and the safety regex
-still scans them, because a pasted command can be the dangerous part. Subagent hand-backs
-(`<agent-message>`) are not routed at all.
-
-### Parallel agents
-
-| Extra agents | When |
-| --- | --- |
-| **0** | default – the vast majority of requests |
-| **+1** | two clearly independent, substantial parts |
-| **+2** | three independent workstreams (e.g. backend + frontend + migration) |
-| **+3** | a complete new page or feature from scratch (backend + frontend + data layer) |
-| **+4** | very rare – the same, plus custom tooling such as a scraper |
-
-Code-level clamps: one fewer when the answer is not confident, at most +1 unless the request is hard.
-
-### Queue protection
-
-All three tools already queue messages typed while the agent is busy. trirouter adds the missing
-context: the new prompt is told that earlier work in the same session is still running and must be
-finished first – never stopped, restarted or overwritten. If another session works in the same
-folder, the prompt is warned not to modify that session's files. Claude's `StopFailure` (a turn that
-died on an API error) and `SessionEnd` release the queue as well, and state expires automatically,
-so a crashed session never blocks anything.
-
-`doctor` also reports **delegation compliance**: the `SubagentStart` hook records which worker the
-model really started, so you can see how often it followed the router's advice.
-
-### 💸 Cost and speed
-
-Measured on real traffic, most prompts (73%) are answered in the session itself, so the session's own model is the
-biggest cost lever, and the hook's own start-up was most of its latency. trirouter therefore offers:
-
-* **A cheap session that escalates.** `trirouter models --main=sonnet --subagent-model=sonnet` makes new Claude Code
-  sessions start on Sonnet (and subagents that name no model, such as `general-purpose`); the router hands hard work
-  to Opus / Fable workers. The router learns the session's real model (`SessionStart`, `PostModelSwitch`, the
-  transcript), never delegates to the model the session already runs, and reports it in `model=`.
-* **A subagent guard.** A `PreToolUse` hook on the Agent tool holds each prompt to its routed subagent budget (the
-  first call over it is denied with a reason; a retry passes, so an explicit request still works) and gives a
-  `general-purpose` call without a model the routed worker's family.
-* **The hook daemon.** `trirouter daemon enable` turns Claude Code's hooks into HTTP hooks to a local router process
-  (127.0.0.1, token-protected, hot-reloading) that also keeps its JEV connection open: tens of milliseconds per hook
-  instead of a Python start. `SessionStart` stays a command hook and starts the daemon.
-* **Catalog-only skills.** `trirouter skills --apply --catalog-only=gke-*,google-*` keeps rarely used skills out of
-  every session's skill list (their descriptions are context on every request) while the router still finds them.
-* **A distilled classifier.** `trirouter learn` trains a local model on JEV's past decisions; when cross-validation
-  shows it routes like JEV, confident prompts skip the network call. It is retrained daily as decisions accumulate.
-
-### Shared skills
-
-`~/.skills` is the single skill folder. Claude Code and Codex see it through per-skill links
-(junctions on Windows, symlinks elsewhere); Antigravity through its `skills.json`. Skills that tools
-manage themselves (Claude desktop's synced skills, plugins, Codex built-ins) stay in place but are
-indexed too, so the router can hand a skill of one tool to another ("read and follow `<path>/SKILL.md`").
-The catalog the router reads (`~/.skills/catalog.json`) is rebuilt by `setup` and `skills --apply`; `trirouter sync`
-and the daily background check refresh it when a skill was added, removed or re-described by hand or by another
-tool (linking a new skill into Claude Code and Codex still needs `skills --apply`). A skill name is quoted to the
-model only when it is a plain identifier, and a path only when it lies inside one of the indexed skill roots.
-
-### Skill security scan (SkillSpector)
-
-Before a skill in `~/.skills` is linked into any tool, the installer (`setup` step 4 and `skills`)
-scans it with NVIDIA's [SkillSpector](https://github.com/NVIDIA/SkillSpector) (prompt injection,
-data exfiltration, privilege escalation, supply-chain risks, …) and acts on its recommendation:
-
-| Verdict | Risk | Action |
-| --- | --- | --- |
-| `SAFE` | 0–20 | linked |
-| `CAUTION` | 21–50 | linked, named in one summary warning with the command to review it |
-| `DO_NOT_INSTALL` | 51–100 | after all scans you are asked **once** which of them to quarantine (all / none / select; default none); unattended runs (`--yes`, no terminal) only warn |
-
-**Quarantine** moves the skill folder from `~/.skills/<name>` to `~/.trirouter/quarantine/<name>`:
-no tool sees it any more – its links are removed, it leaves the catalog, and
-Antigravity (which reads the whole hub) no longer finds it. The question is asked once for the whole
-batch, as a numbered list:
-
-```
-  1. agent-platform-deploy (risk 79, max HIGH)
-  2. impeccable (risk 100, max HIGH)
-Quarantine these skills? [a]ll / [n]one / [s]elect (default: none)
-```
-
-`a` quarantines all, `n` or Enter keeps all, `s` asks for numbers (`1,3,5-8`), shows the two groups
-and wants a final `y`. Skills you keep stay linked and are remembered for exactly that content: you are
-asked again only when a skill changes.
-
-**Automatic purge:** a quarantined skill is **deleted for good after 3 days** (a sidecar
-`~/.trirouter/quarantine/<name>.json` records when it was quarantined, its risk and the purge date).
-`skillscan.quarantine_days` in `config.json` (`--quarantine-days=N`, remembered; `0` = never) changes
-the retention. Expired entries are purged by every `setup` and `skills --apply`, and, at most every 6
-hours, when a Claude Code session starts. Only folders inside `~/.trirouter/quarantine` are ever
-deleted, and links are never followed. Within the 3 days: `trirouter quarantine` lists the entries with
-their purge date, `trirouter quarantine restore <name>` moves one back to `~/.skills` and allows it,
-`trirouter quarantine purge [--all]` deletes now.
-
-Why ask instead of blocking: in a test on the 19 skills of
-[anthropics/skills](https://github.com/anthropics/skills), SkillSpector 2.12 rated 7 legitimate ones
-`DO_NOT_INSTALL` (`docx`, `xlsx`, `pptx`, `mcp-builder`, `skill-creator`, `webapp-testing`,
-`claude-api`) – scripts that call `subprocess` or read files look like exfiltration to static analysis,
-and its LLM meta-analysis did not change those verdicts.
-
-* **Override:** `--allow-skill=<name>[,<name>]` never asks about these skills and restores them from
-  quarantine (so does `trirouter quarantine restore <name>`); the list is remembered in `config.json` (`skillscan.allow`).
-* **Keep all after a review:** `skills --apply --accept-flagged` keeps every skill now rated
-  `DO_NOT_INSTALL` without asking, like answering "none" – bound to its current content, so a
-  changed skill is asked about again. A skill's source cannot be verified (its frontmatter can claim
-  any author), so there is no allow-by-publisher list.
-* **Static by default:** the scan runs with `--no-llm`, so no skill content leaves the machine.
-  `--scan-llm=on` (remembered as `skillscan.llm`) adds SkillSpector's LLM analysis, configured through
-  its own variables (`SKILLSPECTOR_PROVIDER`, e.g. `claude_cli`, and that provider's key). Without a
-  working provider the static verdict is used and not cached.
-* **Cache:** a verdict – a failed scan too – is kept per skill content hash, SkillSpector version and
-  scan mode (`~/.trirouter/state/skillscan.json`), so only new or changed skills are scanned again.
-  A first scan takes seconds per skill, minutes for a large one (timeout: 10 min static, 30 min with LLM);
-  new or changed skills are scanned in parallel, up to 8 at a time (half the CPU cores), which makes
-  a first scan of a large hub several times faster. Each outcome is reported in one summary line.
-* **Scope:** skills bundled with trirouter (`trirouter/skills/`) and app-managed skills (Claude
-  desktop, plugins, Codex built-ins) are not scanned.
-* **Optional:** SkillSpector needs Python 3.12+ and runs as its own tool:
-  `uv tool install git+https://github.com/NVIDIA/skillspector.git`. Without it, or when a scan fails,
-  skills are linked unscanned with a warning.
-* **Windows:** a packaged Python (Python install manager / Microsoft Store) does not see uv's default
-  tool folder under `%APPDATA%`, so `skillspector` fails to start ("uv trampoline failed to
-  canonicalize script path"); the installer then warns once and links skills unscanned. Reinstall with
-  `UV_TOOL_DIR` set outside AppData (e.g. `%USERPROFILE%\.local\share\uv\tools`):
-  `uv tool install --force git+https://github.com/NVIDIA/skillspector.git` – and use the same
-  `UV_TOOL_DIR` for `uv tool upgrade`.
-
-### Overrides
-
-Claude `#haiku #sonnet #opus #fable #codex #antigravity` · Codex / Antigravity `#fast #main #deep` ·
-`#norouter` / `#privat`: no routing, nothing is sent to TypeSafe (queue protection still applies).
-
-### Routing decision on demand
-
-The hooks route each user prompt. To get a decision for a single sub-task – from a script, another
-agent or another project – call the `route` command. It runs the same pipeline (`core.route()`) but
-has no side effects: no queue state, no log.
-
-```bash
-trirouter route --json "add a pagination parameter to the quotes API endpoint"
-trirouter route [--provider claude|claude-chat|codex|antigravity] [--json] <text>   # no text: stdin
-python ~/.trirouter/bin/route.py --json "<text>"     # the same through the shim, from any program
-```
-
-Without `--json` it prints the `[router] …` instruction. With `--json` it prints one object:
-`model` (always a concrete family for Claude: the tier's own, or `sonnet` when the tier answers
-in-session; `null` only for `claude-chat` and `#norouter`), `effort`, `agent` (the worker to
-delegate to, or `null`), `tier`, `task`, `difficulty`, `extra_agents`, `destructive`, `skill`,
-`verify`, `lang`, `backend`, `text` and `note`. A `#norouter` / `#privat` prompt is not routed
-(`model: null`, nothing is sent to TypeSafe). Exit codes: `0` success, `2` usage error (e.g. an
-empty prompt), `1` unexpected error (only the exception type goes to stderr). The installer writes
-the shim, so callers never need to know where the repository lives.
-
----
-
-## 🎙️ Speech-to-Text
-
-Dictate prompts into any app, in any language Whisper supports – offline and free.
-See **[docs/speech-to-text.md](docs/speech-to-text.md)** for installation, model choice by hardware
-and phone dictation.
-
----
-
-## 📱 Remote Access
-
-Control your computer from a phone or another device under one machine name, with every tool
-starting its remote service at logon. At logon only the connection opens – no session is created until
-you start one from the Claude app, claude.ai/code, the ChatGPT app or antigravity.google.com.
-See **[docs/remote-access.md](docs/remote-access.md)**.
-
----
-
-## ⚙️ Configuration
+## Configuration
 
 | Setting | Where |
 | --- | --- |
-| JEV access | `trirouter setup --jev-token-stdin` (reads the key from the first line of standard input, e.g. `cat key.txt \| trirouter setup --jev-token-stdin`), or the environment variable `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. `--jev-token=<key>` and `--openrouter-key=<key>` still work but are deprecated: a key on the command line shows in process listings and shell history. The generic `OPENROUTER_API_KEY` is ignored on purpose: another tool's key must not start spending credit on routing. |
-| Key storage | The saved TypeSafe token / OpenRouter key is **not** kept as plain text: on Windows it is encrypted with DPAPI (`{"dpapi": "..."}` in `config.json`; it opens only for your account on this machine, a copied `config.json` falls back to the built-in local model and `trirouter doctor` says so). macOS and Linux have no keystore in the standard library, so the key stays a string and `config.json` and its backups are owner-only (mode 0600). An older plaintext key is re-saved protected by `trirouter setup`, which also removes it from old backups; `doctor` warns about any backup that still holds one. Environment variables win over the saved key. |
-| Per-user state | `~/.trirouter/` – `config.json`, `models.local.json` (per-account availability and discovered models), `logs/` (incl. `model_discovery.log`), `state/`, `quarantine/` (skills you quarantined), `completion/` (tab-completion scripts), `bin/` (shims `run_hook.py`, `mcp_server.py`, `route.py` and the `trirouter` launcher) |
-| Daily model check | `config.json` → `model_discovery.auto` (default on); set with `trirouter models --auto=on\|off` |
-| Skill scan | `config.json` → `skillscan`: `allow` (skills never asked about despite `DO_NOT_INSTALL`), `llm` (add the LLM analysis), `quarantine_days` (default 3, 0 = never purge); set with `--allow-skill` / `--scan-llm` / `--quarantine-days` |
-| Model catalog, tiers, routing table | `trirouter/config/models.json`, `targets.json`, `routes.json` |
+| JEV access | `trirouter setup --jev-token-stdin` (`cat key.txt \| trirouter setup --jev-token-stdin`), or `TYPESAFE_API_KEY` / `JEV_OPENROUTER_API_KEY`. The generic `OPENROUTER_API_KEY` is ignored on purpose. |
+| Key storage | Windows: encrypted with DPAPI (this account only); macOS / Linux: `config.json` mode 0600. `doctor` reports the state; a plaintext key from an older version is re-saved protected by `setup`. |
+| Per-user state | `~/.trirouter/`: `config.json`, `models.local.json`, `logs/`, `state/`, `quarantine/`, `completion/`, `bin/` (shims and the launcher) |
+| Routing data | `trirouter/config/models.json` (catalog + policy), `routes.json` (task → tier, cost cap), `targets.json` (tier → worker) |
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
-| `ROUTER_BACKEND` | `auto` | `jev`, `local` or `auto` (JEV when a token or key exists) |
-| `ROUTER_CONTINUATION_TTL_MIN` | `180` | how long a go-ahead can continue the session's previous decision |
-| `ROUTER_MIN_CONFIDENCE` | `0.6` | below it the task falls back to the default tier |
+| `ROUTER_BACKEND` | `auto` | `jev`, `local` or `auto` (JEV when a key exists) |
+| `JEV_TIMEOUT` | `1.8` | seconds for the whole JEV call; on timeout the local classifier decides |
 | `ROUTER_MAX_EXTRA_AGENTS` | `4` | hard cap for parallel agents |
-| `ROUTER_QUEUE_TTL_MIN` | `120` | minutes after which an unfinished queue entry is ignored (a session whose transcript has been silent for 10 minutes is dropped earlier, also when it is another session in the same folder) |
-| `ROUTER_SKILL_CANDIDATES` | `5` | skills offered to JEV per request |
-| `ROUTER_DESTRUCTIVE_THRESHOLD` | `0.3` | JEV's destructive score from which a prompt gets the SAFETY line (the regex always applies) |
-| `ROUTER_LONG_CONTEXT_THRESHOLD` | `0.7` | JEV's long-context score from which a long input goes to the long-context target, and its needs-web score from which web search is advised |
-| `ROUTER_QUEUE_IDLE_MIN` | `10` | minutes of transcript silence after which a session no longer counts as working |
 | `ROUTER_DISTILLED` | on | `0` switches the local distilled model off |
-| `ROUTER_MODE` | unset | `cloud` for a cloud sandbox (`CLAUDE_CODE_REMOTE=true` is recognised too) |
-| `TRIROUTER_HOME` | `~/.trirouter` | the per-user state folder (set it to a scratch folder in tests) |
-| `ROUTER_LOG_PROMPTS` | unset | `1` = log full prompts (default: first 200 characters; secrets are redacted in the log, in the queue context and in what is sent to JEV: API keys and tokens by shape, values after a password / api key label, URL passwords, bearer tokens) |
-| `TYPESAFE_API_URL`, `JEV_MODEL`, `JEV_TIMEOUT` | –, –, `1.8` | JEV endpoint (https only, except on the loopback interface; redirects are refused), pinned model version, the whole call's time budget in seconds (on timeout the local classifier decides; after 2 failures in a row JEV is paused for 60 s). A setting that is not a number falls back to its default |
-| `JEV_OPENROUTER_URL`, `JEV_OPENROUTER_MODEL` | OpenRouter System One, `jev-1.13` | the same through OpenRouter |
+| `ROUTER_LOG_PROMPTS` | unset | `1` logs full prompts (default: 200 characters; secrets are redacted everywhere) |
+| `TRIROUTER_HOME` | `~/.trirouter` | the state folder (tests point it at a scratch folder) |
 
----
+The other knobs (`ROUTER_MIN_CONFIDENCE`, `ROUTER_QUEUE_TTL_MIN`, `ROUTER_QUEUE_IDLE_MIN`, `ROUTER_CONTINUATION_TTL_MIN`,
+`ROUTER_SKILL_CANDIDATES`, `ROUTER_DESTRUCTIVE_THRESHOLD`, `ROUTER_LONG_CONTEXT_THRESHOLD`, `TYPESAFE_API_URL`,
+`JEV_MODEL`, `JEV_OPENROUTER_URL`, `JEV_OPENROUTER_MODEL`) are read at the top of `core.py` and `queue_state.py`.
 
-## 📂 Repository Layout
+## Guides
+
+* **[docs/cli.md](docs/cli.md)** – every command, flag and example (generated from `trirouter/manual.py`).
+* **[docs/remote-access.md](docs/remote-access.md)** – control your computer from a phone: one machine name, the
+  connection opens at logon, sessions start when you open one.
+* **[docs/speech-to-text.md](docs/speech-to-text.md)** – offline dictation into any app, phone dictation.
+
+## Development
 
 ```
-install.py                 entry point: `python install.py [command]` (same as `python -m trirouter` and `trirouter`)
-pyproject.toml             package metadata, console script `trirouter`, pytest settings
-trirouter/                 the package
-├── cli.py                 the commands (setup, models, skills, quarantine, remote, sync, doctor, route, uninstall)
-├── sync.py                `trirouter sync`: regenerates docs/cli.md, completion, agents and the skill catalog; the pre-commit checks
-├── store.py               O_EXCL lock file and expiring JSON map store under ~/.trirouter/state (hook state, answer cache)
-├── manual.py              every command, flag and help text as data (help pages, docs/cli.md)
-├── cliparse.py            argument validation against manual.py
-├── core.py                classification, decision, rendering, safety regex, JEV client + built-in classifier
-├── lang.py                Hungarian / English detection
-├── catalog.py             skill catalog and pre-filter
-├── hooks.py               hook entry point for all three tools (python -m trirouter.hooks)
-├── daemon.py              the hook daemon: Claude Code's http hooks served by one resident process (python -m trirouter.daemon)
-├── hotreload.py           reloads the package in place when its sources or config change (daemon, MCP server)
-├── queue_state.py         queue protection and the other small per-session hook state
-├── distill.py             the local routing model trained on JEV's past decisions (`trirouter learn`)
-├── mcp_server.py          MCP stdio server; reloads the package on source/config changes (python -m trirouter.mcp_server)
-├── mcp_tools.py           MCP tools: route_prompt, list_skills, get_skill
-├── hub.py                 shared skill folder, links, worker generation
-├── discovery.py           daily model discovery (new / retired models per tool, background run, lock)
-├── completion.py          shell tab completion generated from manual.py, profile install (used by setup / uninstall)
-├── interrupt.py           Ctrl+C / Ctrl+D handling for the commands (exit 130, key watcher)
-├── skillscan.py           SkillSpector gate: scan, cache, quarantine before skills are linked
-├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
-├── platforms.py           OS abstraction (paths, links, executables, detection)
-├── secret.py              protected storage for the saved API key, secret redaction
-├── remote.py              optional remote access
-├── doctor.py              health report
-├── config/                models.json (catalog + policy), routes.json (task → tier), targets.json (tier → worker)
-├── templates/agents/      role templates fast/balanced/deep/test-worker.md (rendered into
-│                          ~/.claude/agents, ~/.codex/agents and ~/.gemini/config/agents)
-└── skills/                skills bundled with trirouter (cli-bridge)
-tests/                     unit tests, model-policy test
-eval/                      100 Hungarian + 100 English labelled prompts, 45 real-traffic shapes, evaluation script
-docs/                      cli.md (command reference, generated), speech-to-text and remote-access guides
-.claude/                   project hook settings, the `coding-principles` skill and agent
+trirouter/        the package: core.py (router), hooks.py, cli.py + manual.py, hub.py (skills, agents), ...
+trirouter/config/ models.json, routes.json, targets.json          tests/   pytest suite (~90 s)
+eval/             labelled prompt sets + eval_router.py            docs/    guides, generated cli.md
 ```
-
----
-
-## 🧪 Development
 
 ```bash
-pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
-python -m pyflakes trirouter tests eval install.py   # lint: must stay silent
-python -m pytest tests -q          # unit tests incl. the model-policy check
-python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
-python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, skill catalog, pre-commit hook
+pip install -e .[dev]
+python -m trirouter sync --pre-commit   # = pyflakes + pytest + the routing evaluation, as the git hook runs them
 ```
 
-The first `sync` in the checkout sets `core.hooksPath` to `.githooks`. Its `pre-commit` hook runs
-`python -m trirouter sync --pre-commit` before every commit: the sync (a regenerated docs/cli.md is staged), a
-reminder when user-visible files are staged without CHANGELOG.md, the tests and – when routing code is staged –
-the routing evaluation. A failure stops the commit; `git commit --no-verify` skips it once.
+Conventions, module notes and the tool facts that were verified live: [CLAUDE.md](CLAUDE.md),
+[trirouter/CLAUDE.md](trirouter/CLAUDE.md), [tests/CLAUDE.md](tests/CLAUDE.md). Release history: [CHANGELOG.md](CHANGELOG.md).
 
-Evaluation targets on the curated sets: task accuracy ≥ 85 % per language, "routing uncertain" ≤ 30 %,
-destructive-request recall 100 %, false positives < 5 %, reply language 100 %. The real-traffic set
-(`eval/real_prompts.csv`: typos, missing accents, pasted blocks, go-aheads) has lower regression
-gates, because the built-in classifier is weak there and JEV is the real fix. Every set also reports
-tier accuracy next to the best fixed-tier baseline: routing only pays off if it beats always picking
-the same tier. The test suite runs on Windows, macOS and Linux in CI.
+## Limitations
 
-See [CHANGELOG.md](CHANGELOG.md) for the release history and [CLAUDE.md](CLAUDE.md) for contributor
-conventions (module notes: [trirouter/CLAUDE.md](trirouter/CLAUDE.md), tests: [tests/CLAUDE.md](tests/CLAUDE.md)).
+* Hooks cannot switch the running model; Antigravity agents pin a tier, not an effort, so its model choice is advisory.
+* Claude desktop *Chat/Cowork* is covered by the MCP tool only when the personal-preferences sentence is set; plain
+  ChatGPT chat runs no hooks at all.
+* On Windows the Codex remote daemon cannot detach inside a Job Object; a scheduled task runs the app server instead.
+* The built-in classifier is weak on real traffic (typos, pasted text); JEV is the fix.
 
----
-
-## 📄 License
+## License
 
 [MIT](LICENSE.md). Product names are trademarks of their respective owners.

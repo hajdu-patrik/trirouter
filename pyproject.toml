@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trirouter"
-version = "3.1.0"
+version = "3.2.0"
 description = "One prompt router for Claude Code, OpenAI Codex and Google Antigravity: model, effort, parallel agents, skills, safety and queue protection per prompt."
 readme = "README.md"
 license = { text = "MIT" }

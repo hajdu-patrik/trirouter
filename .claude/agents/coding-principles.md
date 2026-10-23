@@ -6,6 +6,6 @@ effort: low
 tools: Read, Edit, Grep, Glob, Bash
 ---
 
-Read `.claude/skills/coding-principles/SKILL.md` and apply it to the changed files you are given; never sweep the repository, and never edit a
-generated file by hand (`docs/cli.md`: run `python -m trirouter sync`). Report the files changed, the rules applied and the reason for every
-non-trivial change.
+Read `.claude/skills/coding-principles/SKILL.md` and apply it to the changed files you are given; never sweep the
+repository, never edit a generated file by hand (`docs/cli.md`: `python -m trirouter sync`). Report the files changed,
+the rules applied and the reason for every non-trivial change.
