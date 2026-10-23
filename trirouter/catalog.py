@@ -10,7 +10,7 @@ from pathlib import Path, PurePath
 
 from . import lang, platforms as P
 
-HOME = Path.home()
+HOME = P.HOME
 HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
 CATALOG = HUB / "catalog.json"
 PROVIDERS = ["claude", "codex", "antigravity"]
@@ -56,7 +56,7 @@ _TOK = re.compile(r"[a-z0-9][a-z0-9+#.-]{2,}")
 _FRONTMATTER = re.compile(r"^﻿?---[ \t]*\n(.*?)\n---", re.S)
 _NAME = re.compile(r"^name:(.*)$", re.M)
 _DESCRIPTION = re.compile(r"^description:(.*)$", re.M)
-_BLOCK_MARKERS = (">", "|", ">-", "|-", "")
+_BLOCK_MARKERS = (">", "|", ">-", "|-", ">+", "|+", "")
 
 
 def stem(t):
@@ -112,7 +112,7 @@ def parse_frontmatter(skill_md):
         if first in _BLOCK_MARKERS:
             desc = _indented_block(fm[dm.end():].split("\n")[1:])
         else:
-            desc = first.strip("'\"")
+            desc = _unquote(first)
     return name, desc
 
 
@@ -124,10 +124,13 @@ def valid_name(name):
     return isinstance(name, str) and bool(NAME_RE.fullmatch(name))
 
 
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def known_path(path):
     """True when `path` lies inside one of the skill roots this catalog indexes: catalog.json is data, so a path
     from it is only ever quoted to the model when it points where a skill can be."""
-    if not isinstance(path, str) or not path:
+    if not isinstance(path, str) or not path or ".." in PurePath(path).parts or _CONTROL_RE.search(path):
         return False
     p = PurePath(os.path.normcase(path))
     return any(p.is_relative_to(PurePath(os.path.normcase(str(root)))) for root, _, _, _ in SOURCES)

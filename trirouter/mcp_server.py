@@ -2,18 +2,22 @@
 on the next call after a package source or config change."""
 import json
 import sys
-from pathlib import Path
 
-from . import __version__
+from . import __version__, platforms as P
 from .hotreload import HotReloader
 
 PROTOCOL = "2025-06-18"
-RELOADER = HotReloader("trirouter", Path(__file__).resolve().parent, "mcp_tools", keep=("hotreload", "mcp_server"))
+RELOADER = HotReloader("trirouter", P.PKG, "mcp_tools", keep=("hotreload", "mcp_server"))
 
 
 def handle(msg):
     """Answers one message with the freshest tools; a failed reload warns in the tool result and keeps the old code."""
-    tools = RELOADER.current()
+    try:
+        tools = RELOADER.current()
+    except Exception as exc:  # noqa: BLE001 - the very first load failed (a half-edited module): the server stays up
+        mid = msg.get("id")
+        return None if mid is None else {"jsonrpc": "2.0", "id": mid,
+                                         "error": {"code": -32603, "message": f"trirouter tools failed to load: {type(exc).__name__}: {exc}"[:300]}}
     reply = _handle(msg, tools)
     if RELOADER.warning and isinstance(reply, dict) and "result" in reply and reply["result"].get("content"):
         reply["result"]["content"][0]["text"] += f"\n\n(warning: {RELOADER.warning})"
@@ -21,7 +25,8 @@ def handle(msg):
 
 
 def _handle(msg, tools):
-    method, mid, params = msg.get("method"), msg.get("id"), msg.get("params") or {}
+    method, mid = msg.get("method"), msg.get("id")
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
     if mid is None:
         return None  # notification
     if method == "initialize":

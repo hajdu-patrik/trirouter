@@ -21,7 +21,6 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks, "LOG_FILE", tmp_path / "routing.jsonl")
     monkeypatch.setattr(hooks, "SUBAGENT_LOG", tmp_path / "subagents.jsonl")
     monkeypatch.setattr(hooks, "GUARD_LOG", tmp_path / "guard.jsonl")
-    monkeypatch.setattr(hooks, "SEEN_FILE", tmp_path / "seen.json")
     monkeypatch.setattr(hooks, "CLAUDE_SETTINGS", tmp_path / "claude-settings.json")
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)
     monkeypatch.setattr(core, "BACKEND", "local")
@@ -395,7 +394,8 @@ def test_wrong_type_json_in_a_state_file_counts_as_empty(isolated, monkeypatch, 
     an unreadable file: the hook still routes."""
     (isolated / "config.json").write_text("[1, 2]", encoding="utf-8")
     (isolated / "models.local.json").write_text("[]", encoding="utf-8")
-    hooks.SEEN_FILE.write_text('{"turn": 1}', encoding="utf-8")
+    (isolated / "state").mkdir(exist_ok=True)
+    (isolated / "state" / "antigravity_seen.json").write_text("[1]", encoding="utf-8")
     hooks.CLAUDE_SETTINGS.write_text('"opus"', encoding="utf-8")
     assert P.read_json(isolated / "config.json", 5, kind=list) == [1, 2]
     assert core.user_config() == {} and core.model_overrides() == {} and hooks._settings_family() is None

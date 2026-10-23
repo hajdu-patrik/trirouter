@@ -280,15 +280,15 @@ LOCAL_TASK_RE = {
 LOCAL_TASK_STRONG_RE = {
     "qa": r"mi az a|what is (a|an)\b",
 }
-# Tie-break order, tuned against the confusions in eval/results_*.csv.
+# Tie-break order.
 LOCAL_PRIORITY = ["test", "math", "study", "research", "code", "qa", "general"]
-LOCAL_HARD_RE = (r"(egesz|teljes|osszes) (kodbazis|repo|projekt|rendszer|alkalmazas|architektur|modul)|architektur|"
+LOCAL_HARD_RE = re.compile(r"(egesz|teljes|osszes) (kodbazis|repo|projekt|rendszer|alkalmazas|architektur|modul)|architektur|"
                  r"\bnehez|bonyolult|reszletes|mikroszolgaltatas|migral|optimaliz|hexagonal|\d{2,}\s*oldal|"
                  r"tobb (fajl|modul)|bizonyits|\bentire\b|\bwhole\b|\barchitecture\b|\bcomplex\b|\bdetailed\b|"
                  r"microservice|\bmigrate\b|\bmigration\b|optimi[sz]e|\d{2,}\s*pages?|multiple (files|modules)|"
                  r"\bprove\b|\bproof\b|from scratch|nulladrol|semmibol|end-to-end|\be2e\b|security audit|biztonsagi audit")
-LOCAL_LONG_RE = (r"\d{2,}\s*oldal|(egesz|teljes|osszes) (kodbazis|repo|projekt|konyv|fajl)|"
-                 r"\d{2,}\s*pages?|(entire|whole|full) (codebase|repo|project|book|file)")
+LOCAL_LONG_RE = re.compile(r"\d{2,}\s*oldal|(egesz|teljes|osszes) (kodbazis|repo|projekt|konyv|fajl)|"
+                           r"\d{2,}\s*pages?|(entire|whole|full) (codebase|repo|project|book|file)")
 
 
 # Extra parallel agents multiply token usage, so 0 is the answer for almost every request.
@@ -343,7 +343,7 @@ def local_answers(prompt):
         task, conf = "general", 0.3
     else:
         task, conf = top, min(0.9, 0.5 + 0.15 * (scores[top] - scores[second]))
-    if re.search(LOCAL_HARD_RE, t):
+    if LOCAL_HARD_RE.search(t):
         level = 2
     elif len(t) < 60 and task in ("qa", "general", "research", "math") and not re.search(r"bizonyits|proof|prove", t):
         level = 0
@@ -352,7 +352,7 @@ def local_answers(prompt):
     return {
         "task": {"choice": task, "confidence": conf},
         "difficulty": {"score": level, "confidence": 0.7},
-        "long_context": {"noul": 0.8 if re.search(LOCAL_LONG_RE, t) else 0.1},
+        "long_context": {"noul": 0.8 if LOCAL_LONG_RE.search(t) else 0.1},
         "needs_web": {"noul": 0.8 if task == "research" else 0.1},
         "destructive": {"noul": 0.9 if is_destructive(prompt) else 0.05},
         "agents": local_agents_answer(t, level),
@@ -377,6 +377,13 @@ def load_json(name, default):
 
 def user_config():
     return platforms.read_json(STATE_DIR / "config.json", {}, kind=dict)
+
+
+def hook_transport(cfg=None):
+    """config.json hooks.transport: "http" (the hook daemon) or "command" (the default)."""
+    cfg = user_config() if cfg is None else cfg
+    hooks = cfg.get("hooks") if isinstance(cfg, dict) else None
+    return "http" if isinstance(hooks, dict) and hooks.get("transport") == "http" else "command"
 
 
 # (channel, environment variable, config.json field), in priority order: a TypeSafe token wins over an OpenRouter key
@@ -486,19 +493,24 @@ def _local_model(provider, model_id, entry, cfg):
     return dict(mdef, id=model_id, selectable=bool(entry.get("selectable")))
 
 
+def _local_entries(base):
+    """The per-account entries of models.local.json for a base provider ({} when the file is damaged)."""
+    local = model_overrides().get(base)
+    return local if isinstance(local, dict) else {}
+
+
 def models_for(provider):
     """Selectable models of the provider with the excluded efforts stripped: the catalog's, adjusted by
     models.local.json, plus the models only that file knows. `"routable": false` is never selectable."""
     cfg = load_json("models.json", {})
     base = base_provider(provider)
     m = for_provider(cfg, provider, {})
-    local = model_overrides().get(base, {})
-    local = local if isinstance(local, dict) else {}
+    local = _local_entries(base)
     banned = excluded_efforts()
     out = {}
     for model in m.get("models", []):
         override = local.get(model["id"])
-        selectable = (override or {}).get("selectable", model.get("selectable")) if isinstance(override, dict) \
+        selectable = override.get("selectable", model.get("selectable")) if isinstance(override, dict) \
             else model.get("selectable")
         if selectable and model.get("routable", True):
             out[model["id"]] = dict(model, levels=[lvl for lvl in model.get("levels", []) if lvl not in banned])
@@ -518,7 +530,7 @@ def _catalog_role(provider, model_id):
     for model in for_provider(load_json("models.json", {}), provider, {}).get("models", []):
         if model.get("id") == model_id:
             return model.get("role", "balanced")
-    entry = model_overrides().get(base_provider(provider), {}).get(model_id)
+    entry = _local_entries(base_provider(provider)).get(model_id)
     return (entry.get("role") if isinstance(entry, dict) else None) or "balanced"
 
 
@@ -538,10 +550,7 @@ def effort_levels_for(provider):
     models = models_for(provider)
     levels = sorted({lvl for m in models.values() for lvl in m["levels"]},
                     key=lambda lvl: EFFORT_ORDER.index(lvl) if lvl in EFFORT_ORDER else 99)
-    if not levels:
-        return None
-    return {"levels": levels, "excluded": sorted(excluded_efforts()),
-            "note": "The chosen level is clamped to what the chosen model supports."}
+    return {"levels": levels, "note": "The chosen level is clamped to what the chosen model supports."} if levels else None
 
 
 def clamp_effort(effort, allowed):
@@ -550,13 +559,11 @@ def clamp_effort(effort, allowed):
         return effort
     if not effort or effort in allowed:
         return effort or allowed[len(allowed) // 2]
-    rank = lambda level: EFFORT_ORDER.index(level) if level in EFFORT_ORDER else 2  # noqa: E731
-    return min(allowed, key=lambda a: (abs(rank(a) - rank(effort)), -rank(a)))
+    return min(allowed, key=lambda a: (abs(_effort_rank(a) - _effort_rank(effort)), -_effort_rank(a)))
 
 
-def _usable_levels(effort):
-    """The levels of an effort_levels_for() answer that are not excluded."""
-    return [lvl for lvl in effort["levels"] if lvl not in set(effort.get("excluded", []))]
+def _effort_rank(level):
+    return EFFORT_ORDER.index(level) if level in EFFORT_ORDER else 2
 
 
 def _short_desc(desc):
@@ -591,7 +598,7 @@ def build_questions(skills, effort=None, models=None):
         for name, desc in skills.items():
             q[safe_key(name)] = {"type": "noul", "instructions": f"The request needs this capability: {desc}"}
     if effort and effort.get("levels"):
-        usable = _usable_levels(effort)
+        usable = effort["levels"]
         instructions = "Which reasoning-effort level should the model use for this request?"
         if effort.get("note"):
             instructions += " " + effort["note"]
@@ -620,14 +627,11 @@ def ask_jev(prompt, questions):
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" and parts.hostname not in LOOPBACK:
         raise RuntimeError("the JEV endpoint must use https")
-    body = json.dumps({"state": secret.redact(prompt[:MAX_STATE_CHARS]), "model": model,
+    body = json.dumps({"state": secret.redact(prompt)[:MAX_STATE_CHARS], "model": model,
                        "questions": questions}).encode("utf-8")
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    if KEEPALIVE and not urllib.request.getproxies().get(parts.scheme):  # http.client knows no proxies
-        fetch = lambda: _post_keepalive(url, body, headers)  # noqa: E731
-    else:
-        fetch = lambda: _post_once(url, body, headers)  # noqa: E731
-    return json.loads(_within(TIMEOUT_S, fetch).decode("utf-8"))
+    post = _post_keepalive if KEEPALIVE and not urllib.request.getproxies().get(parts.scheme) else _post_once
+    return json.loads(_within(TIMEOUT_S, lambda: post(url, body, headers)).decode("utf-8"))
 
 
 def _within(seconds, fn):
@@ -690,7 +694,7 @@ def _post_keepalive(url, body, headers):
     for attempt in (0, 1):
         with _IDLE_LOCK:
             idle = _IDLE.get(pool_key) or []
-            conn = idle.pop() if idle else None
+            conn = idle.pop() if idle and not attempt else None  # the retry never takes another pooled connection
         reused = conn is not None
         if conn is None:
             cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
@@ -723,7 +727,6 @@ def _post_keepalive(url, body, headers):
         if not 200 <= resp.status < 300:
             raise RuntimeError(f"JEV answered HTTP {resp.status}")
         return data
-    raise RuntimeError("unreachable")
 
 
 def use_jev(backend=None):
@@ -884,9 +887,7 @@ def _mock_effort(lvl, effort):
     """The mock never picks the very top level on its own; that is left to JEV or an override."""
     if not effort or not effort.get("levels"):
         return None
-    usable = _usable_levels(effort)
-    if not usable:
-        return None
+    usable = effort["levels"]
     idx = round(lvl / 2 * (len(usable) - 1) * 0.8) if len(usable) > 1 else 0
     return usable[max(0, min(idx, len(usable) - 1))]
 
@@ -968,7 +969,7 @@ def decide(answers, routes, skills_by_name=None, prompt=""):
         target = routes.get("default", "main")
         notes.append("routing uncertain")
     else:
-        target = routes.get("table", {}).get(task["choice"], ["main"] * 3)[level]
+        target = tier_of(routes, task["choice"], level, verify=True)
 
     if float(answers["long_context"]["noul"]) >= LONG_CTX_T and task["choice"] in ("study", "qa", "general", "research"):
         target = routes.get("long_context_target", "deep")
@@ -1030,16 +1031,14 @@ def extra_agents(ans, level):
     return max(0, min(n, MAX_EXTRA_AGENTS))
 
 
-def resolve_tier(d, targets, models=None, session_model=None, provider=None):
+def resolve_tier(d, targets, models, provider, session_model=None):
     """(text, effort, model, agent, in_session). A plain-text tier answers in-session, as does a tier on the model the
-    session already runs; with `provider`, an unselectable tier model falls back to the closest selectable one."""
+    session already runs; an unselectable tier model falls back to the closest selectable one."""
     spec = _tier_spec(d, targets)
     if isinstance(spec, str):
         return spec, d.get("effort"), None, None, False
+    spec, models = _available_spec(d, spec, targets, models, provider)
     model = spec.get("model", "")
-    if provider:
-        spec, models = _available_spec(d, spec, targets, models, provider)
-        model = spec.get("model", "")
     mdef = (models or {}).get(model)
     effort = _tier_effort(d, spec, mdef)
     slug = ((mdef or {}).get("slug") or spec.get("slug") or "{id}").format(id=model, effort=effort or "")
@@ -1116,7 +1115,7 @@ def machine_route(targets, models, provider, model, effort, session_model=None):
 
 
 def render(d, destructive_hit, targets, provider="claude", lang_code="hu", models=None, session_model=None):
-    text, effort, model, agent, in_session = resolve_tier(d, targets, models, session_model, provider)
+    text, effort, model, agent, in_session = resolve_tier(d, targets, models, provider, session_model)
     d["effort"] = effort
     if model and not in_session:  # in-session on the right model: nothing is delegated
         d["target_model"] = model
@@ -1253,7 +1252,7 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     lang_code = language_of(own)
     regex_hit = is_destructive(prompt)  # the whole prompt: a pasted command can be the dangerous part
 
-    forced = override_for(prompt, targets)
+    forced = override_for(FENCE_RE.sub(" ", own), targets)  # the user's own words, never pasted or quoted text
     if forced:
         primary, _ = apply_cloud(forced, "", routes)
         d = {"task": "override", "task_conf": 1.0, "level": 1, "primary": primary, "verify": "", "skill": None,
@@ -1281,7 +1280,7 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     except Exception as exc:  # any JEV failure falls back to the local classifier
         error = f"{type(exc).__name__}: {exc}"[:200]
         answers = classify(own, candidates, backend="local", effort=effort, models=models)
-    if fast == "distilled" and not error:
+    if fast == "distilled":
         _apply_distilled(answers, own, effort)
     d = decide(answers, routes, by_name, prompt=own)
     if inline_reason:
@@ -1300,14 +1299,17 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     return d, render(d, hit, targets, provider, lang_code, models, session_model), hit, error
 
 
+def tier_of(routes, task, level, verify=False):
+    """The tier a provider's route table sends (task, level) to; the '+verify:<tool>' suffix only with `verify`."""
+    row = (routes.get("table") or {}).get(task) or ["main"] * 3
+    target = row[max(0, min(int(level), len(row) - 1))]
+    return target if verify else target.partition("+verify:")[0]
+
+
 def _same_tier_at_low_levels(task, routes):
     """True when the route table sends this task to the same tier at difficulty 0 and 1: only then the local
     classifier's trivial-vs-moderate guess (weak on real prompts) cannot change where the prompt goes."""
-    row = (routes.get("table") or {}).get(task)
-    if not row:
-        return True
-    tier = lambda level: row[min(level, len(row) - 1)].partition("+verify:")[0]  # noqa: E731
-    return tier(0) == tier(1)
+    return tier_of(routes, task, 0) == tier_of(routes, task, 1)
 
 
 def _distilled_prediction(own):
@@ -1351,22 +1353,25 @@ def _fast_path_reason(own, pasted, candidates, routes, backend):
     if pasted or backend or BACKEND != "auto" or not use_jev(None):  # an explicit backend is never second-guessed
         return None
     a = local_answers(own)
-    if not _needs_jev(own, a, candidates) and _distilled_prediction(own) is not None:
+    local_enough = not _needs_jev(own, a, candidates)
+    if local_enough and _distilled_prediction(own) is not None:
         return "distilled"
     if not _same_tier_at_low_levels(a["task"]["choice"], routes):
         return None  # the local trivial/moderate guess is a coin flip and the tier depends on it: that is JEV's
     cc = routes.get("cost_cap") or {}
     if cc and is_short_chat(own, int(cc.get("short_chat_chars", 40))) and a["task"]["confidence"] >= MIN_CONF:
         return "short"  # an unsure local guess would land on the 'uncertain' default: JEV does better there
-    if not _needs_jev(own, a, candidates) and a["task"]["confidence"] >= LOCAL_CONFIDENT and a["difficulty"]["score"] <= 1:
+    if local_enough and a["task"]["confidence"] >= LOCAL_CONFIDENT and a["difficulty"]["score"] <= 1:
         return "local-confident"
     return None
 
 
-def override_for(prompt, targets):
-    """Whole-tag match, so #fast never fires on #faster."""
-    low = prompt.lower()
+def override_for(text, targets):
+    """An override tag as its own word at the start or the end of the user's text ("#opus fix it", "fix it #opus"):
+    never inside prose ("the #main div") and, whole-tag, never #fast on #faster."""
+    low = text.strip().lower()
     for tag, tier in targets.get("overrides", {}).items():
-        if re.search(r"(?<![\w#])" + re.escape(tag.lower()) + r"(?![\w-])", low):
+        tag = re.escape(tag.lower())
+        if re.search(rf"^{tag}(?![\w-])|(?<![\w#]){tag}$", low):
             return tier
     return None

@@ -13,7 +13,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import __version__, core, platforms as P
+from . import __version__, core, platforms as P, secret
 from .hotreload import HotReloader
 
 HOST = "127.0.0.1"  # never another interface: the hooks carry prompts
@@ -60,20 +60,16 @@ def token(create=True):
     return state["token"]
 
 
-def configured_port(cfg=None):
+def configured_port():
     """config.json daemon.port, else DEFAULT_PORT."""
-    cfg = core.user_config() if cfg is None else cfg
     try:
-        port = int((cfg.get("daemon") or {}).get("port") or DEFAULT_PORT)
+        port = int((core.user_config().get("daemon") or {}).get("port") or DEFAULT_PORT)
     except (TypeError, ValueError, AttributeError):
         return DEFAULT_PORT
     return port if 0 < port < 65536 else DEFAULT_PORT
 
 
-def transport(cfg=None):
-    """config.json hooks.transport: "http" (this daemon) or "command" (the default)."""
-    cfg = core.user_config() if cfg is None else cfg
-    return "http" if (cfg.get("hooks") or {}).get("transport") == "http" else "command"
+transport = core.hook_transport
 
 
 def log(message):
@@ -338,10 +334,10 @@ def daemon_argv(port=None):
     return [P.python_exe_windowless(), "-m", "trirouter.daemon"] + (["--port", str(port)] if port else [])
 
 
-def start(wait=2.0, port=None, check=True):
+def start(wait=2.0, check=True):
     """Starts the daemon detached unless it already runs; True once it answers /health (within `wait` s).
     check=False skips the first probe (a second daemon on a taken port exits quietly)."""
-    port = port or configured_port()
+    port = configured_port()
     if check and health(port):
         return True
     token(create=True)  # here, not in two racing daemons
@@ -421,11 +417,6 @@ def _token_check(tok):
 
 # ---- switching the Claude hooks between command and http ------------------------------------------------------
 
-def _save_config(cfg):
-    from . import secret
-    P.atomic_write(core.STATE_DIR / "config.json", json.dumps(secret.protect_config(cfg), indent=2), mode=0o600)
-
-
 def _switch(mode, apply, say):
     """Sets hooks.transport, re-registers Claude's hooks for it (dry run unless `apply`; a changed settings.json
     keeps its .bak) and starts or stops the daemon. The number of changes (made or due)."""
@@ -437,7 +428,7 @@ def _switch(mode, apply, say):
         say(("[DO]  " if apply else "[DRY] ") + f"config.json: hooks.transport = {mode}")
         if apply:
             cfg["hooks"] = {**(cfg.get("hooks") if isinstance(cfg.get("hooks"), dict) else {}), "transport": mode}
-            _save_config(cfg)
+            secret.write_config(core.STATE_DIR / "config.json", cfg)
     else:
         say(f"[OK]  config.json: hooks.transport is {mode}")
     if mode == "http" and apply:

@@ -3,8 +3,12 @@
 import textwrap
 from dataclasses import dataclass
 
+from . import platforms as P
+
 WIDTH = 78
 DOC_PROG = "trirouter"
+# the Claude families a default model may name (models.json claude.allowed_families), for --main / --subagent-model
+FAMILIES = tuple(P.read_json(P.PKG / "config" / "models.json", {}).get("claude", {}).get("allowed_families") or ())
 
 
 @dataclass(frozen=True)
@@ -41,8 +45,8 @@ class Command:
 
 HELP_FLAG = Flag("--help", "-h", doc="Show this help page and exit.", default="-", remembered="no")
 
-YES = Flag("--yes", "-y", doc="Never prompt: answer every question with its default. Unattended runs move, "
-           "quarantine or delete nothing that needs a decision.")
+YES = Flag("--yes", "-y", doc="Never prompt: every question gets its default answer (skills are moved into the hub, "
+           "nothing is quarantined or deleted).")
 DRY = Flag("--dry-run", "-n", doc="Show what would change and change nothing, config.json included.")
 APPLY = Flag("--apply", "-a", doc="Write the changes. Without it the command only previews them.")
 ALLOW = Flag("--allow-skill", value="NAME,...", default="none", remembered="yes (skillscan.allow)",
@@ -172,8 +176,10 @@ _add(key="models", summary="Find new models, drop retired ones, test which ones 
                  choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
                  doc="Switch the automatic daily check on or off. Given alone, only the setting is saved."),
             Flag("--main", value="FAMILY|off", default="unchanged", remembered="yes (claude.main_model)",
-                 doc="Claude Code's default model for new sessions (haiku, sonnet, opus or fable); off removes it."),
+                 choices=FAMILIES + ("off",), choices_hint=", ".join(FAMILIES) + " or off",
+                 doc="Claude Code's default model for new sessions; off removes it."),
             Flag("--subagent-model", value="FAMILY|off", default="unchanged", remembered="yes (claude.subagent_model)",
+                 choices=FAMILIES + ("off",), choices_hint=", ".join(FAMILIES) + " or off",
                  doc="The model of Claude subagents that name none (general-purpose, plugin agents); off removes it."),
             DRY),
      changes="Changes files (models.local.json, worker agents, ~/.claude/settings.json); preview with --dry-run",
@@ -393,7 +399,7 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      synopsis=("{prog} route [--provider=NAME] [--json] [--] TEXT...",),
      description="Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). "
                  "With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; "
-                 "with --json one object: model, effort, agent, tier, task, difficulty, extra_agents, destructive, "
+                 "with --json one object: provider, model, effort, agent, tier, task, difficulty, extra_agents, destructive, "
                  "skill, verify, lang, backend, text, note. For Claude, model is always concrete: a tier that answers "
                  "in-session reports sonnet. #norouter / #privat prompts are not routed. "
                  "`route` must be the first argument; everything after `--` is prompt text.",

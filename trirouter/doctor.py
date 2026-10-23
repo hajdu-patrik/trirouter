@@ -15,7 +15,7 @@ def line(ok, label, detail=""):
 
 
 def jload(p):
-    return P.read_json(p, encoding="utf-8-sig")
+    return P.read_json(p, encoding="utf-8-sig", kind=dict)
 
 
 def _hooks(cfg, event):
@@ -38,8 +38,7 @@ def mcp_entry(cfg):
 def interpreters(claude_settings, codex_toml):
     """A Python update that removes the registered interpreter silently stops every hook."""
     found = []
-    # UserPromptSubmit first; with the http transport only SessionStart still runs a command
-    hook = next((c for e in ("UserPromptSubmit",) + CLAUDE_EVENTS for c in _commands(claude_settings, e)
+    hook = next((c for e in CLAUDE_EVENTS for c in _commands(claude_settings, e)
                  if integrations.is_router_cmd(c)), "")
     if hook:
         m = re.match(r'\s*"([^"]+)"|\s*\'([^\']+)\'|\s*(\S+)', hook)

@@ -18,7 +18,6 @@ TYPES = {"provider": str, "model": (str, type(None)), "effort": (str, type(None)
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks, "LOG_FILE", tmp_path / "logs" / "routing.jsonl")
-    monkeypatch.setattr(hooks, "SEEN_FILE", tmp_path / "state" / "seen.json")
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)  # queue state, user config, model overrides
     monkeypatch.setattr(core, "BACKEND", "local")
     monkeypatch.setenv("ROUTER_BACKEND", "local")

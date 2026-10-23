@@ -135,20 +135,25 @@ class Store:
         entry = load(self.path(state_dir)).get(key)
         return entry if self._fresh(entry, time.time()) else None
 
+    def _bounded(self, data, now):
+        """The map without expired entries and, with a limit, only the newest ones."""
+        data = {k: v for k, v in data.items() if self._fresh(v, now)}
+        if self.limit:
+            data = dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-self.limit:])
+        return data
+
     def put(self, state_dir, key, entry):
         """Stores `entry`, stamped now, under `key` and drops the expired entries; None removes the key instead."""
         path, now = self.path(state_dir), time.time()
         with self.lock(path) as lock:
             if not lock.held:
                 return
-            data = {k: v for k, v in load(path).items() if self._fresh(v, now)}
+            data = load(path)
             if entry is not None:
                 data[key] = {**entry, "ts": now}
             elif data.pop(key, None) is None:
                 return
-            if self.limit:
-                data = dict(sorted(data.items(), key=lambda kv: kv[1]["ts"])[-self.limit:])
-            save(path, data)
+            save(path, self._bounded(data, now))
 
     def pop(self, state_dir, key):
         path = self.path(state_dir)
@@ -172,5 +177,5 @@ class Store:
                 entry = data[key] = {**missing, "ts": now}
             result = change(entry)
             if lock.held:
-                save(path, data)
+                save(path, self._bounded(data, now))
             return result, dict(entry)

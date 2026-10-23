@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-from . import platforms as P
+from . import core, platforms as P
 
 BIN = P.STATE / "bin"
 SHIM_HOOK, SHIM_MCP, SHIM_ROUTE = BIN / "run_hook.py", BIN / "mcp_server.py", BIN / "route.py"
@@ -55,11 +55,7 @@ class Writer:
         self.changes += 1
         print(("[DO]  " if self.apply else "[DRY] ") + f"{label}: {'update' if old is not None else 'create'} {path}")
         if self.apply:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            bak = path.with_name(path.name + ".bak")
-            if old is not None and not bak.exists():  # keep the original, pre-trirouter version
-                P.atomic_write(bak, old)
-            P.atomic_write(path, content)
+            P.write_backed_up(path, content)
 
     def write_json(self, path, cfg, label):
         self.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", label)
@@ -75,11 +71,12 @@ class BadConfig(Exception):
 
 def load(path):
     path = Path(path)
-    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+    if not path.exists():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except ValueError as exc:
+        text = path.read_text(encoding="utf-8-sig")
+        data = json.loads(text) if text.strip() else {}
+    except (ValueError, OSError) as exc:
         raise BadConfig(f"{path} is not valid JSON ({exc}) - fix it, then re-run") from exc
     if not isinstance(data, dict):
         raise BadConfig(f"{path} does not contain a JSON object - fix it, then re-run")
@@ -119,15 +116,6 @@ def is_router_hook(hook):
 HTTP_PROVIDERS = ("claude",)
 COMMAND_ONLY_EVENTS = frozenset({"SessionStart"})
 HTTP_HOOK_TIMEOUT_S = 10
-
-
-def hook_transport():
-    """config.json hooks.transport: "http" or "command" (the default, also when the config is unreadable)."""
-    try:
-        from . import daemon
-        return daemon.transport()
-    except Exception:  # noqa: BLE001 - the installer falls back to command hooks
-        return "command"
 
 
 def uses_http(provider, event, transport):
@@ -194,7 +182,7 @@ def claude_codex_hooks(path, provider, w, uninstall=False, claude_models=None, t
     cfg = load(path)
     hooks = cfg.setdefault("hooks", {})
     wanted = () if uninstall else HOOK_EVENTS[provider]
-    transport = transport or hook_transport()
+    transport = transport or core.hook_transport()
     token = None
     if any(uses_http(provider, e, transport) for e in wanted):
         from . import daemon
@@ -225,7 +213,6 @@ SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL"
 
 def claude_families():
     """The Claude families that may be set as a default: the selectable ones (models.json + per-account overrides)."""
-    from . import core  # lazy: only the model defaults need the catalog
     return [m for m in core.models_for("claude") if core.claude_alias_allowed(m)]
 
 
@@ -273,7 +260,6 @@ def remembered_claude_models(cfg=None):
     """(main, subagent) from config.json `claude.main_model` / `claude.subagent_model` (stored by `trirouter models
     --main / --subagent-model`): each a family, "off" or None. A value that is no longer valid becomes None."""
     if cfg is None:
-        from . import core
         cfg = core.user_config()
     claude = cfg.get("claude") if isinstance(cfg, dict) and isinstance(cfg.get("claude"), dict) else {}
     out = []
@@ -339,7 +325,7 @@ def json_mcp(path, label, w, uninstall=False):
 
 
 def codex_mcp(path, w, uninstall=False):
-    text = Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
+    text = Path(path).read_text(encoding="utf-8-sig") if Path(path).exists() else ""
     # The section ends at the next table or comment line (our agents block starts with one); the first one found is
     # replaced in place, any further one is dropped.
     pat = re.compile(r"\[mcp_servers\." + re.escape(MCP_NAME) + r"\]\n(?:\n|[^\[#\n].*(?:\n|\Z))*")

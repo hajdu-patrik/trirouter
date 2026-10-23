@@ -157,10 +157,12 @@ def _parse_iso(text):
         return None
 
 
-def configured_days(default=DEFAULT_DAYS):
-    """`skillscan.quarantine_days` from config.json; never raises."""
+def configured_days(cfg=None, default=DEFAULT_DAYS):
+    """`skillscan.quarantine_days` of config.json (or of a parsed `cfg`); never raises."""
     try:
-        days = json.loads(CONFIG.read_text(encoding="utf-8"))["skillscan"]["quarantine_days"]
+        if cfg is None:
+            cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+        days = cfg["skillscan"]["quarantine_days"]
         return days if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else default
     except (OSError, ValueError, KeyError, TypeError):
         return default
@@ -379,8 +381,9 @@ def _resolve_flagged(flagged, act, choose, cache, days):
     return out
 
 
-# one summary line per outcome instead of a line per skill: a large hub has dozens of CAUTION verdicts
-_SUMMARY = (("unasked", f"{BLOCK}, linked - decide in an interactive `{P.command_hint('skills --apply')}`, "
+def _summary():
+    """One summary line per outcome instead of a line per skill: a large hub has dozens of CAUTION verdicts."""
+    return (("unasked", f"{BLOCK}, linked - decide in an interactive `{P.command_hint('skills --apply')}`, "
                         "or keep all of them after a review with --accept-flagged"),
             ("kept", f"{BLOCK}, linked - kept by you (asked again only if it changes)"),
             ("accepted", f"{BLOCK}, linked - accepted with --accept-flagged (asked again only if it changes)"),
@@ -438,7 +441,7 @@ def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, acc
     if flagged:
         for (s, r), outcome in zip(flagged, _resolve_flagged(flagged, act, choose, cache, days)):
             groups.setdefault(outcome, []).append(f"{s.name} ({r.get('score')})")
-    for outcome, text in _SUMMARY + (("unknown", "unknown verdict, linked"),):
+    for outcome, text in _summary() + (("unknown", "unknown verdict, linked"),):
         if groups.get(outcome):
             print(f"[WARN] skillscan: {len(groups[outcome])} {text}: {', '.join(groups[outcome])}")
     if groups.get(CAUTION) or groups.get("unasked"):

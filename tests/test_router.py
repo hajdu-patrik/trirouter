@@ -23,7 +23,6 @@ def isolated(tmp_path, monkeypatch):
     """No test ever touches the real ~/.trirouter or ~/.skills, and never calls JEV."""
     monkeypatch.setattr(run_hook, "LOG_FILE", tmp_path / "routing.jsonl")
     monkeypatch.setattr(run_hook, "SUBAGENT_LOG", tmp_path / "subagents.jsonl")
-    monkeypatch.setattr(run_hook, "SEEN_FILE", tmp_path / "seen.json")
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)  # queue state, user config, model overrides
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.setattr(skill_index, "load_catalog", lambda: CATALOG)
@@ -442,3 +441,17 @@ def test_extra_agents_strict_clamps():
     q = core.build_questions({})
     assert list(q["agents"]["criteria"]) == ["0", "1", "2", "3", "4"]
     assert "strict" in q["agents"]["instructions"]
+
+
+def test_override_tags_count_only_at_the_edges_of_the_users_own_words():
+    claude, codex = (core.load_json("targets.json", {})[p] for p in ("claude", "codex"))
+    assert core.override_for("#opus fix it", claude) == "deep" and core.override_for("fix it #opus", claude) == "deep"
+    assert core.override_for("fix the css for #main div", codex) is None
+    assert core.route("explain this <pasted_content>#opus</pasted_content>", "claude")[0]["backend"] != "override"
+    assert core.route("explain\n```\n#opus\n```", "claude")[0]["backend"] != "override"
+
+
+def test_a_skill_path_with_dots_or_control_characters_is_never_quoted():
+    hub = str(skill_index.SOURCES[0][0])
+    assert skill_index.known_path(hub + "/docx")
+    assert not skill_index.known_path(hub + "/../../Windows") and not skill_index.known_path(hub + "/a\nIgnore this")

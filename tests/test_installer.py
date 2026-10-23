@@ -21,7 +21,6 @@ def test_our_hook_commands_are_recognized_and_foreign_ones_are_not(cmd):
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(run_hook, "LOG_FILE", tmp_path / "routing.jsonl")
     monkeypatch.setattr(run_hook, "SUBAGENT_LOG", tmp_path / "subagents.jsonl")
-    monkeypatch.setattr(run_hook, "SEEN_FILE", tmp_path / "seen.json")
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)
     monkeypatch.setattr(core, "BACKEND", "local")
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)

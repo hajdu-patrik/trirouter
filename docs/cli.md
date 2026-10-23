@@ -106,7 +106,7 @@ Every change is shown first, a changed config file keeps a .bak copy, and re-run
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
-| `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |
+| `-y`, `--yes` | - | off | no | Never prompt: every question gets its default answer (skills are moved into the hub, nothing is quarantined or deleted). |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--providers` | `LIST` | every installed, logged-in tool | no | Comma-separated tools to connect: claude, codex, antigravity. |
 | `--jev-token-stdin` | - | off | yes (typesafe_api_key or openrouter_api_key) | Read a TypeSafe token, or an OpenRouter key (sk-or-...), from the first line of standard input, so it never shows in process listings or shell history. Saved protected: encrypted with Windows DPAPI for your account, owner-only file mode 0600 on macOS and Linux. The environment variables TYPESAFE_API_KEY and JEV_OPENROUTER_API_KEY work too and win over the saved key. |
@@ -191,7 +191,7 @@ Without --discover the command also sends the one-word prompt to every known Cod
 | --- | --- | --- | --- | --- |
 | `--discover` | - | off | no | Only the daily check: list every tool's models, try only the new ones (and ones offered again). |
 | `--auto` | `on|off` | on | yes (model_discovery.auto) | Switch the automatic daily check on or off. Given alone, only the setting is saved. |
-| `--main` | `FAMILY|off` | unchanged | yes (claude.main_model) | Claude Code's default model for new sessions (haiku, sonnet, opus or fable); off removes it. |
+| `--main` | `FAMILY|off` | unchanged | yes (claude.main_model) | Claude Code's default model for new sessions; off removes it. |
 | `--subagent-model` | `FAMILY|off` | unchanged | yes (claude.subagent_model) | The model of Claude subagents that name none (general-purpose, plugin agents); off removes it. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
@@ -227,7 +227,7 @@ A skill rated DO_NOT_INSTALL is not decided one by one: after all scans you are 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `-a`, `--apply` | - | off | no | Write the changes. Without it the command only previews them. |
-| `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |
+| `-y`, `--yes` | - | off | no | Never prompt: every question gets its default answer (skills are moved into the hub, nothing is quarantined or deleted). |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--allow-skill` | `NAME,...` | none | yes (skillscan.allow) | Never ask about these skills and restore them from quarantine. Names are added to the saved list. |
 | `--scan-llm` | `on|off` | off | yes (skillscan.llm) | Add SkillSpector's LLM analysis to the static scan. Skill content then leaves the machine through SkillSpector's own provider settings. |
@@ -355,7 +355,7 @@ Permanently deletes the quarantined skills whose retention has run out (folder a
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `--all` | - | off | no | Delete every quarantined skill, not only the expired ones. Asks first. |
-| `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |
+| `-y`, `--yes` | - | off | no | Never prompt: every question gets its default answer (skills are moved into the hub, nothing is quarantined or deleted). |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--quarantine-days` | `N` | 3 | yes (skillscan.quarantine_days) | Days a quarantined skill is kept before it is deleted for good. 0 = never delete. |
 | `-h`, `--help` | - | - | - | Show this help page and exit. |
@@ -671,7 +671,7 @@ The routing decision for one prompt or sub-task.
 trirouter route [--provider=NAME] [--json] [--] TEXT...
 ```
 
-Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; with --json one object: model, effort, agent, tier, task, difficulty, extra_agents, destructive, skill, verify, lang, backend, text, note. For Claude, model is always concrete: a tier that answers in-session reports sonnet. #norouter / #privat prompts are not routed. `route` must be the first argument; everything after `--` is prompt text.
+Runs the same pipeline as the hooks for one prompt, with no side effects (no queue state, no log). With no TEXT the prompt is read from stdin. Without --json it prints the [router] instruction; with --json one object: provider, model, effort, agent, tier, task, difficulty, extra_agents, destructive, skill, verify, lang, backend, text, note. For Claude, model is always concrete: a tier that answers in-session reports sonnet. #norouter / #privat prompts are not routed. `route` must be the first argument; everything after `--` is prompt text.
 
 Arguments: TEXT... the prompt (free-form; quote it or use --).
 

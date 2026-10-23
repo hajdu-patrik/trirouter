@@ -29,7 +29,7 @@ def _value_error(f, text):
 def _check_value(f, text):
     if not text:
         raise _value_error(f, "")
-    if f.kind == "int" and not (text.isdigit() and int(text) >= 0):
+    if f.kind == "int" and not (text.isascii() and text.isdigit()):
         raise _value_error(f, text)
     if f.choices and text.lower() not in f.choices:
         raise _value_error(f, text)
@@ -181,9 +181,9 @@ def resolve(argv, prog, install_py=False):
         return _help_invocation(flags, pos, prog)
     if wants_help:
         return Invocation("help", page)
-    if cmd == "route":
-        return Invocation("run", "route", {}, rest)
     flags, pos = parse_flags(manual.COMMANDS[key], rest, prog, names)
+    if flags.pop("--help", None):  # -h inside a combined short flag (-nh)
+        return Invocation("help", page)
     if pos and key != "quarantine restore":
         raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
     if key == "quarantine restore" and not pos:
@@ -193,6 +193,8 @@ def resolve(argv, prog, install_py=False):
 
 
 def _help_invocation(flags, pos, prog):
+    if flags.get("--help"):
+        return Invocation("overview")
     if flags.get("--markdown"):
         if pos:
             raise UsageError("help: --markdown prints the whole reference and takes no command")

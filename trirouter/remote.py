@@ -8,7 +8,7 @@ import re
 import time
 from pathlib import Path
 
-from . import platforms as P
+from . import platforms as P, secret
 
 STATE = P.STATE
 BIN = STATE / "bin"
@@ -43,7 +43,7 @@ def save_name(name, workdir=None, start_session=None):
         cfg["remote_workdir"] = str(workdir)
     if start_session is not None:
         cfg["remote_start_session"] = bool(start_session)
-    P.atomic_write(CONFIG, json.dumps(cfg, indent=2), mode=0o600)
+    secret.write_config(CONFIG, cfg)
 
 
 def start_session_saved():

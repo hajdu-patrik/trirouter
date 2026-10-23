@@ -74,9 +74,8 @@ def features(text):
 
 
 def tier_of(task, level, table):
-    """The tier a (task, level) pair routes to in a route table; the '+verify:<tool>' suffix is not a tier."""
-    row = table.get(task) or ["main"] * 3
-    return row[min(int(level), len(row) - 1)].partition("+verify:")[0]
+    """The tier a (task, level) pair routes to in a route table (core.tier_of on a bare table)."""
+    return core.tier_of({"table": table}, task, level)
 
 
 def claude_table():

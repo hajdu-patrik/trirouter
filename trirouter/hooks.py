@@ -8,7 +8,7 @@ import re
 import sys
 import time
 
-from . import core, platforms as P, queue_state
+from . import core, platforms as P, queue_state, store
 from .secret import redact
 
 LOG_FILE = core.STATE_DIR / "logs" / "routing.jsonl"
@@ -16,7 +16,7 @@ SUBAGENT_LOG = core.STATE_DIR / "logs" / "subagents.jsonl"
 GUARD_LOG = core.STATE_DIR / "logs" / "guard.jsonl"
 LOG_MAX = 16 * 1024 * 1024  # a log file is cut to its newer half beyond this (routing.jsonl trains the local model)
 CLAUDE_SETTINGS = P.PATHS["claude_settings"]  # only read: the fallback for the session's model
-SEEN_FILE = core.STATE_DIR / "state" / "antigravity_seen.json"
+SEEN = store.Store("antigravity_seen", ttl=24 * 3600, limit=200)  # Antigravity turns already routed
 SKIP_TAGS = ("#norouter", "#privat")
 NESTED_ENV = "TRIROUTER_NESTED"  # set by cli-bridge: the CLI it runs is already routed by the calling session
 # Harness-injected pseudo-prompts (background task results, reminders, subagent hand-backs) are not
@@ -73,7 +73,7 @@ def _transcript_tail(path):
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
         f.seek(max(0, f.tell() - TRANSCRIPT_TAIL_BYTES))
-        return reversed(f.read().decode("utf-8", "replace").splitlines())
+        return reversed(f.read().decode("utf-8", "replace").split("\n"))  # not splitlines: U+2028 is no line end
 
 
 def _user_request(content):
@@ -96,7 +96,7 @@ def _antigravity_prompt(payload):
             continue
         if not isinstance(entry, dict) or entry.get("type") != "USER_INPUT":
             continue
-        text = _user_request(entry.get("content") or "").strip()
+        text = _user_request(_text(entry.get("content")) or "").strip()
         if text:
             step = entry.get("step_index")
             return text, f"{payload.get('conversationId', '')}:{_short_hash(text) if step is None else step}"
@@ -104,14 +104,12 @@ def _antigravity_prompt(payload):
 
 
 def _first_time(turn_key):
-    seen = P.read_json(SEEN_FILE, [], kind=list)
-    if turn_key in seen:
-        return False
-    try:
-        P.atomic_write(SEEN_FILE, json.dumps((seen + [turn_key])[-200:]), mode=0o600)
-    except OSError:
-        pass
-    return True
+    """PreInvocation fires before every model call of a turn: only the first call of a user turn is routed."""
+    def mark(entry):
+        first = not entry.get("routed")
+        entry["routed"] = True
+        return first
+    return bool(SEEN.update(core.STATE_DIR, turn_key, mark, missing={})[0])
 
 
 def extract_prompt(raw, provider):
@@ -194,7 +192,7 @@ def model_note():
 @guarded(None)
 def start_daemon():
     """Claude with the http hook transport: the hook daemon must be up before the first prompt."""
-    if (core.user_config().get("hooks") or {}).get("transport") == "http":
+    if core.hook_transport() == "http":
         from . import daemon  # lazy: the command transport never needs it
         daemon.ensure_running()
 
@@ -236,7 +234,7 @@ def prompt_output(provider, hook_event_name, raw):
     if prompt is None:
         if payload is None:
             log({"ts": _now(), "provider": provider, "error": "stdin: not a JSON object",
-                 "stdin_head": redact(raw[:80].decode("utf-8", "replace"))})
+                 "stdin_head": redact(raw[:2000].decode("utf-8", "replace"))[:80]})
         return ""
     low = prompt.lstrip().lower()
     if len(prompt) < 3 or low.startswith(("/",) + SYSTEM_PREFIXES):
@@ -248,13 +246,11 @@ def prompt_output(provider, hook_event_name, raw):
     cwd = _text(payload.get("cwd")) or (_text(workspaces[0]) if isinstance(workspaces, list) and workspaces else None) or ""
     private = any(t in low for t in SKIP_TAGS)
     queue = queue_state.on_submit(core.STATE_DIR, provider, _session_id(payload), cwd,
-                                  "" if private else redact(" ".join(prompt.split())[:60]), _transcript_path(payload))
-    queue_text = queue_state.render(queue)
+                                  "" if private else redact(" ".join(prompt.split()))[:60], _transcript_path(payload))
     if not private:
         return render(route_and_log(prompt, provider, payload, cwd, queue), hook_event_name, provider)
-    if queue_text:  # #norouter / #privat: never sent to TypeSafe, only queue-protected
-        return render(queue_text, hook_event_name, provider)
-    return ""
+    queue_text = queue_state.render(queue)  # #norouter / #privat: never sent to TypeSafe, only queue-protected
+    return render(queue_text, hook_event_name, provider) if queue_text else ""
 
 
 def route_and_log(prompt, provider, payload, cwd, queue):
@@ -264,7 +260,7 @@ def route_and_log(prompt, provider, payload, cwd, queue):
     session_id = _session_id(payload)
     entry = {"ts": _now(), "provider": provider, "cwd": cwd,
              "sha": _short_hash(prompt), "session": _short_hash(session_id), "prompt_id": payload.get("prompt_id"),
-             "prompt": redact(prompt if os.environ.get("ROUTER_LOG_PROMPTS") == "1" else prompt[:200])}
+             "prompt": redact(prompt) if os.environ.get("ROUTER_LOG_PROMPTS") == "1" else redact(prompt)[:200]}
     try:
         # Codex reports the session's model, Claude's is recorded per session: a tier on that model stays in-session
         session_model = _text(payload.get("model")) if provider == "codex" else None
@@ -281,19 +277,19 @@ def route_and_log(prompt, provider, payload, cwd, queue):
             remember_agent_budget(payload, d)
     except Exception as exc:  # e.g. a malformed routes.json: never block
         entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
-        entry["latency_ms"] = int((time.perf_counter() - t0) * 1000)
-        log(entry)
-        return ("[router] unavailable; answer directly in this session."
+        text = ("[router] unavailable; answer directly in this session."
                 + (" SAFETY: ask for explicit confirmation before any irreversible action." if core.is_destructive(prompt) else "")
                 + " " + core.lang.respond_line(core.language_of(prompt)))
-    entry.update(d, destructive=hit, latency_ms=int((time.perf_counter() - t0) * 1000))
+    else:
+        entry.update(d, destructive=hit)
     if queue["ahead"] or queue["others"]:
         entry["queued"] = {"ahead": len(queue["ahead"]), "others": len(queue["others"])}
+    entry["latency_ms"] = int((time.perf_counter() - t0) * 1000)
     log(entry)
     foreign_note = core.foreign_project_note(prompt, cwd)
     if foreign_note:
         text += f" Note: {foreign_note}."
-    queue_text = queue_state.render(queue)
+    queue_text = queue_state.render(queue)  # the queue protection survives a routing failure
     return text + (" " + queue_text if queue_text else "")
 
 
@@ -340,7 +336,9 @@ def _transcript_family(payload):
             entry = json.loads(line)
         except ValueError:
             continue
-        message = entry.get("message") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        message = entry.get("message")
         if entry.get("type") == "assistant" and not entry.get("isSidechain") and isinstance(message, dict):
             family = core.claude_family(message.get("model"))  # "<synthetic>" (an error turn) names none
             if family:
@@ -349,15 +347,14 @@ def _transcript_family(payload):
 
 
 @guarded(None)
-def _settings_family(payload):
+def _settings_family():
     return core.claude_family(P.read_json(CLAUDE_SETTINGS, {}, "utf-8-sig", dict).get("model"))
 
 
 def claude_session_model(payload):
     """The Claude family this session runs: recorded at SessionStart / PostModelSwitch, else the newest assistant
     message of the transcript, else settings.json `model`; None when unknown."""
-    return next((f for f in (source(payload) for source in (_recorded_family, _transcript_family, _settings_family))
-                 if f), None)
+    return _recorded_family(payload) or _transcript_family(payload) or _settings_family()
 
 
 def model_switch_output(provider, raw):
@@ -428,8 +425,8 @@ def agent_guard(payload):
     family = entry.get("family")
     if family and agent_type == "general-purpose" and not tool_input.get("model"):
         log({**record, "action": "model", "model": family}, GUARD_LOG)
-        # No permissionDecision (the normal rules still apply; verified live: the model in updatedInput takes effect without
-        # an "allow"). updatedInput replaces the whole input, hence the copy of every original field.
+        # No permissionDecision: the normal rules still apply and the model in updatedInput takes effect without an
+        # "allow". updatedInput replaces the whole input, hence the copy of every original field.
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**tool_input, "model": family}}}
     return None
 

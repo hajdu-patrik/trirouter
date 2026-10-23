@@ -207,7 +207,7 @@ def _register_hub_with_antigravity():
     if new_entries != entries:
         cfg["entries"] = new_entries
         act(f"{AGY_SKILLS_JSON}: entries -> {new_entries}",
-            lambda: P.atomic_write(AGY_SKILLS_JSON, json.dumps(cfg, indent=2) + "\n"))
+            lambda: P.write_backed_up(AGY_SKILLS_JSON, json.dumps(cfg, indent=2) + "\n"))
 
 
 _TEMPLATE_FRONTMATTER = re.compile(r"---[ \t]*\n(.*?)\n---[ \t]*\n", re.S)
@@ -350,7 +350,7 @@ def _write_codex_agents(plan):
     new_cfg = _with_agents_block(cfg, "\n".join(block) + "\n")
     if new_cfg != cfg:
         act(f"{CODEX_CONFIG}: update [agents.*] block ({len(want)} roles)",
-            lambda: P.atomic_write(CODEX_CONFIG, new_cfg))
+            lambda: P.write_backed_up(CODEX_CONFIG, new_cfg))
 
 
 def _with_agents_block(cfg, new_block):

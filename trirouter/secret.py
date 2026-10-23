@@ -110,6 +110,11 @@ def plaintext_fields(cfg):
     return [k for k in KEY_FIELDS if isinstance(cfg, dict) and isinstance(cfg.get(k), str) and cfg[k]]
 
 
+def write_config(path, cfg):
+    """config.json: keys protected where the system can, atomic and owner-only from the start."""
+    P.atomic_write(path, json.dumps(protect_config(cfg), indent=2), mode=0o600)
+
+
 def protect_config(cfg):
     """A copy of `cfg` with every plaintext key protected (unchanged when nothing can or needs to be)."""
     out = dict(cfg)

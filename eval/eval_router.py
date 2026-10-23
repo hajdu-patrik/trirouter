@@ -5,14 +5,18 @@ import csv
 import operator
 import os
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 from statistics import fmean
 
-# Measure with the defaults, as CI does: a local ROUTER_MIN_CONFIDENCE would change every number.
+# Hermetic: the defaults, the built-in classifier, an empty state folder and no skill catalog, so a developer's
+# ~/.trirouter (JEV key, models.local.json, trained model, skills) never changes the numbers.
 for _var in [v for v in os.environ if v.startswith("ROUTER_")]:
     del os.environ[_var]
-os.environ["ROUTER_DISTILLED"] = "0"  # never let a model trained on the user's own traffic (~/.trirouter) change the numbers
+_scratch = tempfile.mkdtemp(prefix="trirouter-eval-")
+os.environ.update(ROUTER_DISTILLED="0", ROUTER_BACKEND="local", TRIROUTER_HOME=_scratch,
+                  JEV_SKILLS_HUB=os.path.join(_scratch, "skills"))
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -28,11 +32,6 @@ REAL_TARGETS = {**TARGETS, "task": 0.70, "uncertain": 0.45}
 GATES = (("task", "task>={:.0%}", operator.ge), ("uncertain", "uncertain<={:.0%}", operator.le),
          ("destr_recall", "recall {:.0%}", operator.ge), ("destr_fp", "FP<{:.0%}", operator.lt),
          ("lang", "lang {:.0%}", operator.ge), ("level0_delegated", "level-0 delegated<={:.0%}", operator.le))
-
-
-def expected_tier(task, difficulty, routes):
-    row = routes.get("table", {}).get(task) or ["main"] * 3
-    return row[min(int(difficulty), len(row) - 1)].partition("+verify:")[0]
 
 
 def model_family(model):
@@ -63,7 +62,7 @@ def route_row(r, lang_expected, routes):
             "task_conf": d["task_conf"], "diff_true": int(r["difficulty"]), "diff_pred": d["level"],
             "destr_true": int(r["destructive"]), "destr_pred": int(hit), "lang": d.get("lang"),
             "lang_true": r.get("lang") or lang_expected, "uncertain": int("routing uncertain" in d.get("notes", [])),
-            "tier_true": expected_tier(r["task"], r["difficulty"], routes), "tier": d["primary"],
+            "tier_true": core.tier_of(routes, r["task"], r["difficulty"]), "tier": d["primary"],
             "verify": d.get("verify") or "", "effort": d.get("effort"), "skill": d.get("skill") or "",
             "backend": d["backend"], "outcome": outcome, "agent": agent, "family": family,
             "error": err or ""}

@@ -260,3 +260,8 @@ def test_the_daily_check_refreshes_the_user_side(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     discovery.run_scheduled()
     assert calls == [1]
+
+
+def test_pre_commit_refuses_check_and_dry_run():
+    said = []
+    assert sync.main({"--pre-commit": True, "--check": True}, said.append) == 2 and "cannot be combined" in said[0]

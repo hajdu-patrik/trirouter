@@ -44,7 +44,6 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(hooks, "CLAUDE_SETTINGS", base / "claude-settings.json")
     for name, file in (("LOG_FILE", "routing.jsonl"), ("SUBAGENT_LOG", "subagents.jsonl"), ("GUARD_LOG", "guard.jsonl")):
         monkeypatch.setattr(hooks, name, base / "logs" / file)
-    monkeypatch.setattr(hooks, "SEEN_FILE", base / "state" / "antigravity_seen.json")
     # the user's own config.json (e.g. hooks.transport = "http" after `daemon enable`) must not change a test
     from trirouter import core
     monkeypatch.setattr(core, "STATE_DIR", base / "state")

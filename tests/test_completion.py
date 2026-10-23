@@ -207,7 +207,7 @@ def test_setup_installs_completion_unless_told_not_to(home, monkeypatch, capsys)
     C.remove(apply=True, say=quiet)
     monkeypatch.setattr(cli, "FLAGS", {"--no-completion": True})
     cli.setup_completion()
-    assert C.BEGIN not in (h / ".bashrc").read_text(encoding="utf-8") and "skipped" in capsys.readouterr().out
+    assert C.BEGIN not in (h / ".bashrc").read_text(encoding="utf-8") and "--no-completion" in capsys.readouterr().out
 
 
 # ---- the real shells, where installed ---------------------------------------------------------------------------

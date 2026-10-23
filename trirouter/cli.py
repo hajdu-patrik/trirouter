@@ -49,7 +49,7 @@ ask_line = interrupt.ask_line  # input() that steps the Ctrl+D key watcher aside
 
 
 def ask(question, default="y"):
-    """Without a terminal or --yes every answer is "no": an unattended run never moves files unasked."""
+    """--yes answers every question with its default; without a terminal every answer is "no"."""
     if YES:
         return default.lower().startswith("y")
     if not interactive():
@@ -63,11 +63,8 @@ def load_config():
 
 
 def save_config(cfg):
-    if DRY:
-        return
-    # atomic and owner-only from the start; the JEV token is stored protected (secret.py), never as plain text
-    # where the system can encrypt it
-    P.atomic_write(CONFIG, json.dumps(secret.protect_config(cfg), indent=2), mode=0o600)
+    if not DRY:
+        secret.write_config(CONFIG, cfg)
 
 
 def report(lines, indent=""):
@@ -82,12 +79,25 @@ def print_report(found):
         say(f"{info['label']:<26}{'yes' if info['installed'] else 'no':<11}{li:<11}{info['version'] or ''}")
 
 
-def detect_and_login():
+def chosen_providers():
+    """--providers=LIST, or None for every installed, logged-in tool; an unknown name is a usage error."""
+    value = FLAGS.get("--providers")
+    if not isinstance(value, str):
+        return None
+    names = [p.strip().lower() for p in value.split(",") if p.strip()]
+    if not names or any(p not in ALL for p in names):
+        raise cliparse.UsageError(f"setup: --providers must name only {', '.join(ALL)}")
+    return names
+
+
+def detect_and_login(chosen):
     say("== 1/5  Detecting AI tools (this can take a minute: Antigravity is asked for its model list)")
     found = P.detect()
     print_report(found)
     for p, info in found.items():
         spec = P.PROVIDERS[p]
+        if chosen is not None and p not in chosen:
+            continue
         if not info["installed"]:
             say(f"\n  {spec['label']} is not installed - optional. Install: {spec['install']}")
             continue
@@ -96,13 +106,10 @@ def detect_and_login():
             if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
                 break
             info.update(P.detect_one(p))
-    chosen = FLAGS.get("--providers")
-    if isinstance(chosen, str):
-        providers = [p for p in chosen.split(",") if p in ALL]
-    else:
-        providers = [p for p, i in found.items() if i["installed"] and i["logged_in"] is not False]
-    say(f"\n  Tools to connect: {', '.join(providers) or 'none'}")
-    return providers
+    if chosen is None:
+        chosen = [p for p, i in found.items() if i["installed"] and i["logged_in"] is not False]
+    say(f"\n  Tools to connect: {', '.join(chosen) or 'none'}")
+    return chosen
 
 
 def store_jev_key(cfg, key):
@@ -158,7 +165,7 @@ def scan_settings(cfg, persist):
     link_settings(cfg, persist)
     hub.SCAN = {"llm": bool(sc.get("llm")), "allow": tuple(sc.get("allow") or ()),
                 "accept_flagged": "--accept-flagged" in FLAGS,  # one-off, never saved
-                "quarantine_days": sc.get("quarantine_days", skillscan.DEFAULT_DAYS)}
+                "quarantine_days": skillscan.configured_days({"skillscan": sc})}
     hub.CHOOSE = choose_quarantine
 
 
@@ -272,9 +279,8 @@ def extras(providers, cfg):
 
 
 def remote_workdir(cfg):
-    """Claude Code only serves trusted folders, and never the home directory."""
     wd = FLAGS.get("--workdir")
-    return str(Path(wd).resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(P.REPO))
+    return str(Path(wd).expanduser().resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(P.REPO))
 
 
 def next_steps(providers):
@@ -398,15 +404,13 @@ def run_learn():
 
 
 def setup_completion():
-    """Setup step: tab completion for the current shell (and PowerShell on Windows), unless --no-completion.
-    Scripts installed earlier are refreshed either way, so they always match the commands."""
+    """Setup step: tab completion for the current shell (and PowerShell on Windows). With --no-completion the
+    profiles are left alone and only scripts installed earlier are refreshed, so they match the commands."""
     if "--no-completion" in FLAGS:
-        shells = completion.installed()
-        if not shells:
-            say("  Tab completion: skipped (--no-completion)")
-            return
-    else:
-        shells = completion.setup_shells()
+        say("  Tab completion: not installed (--no-completion)")
+        completion.refresh(apply=not DRY, say=lambda m: say("  " + m))
+        return
+    shells = completion.setup_shells()
     say(f"  Tab completion ({', '.join(shells)}):")
     completion.install(shells, apply=not DRY, say=lambda m: say("  " + m))
 
@@ -525,7 +529,7 @@ def run_route(argv):
 
 def run_setup():
     say("trirouter setup" + (" (dry run - nothing will be changed)" if DRY else ""))
-    providers = detect_and_login()
+    providers = detect_and_login(chosen_providers())
     if not providers:
         say("\nNo logged-in tool found. Install and log in to at least one of them, then run this again.")
         return 1
@@ -575,8 +579,11 @@ def run_remote():
 def run_uninstall():
     integrations.install(ALL, apply=not DRY, uninstall=True)
     completion.remove(apply=not DRY, say=say)
-    if not DRY:
-        report(remote.remove())
+    if DRY:
+        say("[DRY] remote access: would remove the services and stop the daemons")
+        say("Dry run: nothing was removed.")
+        return
+    report(remote.remove())
     say("Hooks, MCP entries and remote access removed. Your skills stay in ~/.skills (and linked).")
 
 
@@ -590,8 +597,7 @@ def run_quarantine(key):
 
 
 def quarantine_list(cfg):
-    days = cfg.get("skillscan", {}).get("quarantine_days", skillscan.DEFAULT_DAYS)
-    rows = skillscan.entries(apply=False, days=days)
+    rows = skillscan.entries(apply=False, days=skillscan.configured_days(cfg))
     if not rows:
         say("Quarantine is empty.")
         return 0
@@ -688,8 +694,11 @@ def _main(argv):
     commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
                 "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn,
                 "sync": lambda: sync.main(FLAGS, say)}
-    if inv.key.startswith("quarantine"):
-        return run_quarantine(inv.key)
-    if inv.key.startswith("daemon"):
-        return run_daemon(inv.key)
-    return commands[inv.key]() or 0
+    try:
+        if inv.key.startswith("quarantine"):
+            return run_quarantine(inv.key)
+        if inv.key.startswith("daemon"):
+            return run_daemon(inv.key)
+        return commands[inv.key]() or 0
+    except cliparse.UsageError as exc:
+        return usage_error(exc, prog)

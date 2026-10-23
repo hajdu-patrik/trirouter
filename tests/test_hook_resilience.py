@@ -22,7 +22,6 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "BACKEND", "local")
     monkeypatch.setattr(hooks, "LOG_FILE", tmp_path / "logs" / "routing.jsonl")
     monkeypatch.setattr(hooks, "SUBAGENT_LOG", tmp_path / "logs" / "subagents.jsonl")
-    monkeypatch.setattr(hooks, "SEEN_FILE", tmp_path / "state" / "seen.json")
     monkeypatch.delenv(hooks.NESTED_ENV, raising=False)
     return tmp_path
 
@@ -248,3 +247,21 @@ def test_antigravity_reads_only_the_transcript_tail(tmp_path, monkeypatch, capsy
     assert "task=test" in json.loads(out)["injectSteps"][0]["ephemeralMessage"]
     assert run_main(monkeypatch, capsys, "PreInvocation", {"transcriptPath": str(transcript), "conversationId": "c"},
                     provider="antigravity") == ""  # the same turn (keyed by its text without a step index)
+
+
+# ---- what a failing or hostile prompt must not leak or lose ---------------------------------------------------
+
+def test_secrets_are_redacted_before_the_queue_summary_and_the_log_are_cut(monkeypatch, capsys, isolated):
+    """The key sits across the 60-character cut of the queue summary: redaction runs on the whole prompt first."""
+    key = "sk-or-v1-" + "a1b2c3d4" * 6
+    prompt = "please rotate this key " + "x" * 30 + " " + key + " in the config"
+    run_main(monkeypatch, capsys, "UserPromptSubmit", {"prompt": prompt, "session_id": "s1", "cwd": "/w"})
+    out = run_main(monkeypatch, capsys, "UserPromptSubmit", {"prompt": "and the other one", "session_id": "s1", "cwd": "/w"})
+    assert "QUEUE:" in out and key[:12] not in out and key[:12] not in json.dumps(log_entries(isolated))
+
+
+def test_a_routing_failure_keeps_the_queue_protection(monkeypatch, capsys):
+    run_main(monkeypatch, capsys, "UserPromptSubmit", PAYLOAD)
+    monkeypatch.setattr(core, "route", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("routes.json")))
+    out = run_main(monkeypatch, capsys, "UserPromptSubmit", {**PAYLOAD, "prompt": "and now the tests"})
+    assert "[router] unavailable" in out and "QUEUE:" in out

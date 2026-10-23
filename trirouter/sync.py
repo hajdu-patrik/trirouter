@@ -216,6 +216,9 @@ def pre_commit(say=print, run_tests=True):
 
 def main(flags, say=print):
     if "--pre-commit" in flags:
+        if "--check" in flags or "--dry-run" in flags:
+            say("sync: --pre-commit runs the checks for real; it cannot be combined with --check or --dry-run")
+            return 2
         if not is_checkout():
             say("--pre-commit only works in a trirouter checkout")
             return 1

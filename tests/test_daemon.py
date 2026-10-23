@@ -24,7 +24,6 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "KEEPALIVE", False)
     monkeypatch.setattr(hooks, "LOG_FILE", tmp_path / "logs" / "routing.jsonl")
     monkeypatch.setattr(hooks, "SUBAGENT_LOG", tmp_path / "logs" / "subagents.jsonl")
-    monkeypatch.setattr(hooks, "SEEN_FILE", tmp_path / "state" / "seen.json")
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     monkeypatch.delenv("JEV_OPENROUTER_API_KEY", raising=False)
     paths = {k: tmp_path / "home" / Path(v).relative_to(P.HOME) for k, v in P.PATHS.items()}
@@ -184,7 +183,7 @@ def test_status_and_stop_against_a_running_server(server, tmp_path):
 
 
 def test_ensure_running_never_raises(monkeypatch):
-    monkeypatch.setattr(daemon, "configured_port", lambda cfg=None: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(daemon, "configured_port", lambda: (_ for _ in ()).throw(RuntimeError("x")))
     assert daemon.ensure_running() is False
 
 

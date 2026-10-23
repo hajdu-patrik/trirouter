@@ -521,11 +521,7 @@ def _write(path, text, label, apply, say, newline="\n", backup=False):
         return False
     say(("[DO]  " if apply else "[DRY] ") + f"{label}: {'update' if old is not None else 'create'} {path}")
     if apply:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        bak = path.with_name(path.name + ".bak")
-        if backup and old is not None and not bak.exists():
-            P.atomic_write(bak, path.read_bytes())
-        P.atomic_write(path, text, newline=newline if old is None else style)
+        (P.write_backed_up if backup else P.atomic_write)(path, text, newline=newline if old is None else style)
     return True
 
 

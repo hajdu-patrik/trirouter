@@ -383,3 +383,13 @@ def test_command_hint_follows_the_launcher(monkeypatch, tmp_path):
     (tmp_path / "there").write_text("x", encoding="utf-8")
     monkeypatch.setattr(P, "launcher_path", lambda: tmp_path / "there")
     assert P.command_hint("doctor") == "trirouter doctor"
+
+
+def test_help_inside_a_combined_short_flag_shows_the_page():
+    assert cliparse.resolve(["setup", "-nh"], "trirouter").kind == "help"
+    assert cliparse.resolve(["help", "-h"], "trirouter").kind == "overview"
+
+
+def test_a_non_ascii_digit_is_a_usage_error():
+    with pytest.raises(cliparse.UsageError):
+        cliparse.resolve(["skills", "--quarantine-days=²"], "trirouter")

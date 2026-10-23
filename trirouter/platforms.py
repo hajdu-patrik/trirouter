@@ -240,6 +240,15 @@ def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
         raise
 
 
+def write_backed_up(path, text, newline=None):
+    """atomic_write that keeps the original as <name>.bak the first time an existing file is overwritten."""
+    path = Path(path)
+    bak = path.with_name(path.name + ".bak")
+    if path.exists() and not bak.exists():
+        atomic_write(bak, path.read_bytes())
+    atomic_write(path, text, newline=newline)
+
+
 APPEND_LOCK_WAIT_S = 2.0
 # Windows locks a byte range, and another handle cannot even read a locked byte: the lock sits far past the end of
 # any log, so a reader (doctor, the tests) never meets it.
