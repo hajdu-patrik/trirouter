@@ -55,7 +55,6 @@ def write_config(tmp_path, cfg):
     (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
 
 
-# ---- the server ---------------------------------------------------------------------------------------------
 
 def test_health_needs_no_token(server):
     status, data = call(server, "GET", "/health", token=None)
@@ -148,7 +147,7 @@ def test_idle_server_exits():
     assert not thread.is_alive()
 
 
-def test_a_second_daemon_on_a_taken_port_exits_quietly(server, monkeypatch):
+def test_a_second_daemon_on_a_taken_port_exits_quietly(server):
     assert daemon.serve(server.server_port) == 0
     assert daemon.read_state().get("pid") is None  # the loser never claims the state file
 
@@ -157,9 +156,8 @@ def test_binds_to_loopback_only(server):
     assert server.server_address[0] == "127.0.0.1"
 
 
-# ---- lifecycle helpers ----------------------------------------------------------------------------------------
 
-def test_token_is_created_once_and_kept(tmp_path):
+def test_token_is_created_once_and_kept():
     assert daemon.token(create=False) is None
     tok = daemon.token()
     assert len(tok) >= 32 and daemon.token() == tok and daemon.token(create=False) == tok
@@ -209,14 +207,13 @@ def test_session_start_starts_the_daemon_only_for_http(tmp_path, monkeypatch):
     assert hooks.session_start_output("claude", b"{}") == ""  # swallowed
 
 
-# ---- hook registration ----------------------------------------------------------------------------------------
 
 def _entries(path):
     cfg = json.loads(Path(path).read_text(encoding="utf-8"))
     return {e: [h for g in groups for h in g["hooks"]] for e, groups in cfg.get("hooks", {}).items()}
 
 
-def test_http_registration_and_back(tmp_path, capsys):
+def test_http_registration_and_back(tmp_path):
     settings = P.PATHS["claude_settings"]
     settings.parent.mkdir(parents=True)
     foreign_http = {"type": "http", "url": "https://example.com/hook", "timeout": 5}
@@ -245,7 +242,7 @@ def test_http_registration_and_back(tmp_path, capsys):
     assert foreign_http in entries["Stop"]
 
 
-def test_uninstall_removes_http_entries(tmp_path):
+def test_uninstall_removes_http_entries():
     settings = P.PATHS["claude_settings"]
     integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="http")
     assert any(h["type"] == "http" for hs in _entries(settings).values() for h in hs)
@@ -253,13 +250,13 @@ def test_uninstall_removes_http_entries(tmp_path):
     assert "hooks" not in json.loads(settings.read_text(encoding="utf-8"))
 
 
-def test_codex_never_gets_http_hooks(tmp_path):
+def test_codex_never_gets_http_hooks():
     path = P.PATHS["codex_hooks"]
     integ.claude_codex_hooks(path, "codex", integ.Writer(True), transport="http")
     assert all(h["type"] == "command" for hs in _entries(path).values() for h in hs)
 
 
-def test_dry_run_creates_no_token(tmp_path):
+def test_dry_run_creates_no_token():
     settings = P.PATHS["claude_settings"]
     integ.claude_codex_hooks(settings, "claude", integ.Writer(False), transport="http")
     assert not settings.exists() and daemon.token(create=False) is None
@@ -301,7 +298,6 @@ def test_enable_and_disable(tmp_path, monkeypatch, capsys):
     assert _entries(settings)["UserPromptSubmit"][0]["type"] == "command"
 
 
-# ---- JEV keep-alive -----------------------------------------------------------------------------------------
 
 class _Echo(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"

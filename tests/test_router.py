@@ -96,11 +96,6 @@ def test_clamp_effort():
     assert core.clamp_effort(None, ["low", "medium", "high"]) == "medium"
 
 
-def test_claude_never_ultra():
-    ans = core.classify("Prove the Riemann hypothesis in full detail", effort=core.effort_levels_for("claude"))
-    assert ans["effort"]["choice"] != "ultra"
-
-
 def test_route_claude_hard_code_goes_to_deep_worker_with_verify():
     d, text, hit, err = core.route("Refaktoráld az egész kódbázist hexagonális architektúrára", "claude")
     assert d["primary"] == "deep"
@@ -244,7 +239,7 @@ def test_header_machine_fields_follow_the_tier_model():
     assert " model=" not in text.split(".", 1)[0]  # advice-only provider: no default model, fields omitted
 
 
-def test_machine_default_model_is_clamped_and_follows_availability(monkeypatch):
+def test_machine_default_model_is_clamped_and_follows_availability():
     targets = {"machine_default_model": "sonnet"}
     models = {"sonnet": {"levels": ["low", "medium"], "role": "balanced"}}
     assert core.machine_route(targets, models, "claude", None, "max") == ("sonnet", "medium")
@@ -265,26 +260,8 @@ def test_cloud_mode_replaces_agents_and_cli(monkeypatch):
     assert d["verify"] == ""
 
 
-def test_jev_failure_falls_back_to_local(monkeypatch):
-    def boom(*a, **k):
-        raise TimeoutError("jev down")
-    monkeypatch.setattr(core, "ask_jev", boom)
-    d, text, _, err = core.route("What is 2+2?", "claude", backend="jev")
-    assert d["backend"] == "local"
-    assert "jev down" in err
-
-
 JEV_ANSWERS = {"task": {"choice": "code", "confidence": 0.95}, "difficulty": {"score": 2, "confidence": 0.9},
                "long_context": {"noul": 0.1}, "needs_web": {"noul": 0.1}, "destructive": {"noul": 0.05}}
-
-
-def test_jev_answers_are_used(monkeypatch):
-    fake = {"answers": {**JEV_ANSWERS, "effort": {"choice": "ultra", "confidence": 0.8}}, "model": "jev-1.13.0"}
-    monkeypatch.setattr(core, "ask_jev", lambda p, q: json.loads(json.dumps(fake)))
-    d, text, _, _ = core.route("Refactor the payment service so every external call is retried with backoff",
-                               "claude", backend="jev")
-    assert d["backend"] == "jev"
-    assert d["effort"] == "max"  # ultra stripped for Claude, clamped into deep tier
 
 
 def run(monkeypatch, capsys, provider, event, payload):

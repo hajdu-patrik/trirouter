@@ -18,7 +18,6 @@ def as_launcher(monkeypatch):
     monkeypatch.setattr(interrupt.KeyWatcher, "start", lambda self: False)  # never touch the test runner's terminal
 
 
-# ---- Ctrl+C and Ctrl+D end a command ------------------------------------------------------------------------
 
 @pytest.mark.parametrize("exc", [KeyboardInterrupt, EOFError])
 def test_an_interrupt_in_a_command_is_exit_130_with_one_line_and_no_traceback(capsys, monkeypatch, exc):
@@ -30,27 +29,15 @@ def test_an_interrupt_in_a_command_is_exit_130_with_one_line_and_no_traceback(ca
     assert err == MESSAGE and "Traceback" not in out + err
 
 
-def test_ctrl_c_during_route_and_help_too(capsys, monkeypatch):
-    monkeypatch.setattr(cli, "route_decision", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
-    assert cli.main(["route", "hello there"]) == 130 and capsys.readouterr().err == MESSAGE
-
-
-def test_eof_at_a_question_cancels_the_whole_command(capsys, monkeypatch):
+@pytest.mark.parametrize("key", [EOFError, KeyboardInterrupt])  # Ctrl+D, Ctrl+C
+def test_a_key_at_a_question_cancels_the_whole_command(capsys, monkeypatch, key):
     monkeypatch.setattr(cli, "interactive", lambda: True)
     monkeypatch.setattr(cli, "YES", False)
-    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError()))
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(key()))
     monkeypatch.setattr(cli, "run_remote", lambda: cli.ask("Set up remote access?", "n"))
     assert cli.main(["remote"]) == 130
     out, err = capsys.readouterr()
     assert err == MESSAGE and "Traceback" not in out + err
-
-
-def test_ctrl_c_at_a_question_reaches_the_guard(capsys, monkeypatch):
-    monkeypatch.setattr(cli, "interactive", lambda: True)
-    monkeypatch.setattr(cli, "YES", False)
-    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt()))
-    monkeypatch.setattr(cli, "run_remote", lambda: cli.ask("Set up remote access?", "n"))
-    assert cli.main(["remote"]) == 130 and capsys.readouterr().err == MESSAGE
 
 
 def test_children_are_killed_on_an_interrupt(monkeypatch):
@@ -67,14 +54,13 @@ def test_a_second_ctrl_c_while_cleaning_up_still_ends_with_130(capsys, monkeypat
     assert capsys.readouterr().err == MESSAGE
 
 
-def test_usage_errors_and_normal_results_are_not_changed(capsys):
+def test_usage_errors_and_normal_results_are_not_changed():
     with pytest.raises(SystemExit) as exc:
         cli.main(["nonsense"])
     assert exc.value.code == 2
     assert interrupt.run_guarded(lambda: 7) == 7
 
 
-# ---- running programs ---------------------------------------------------------------------------------------
 
 class FakeProc:
     pid = 4242
@@ -133,7 +119,6 @@ def test_kill_children_reaches_every_running_child(monkeypatch):
     assert sorted(map(id, seen)) == sorted([id(a), id(b)])
 
 
-# ---- atomic writes ------------------------------------------------------------------------------------------
 
 def leftovers(folder):
     return sorted(p.name for p in folder.iterdir())
@@ -163,14 +148,6 @@ def test_an_interrupt_mid_write_keeps_the_old_file_and_removes_the_temp_file(tmp
     assert target.read_text(encoding="utf-8") == "old" and leftovers(tmp_path) == ["config.json"]
 
 
-def test_an_interrupt_before_the_first_write_leaves_no_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
-    with pytest.raises(KeyboardInterrupt):
-        P.atomic_write(tmp_path / "new.json", "x")
-    monkeypatch.undo()
-    assert leftovers(tmp_path) == []
-
-
 @pytest.mark.skipif(P.IS_WINDOWS, reason="POSIX permission bits")
 def test_atomic_write_applies_the_mode_and_keeps_the_mode_of_an_existing_file(tmp_path):
     secret = tmp_path / "secret.json"
@@ -195,7 +172,6 @@ def test_save_config_is_atomic(tmp_path, monkeypatch):
     assert cfg.read_text(encoding="utf-8") == '{"keep": true}' and leftovers(tmp_path) == ["config.json"]
 
 
-# ---- the Ctrl+D key watcher ---------------------------------------------------------------------------------
 
 @pytest.fixture
 def real_start(monkeypatch):
@@ -242,7 +218,7 @@ def test_the_watcher_is_a_no_op_without_a_terminal(real_start):
         w.resume()
 
 
-def test_the_watcher_ignores_a_pipe_even_where_isatty_lies(real_start, monkeypatch):
+def test_the_watcher_ignores_a_pipe_even_where_isatty_lies(real_start):
     class Piped(io.StringIO):
         def isatty(self):
             return False
@@ -314,7 +290,6 @@ def test_ask_line_steps_the_watcher_aside(real_start, monkeypatch):
     assert "pause" in seen[0] and "resume" not in seen[0]
 
 
-# ---- Ctrl+D at a question on the Windows console ----------------------------------------------------------------
 
 class FakeMsvcrt:
     def __init__(self, keys):

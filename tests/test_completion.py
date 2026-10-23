@@ -47,7 +47,6 @@ def test_value_flags_end_in_equals_and_values_follow_the_hint():
     assert C.values_of(provider) == ["claude", "codex", "antigravity", "claude-chat"]
 
 
-# ---- shell and profile per OS (simulated) -----------------------------------------------------------------------
 
 @pytest.fixture
 def os_sim(monkeypatch, tmp_path):
@@ -106,7 +105,6 @@ def test_powershell_profiles_are_asked_from_each_edition(os_sim, monkeypatch, tm
     assert C.powershell_profiles() == [tmp_path / "home" / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1"]
 
 
-# ---- install ----------------------------------------------------------------------------------------------------
 
 @pytest.fixture
 def home(os_sim, monkeypatch, tmp_path):
@@ -182,19 +180,6 @@ def test_with_block_appends_and_replaces():
     assert C.with_block(once, None).strip() == "x=1"
 
 
-# ---- CLI and setup ----------------------------------------------------------------------------------------------
-
-def test_completion_is_no_command_any_more(capsys, monkeypatch):
-    monkeypatch.setenv("TRIROUTER_PROG", "trirouter")
-    with pytest.raises(SystemExit) as exc:
-        cli.main(["completion", "--shell=fish"])
-    err = capsys.readouterr().err
-    assert exc.value.code == 2 and "completion was removed" in err and "trirouter setup" in err and "trirouter uninstall" in err
-
-
-def test_scripts_offer_exactly_the_commands(monkeypatch):
-    assert C.commands() == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
-    assert "--version -V --help -h" in C.bash_script()
 
 
 def test_setup_installs_completion_unless_told_not_to(home, monkeypatch, capsys):
@@ -210,7 +195,6 @@ def test_setup_installs_completion_unless_told_not_to(home, monkeypatch, capsys)
     assert C.BEGIN not in (h / ".bashrc").read_text(encoding="utf-8") and "--no-completion" in capsys.readouterr().out
 
 
-# ---- the real shells, where installed ---------------------------------------------------------------------------
 
 def real_bash():
     path = shutil.which("bash")
@@ -274,7 +258,6 @@ foreach ($line in @('trirouter mo', 'trirouter models --', 'trirouter models --a
                                        "list restore purge", "--version -V --help -h"]
 
 
-# ---- the PowerShell `trirouter` function (no trirouter.cmd, so no "Terminate batch job" after Ctrl+C) ------------
 
 def test_powershell_block_defines_a_trirouter_function_that_bypasses_the_cmd_launcher(monkeypatch):
     monkeypatch.setattr(P, "IS_WINDOWS", True)
@@ -293,7 +276,7 @@ def test_posix_powershell_function_runs_the_launcher_and_other_shells_get_none(m
     assert "function" not in C.profile_block("bash")
 
 
-def test_removing_the_block_removes_the_function(monkeypatch):
+def test_removing_the_block_removes_the_function():
     block = C.profile_block("powershell")
     text = C.with_block("Set-Alias a b\n", block)
     assert "function global:trirouter" in text

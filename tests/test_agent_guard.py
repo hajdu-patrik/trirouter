@@ -45,7 +45,6 @@ def agent_call(prompt_id="p1", session="s", **tool_input):
             "tool_input": {"description": "d", "prompt": "do it", **tool_input}}
 
 
-# ---- 1. the session's model --------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name, family", [
     ("opus", "opus"), ("claude-opus-5-5", "opus"), ("opus[1m]", "opus"), ("Claude Sonnet 5.5", "sonnet"),
@@ -149,7 +148,6 @@ def test_session_model_store_is_bounded(tmp_path, monkeypatch):
     assert sorted(data) == ["claude:s2", "claude:s3", "claude:s4"]
 
 
-# ---- 2. the agent guard ------------------------------------------------------------------------------------
 
 def route_prompt(monkeypatch, capsys, prompt, prompt_id="p1", session="s"):
     run(monkeypatch, capsys, "UserPromptSubmit", {"session_id": session, "prompt_id": prompt_id, "prompt": prompt,
@@ -243,9 +241,8 @@ def test_doctor_guard_summary():
     assert doctor.guard_summary(rows, days=7, now=now) == {"deny": 2, "model": 1, "prompts": 2}
 
 
-# ---- 3. the Claude model defaults --------------------------------------------------------------------------
 
-def test_claude_model_settings_write_dry_run_and_off(tmp_path, capsys):
+def test_claude_model_settings_write_dry_run_and_off(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"env": {"OTHER": "1"}, "hooks": {}}), encoding="utf-8")
     integrations.claude_model_settings(integrations.Writer(False), "opus", "sonnet", path=path)
@@ -273,7 +270,7 @@ def test_claude_model_settings_refuses_anything_but_a_family(tmp_path, bad):
     assert not path.exists()
 
 
-def test_empty_env_is_removed(tmp_path):
+def test_empty_env_is_removed():
     cfg = integrations.apply_claude_models({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}}, None, "off")
     assert cfg == {}
 
@@ -294,7 +291,7 @@ def test_remembered_models_survive_setup_and_leave_with_uninstall(tmp_path, monk
     assert "model" not in s and "hooks" not in s
 
 
-def test_remembered_off_is_not_reapplied(tmp_path):
+def test_remembered_off_is_not_reapplied():
     cfg = {"model": "haiku", "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}}
     integrations._reapply_claude_models(cfg, ("off", "off"))
     assert cfg == {"model": "haiku", "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "haiku"}}  # set by hand later: kept
@@ -302,7 +299,6 @@ def test_remembered_off_is_not_reapplied(tmp_path):
     assert cfg == {"model": "haiku"}  # only what still equals the remembered value is removed
 
 
-# ---- 4. the locked log append ------------------------------------------------------------------------------
 
 WRITER = """
 import sys

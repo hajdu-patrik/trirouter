@@ -112,7 +112,6 @@ def result(outcome, provider):
     return next(r for r in outcome["results"] if r["provider"] == provider)
 
 
-# ---- new models -----------------------------------------------------------------------------------------------
 
 def test_new_codex_model_is_probed_added_and_selectable_without_ultra(fake):
     fake.codex_list = (0, codex_json(("gpt-a", ["low", "high"], "list"), ("gpt-b", ["low", "high"], "list"),
@@ -146,13 +145,6 @@ def test_new_hidden_codex_model_is_recorded_not_selected_and_not_probed(fake):
     assert local()["codex"]["gpt-x"] == dict(local()["codex"]["gpt-x"], selectable=False, hidden=True)
 
 
-@pytest.mark.parametrize("slug", ["--bad", "a b", "gpt;x", "gpt-a\n"])
-def test_a_codex_slug_that_is_not_one_plain_word_is_skipped(fake, slug):
-    fake.codex_list = (0, codex_json(("gpt-a", ["low"], "list"), ("gpt-b", ["low"], "list"), (slug, ["low"], "list")))
-    out = D.run("discover", apply=True, say=None)
-    assert result(out, "codex")["added"] == [] and not fake.probes("codex") and not out["changed"]
-
-
 def test_new_antigravity_model_takes_its_levels_from_the_slugs(fake):
     fake.agy_list = (0, agy_text("gem-flash-low", "gem-flash-high", "gem-pro-low", "gem-pro-high",
                                  "gem-ultra-pro-low", "gem-ultra-pro-medium", "gem-ultra-pro-ultra", "other-model"))
@@ -168,7 +160,6 @@ def test_new_antigravity_model_takes_its_levels_from_the_slugs(fake):
     assert route_slug == "gem-ultra-pro-low"
 
 
-# ---- removed models -------------------------------------------------------------------------------------------
 
 def test_model_no_longer_listed_is_removed_and_comes_back_when_offered_again(fake):
     fake.codex_list = (0, codex_json(("gpt-a", ["low", "high"], "list")))
@@ -200,10 +191,16 @@ def test_full_probe_mode_tries_every_known_codex_model(fake):
     assert set(core.models_for("codex")) == {"gpt-a", "gpt-old"}
 
 
-def test_a_model_id_that_is_not_one_plain_word_is_never_probed(fake):
-    for bad in ("--bad", "a b", "gpt;x", "gpt-a\n"):
+BAD_IDS = ("--bad", "a b", "gpt;x", "gpt-a\n")
+
+
+def test_a_model_id_that_is_not_one_plain_word_is_never_probed_nor_listed(fake):
+    for bad in BAD_IDS:
         assert D.probe_codex("codex", bad) is False and D.probe_claude("claude", bad) is False
     assert not fake.calls
+    fake.codex_list = (0, codex_json(("gpt-a", ["low"], "list"), ("gpt-b", ["low"], "list"), *((b, ["low"], "list") for b in BAD_IDS)))
+    out = D.run("discover", apply=True, say=None)
+    assert result(out, "codex")["added"] == [] and not fake.probes("codex") and not out["changed"]
     hand_edited = {"selectable": True, "levels": ["low"]}
     D.save_local({"codex": {"--bad": hand_edited, "a b": hand_edited}})
     out = D.run("probe", apply=True, say=None)  # the full probe tries every id of models.local.json
@@ -212,7 +209,6 @@ def test_a_model_id_that_is_not_one_plain_word_is_never_probed(fake):
     assert set(core.models_for("codex")) == {"gpt-a", "gpt-b", "gpt-old"}
 
 
-# ---- checks that cannot run change nothing --------------------------------------------------------------------
 
 @pytest.mark.parametrize("breakage", ["codex_fails", "codex_garbage", "agy_logged_out", "missing_cli", "empty_list",
                                       "names_none_known"])
@@ -269,7 +265,6 @@ def test_dry_run_writes_nothing(fake):
     assert not core.STATE_DIR.exists()
 
 
-# ---- Claude policy --------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("alias, ok", [("opus", True), ("fable", True), ("mythos", True), ("haiku", True),
                                        ("Haiku", True), ("claude-haiku-4-5-20251001", False),
@@ -345,7 +340,6 @@ def test_verdict_tells_rejection_from_failure():
     assert D.verdict(None, "TimeoutExpired") is None
 
 
-# ---- schedule, lock, state ------------------------------------------------------------------------------------
 
 @pytest.fixture
 def spawned(fake, monkeypatch):
@@ -427,7 +421,6 @@ def test_scheduled_run_logs_an_unexpected_error_and_exits_zero(fake, monkeypatch
     assert "RuntimeError: boom" in D.log_file().read_text(encoding="utf-8") and not D.lock_file().exists()
 
 
-# ---- hooks never fail -----------------------------------------------------------------------------------------
 
 def test_session_start_shows_the_note_once_and_never_raises(spawned):
     P.atomic_write(D.note_file(), "[trirouter] Model list updated - new model available: Codex gpt-new.\n")
@@ -464,7 +457,6 @@ def test_codex_and_antigravity_prompts_start_the_check_too(spawned, monkeypatch)
     assert len(spawned) == 1
 
 
-# ---- detached spawn per OS ------------------------------------------------------------------------------------
 
 class Popen:
     calls = []
@@ -508,9 +500,8 @@ def test_spawn_detached_reports_failure(monkeypatch):
         assert SPAWN(["missing"]) is False
 
 
-# ---- CLI and doctor -------------------------------------------------------------------------------------------
 
-def test_models_auto_flag_is_remembered(fake, monkeypatch, capsys):
+def test_models_auto_flag_is_remembered(fake, monkeypatch):
     monkeypatch.setattr(cli, "CONFIG", core.STATE_DIR / "config.json")
     assert cli.main(["models", "--auto=off"]) == 0
     assert json.loads((core.STATE_DIR / "config.json").read_text())["model_discovery"]["auto"] is False
@@ -518,7 +509,7 @@ def test_models_auto_flag_is_remembered(fake, monkeypatch, capsys):
     assert cli.main(["models", "--auto", "on"]) == 0 and D.auto_enabled()
 
 
-def test_models_discover_prints_one_line_per_tool(fake, monkeypatch, capsys):
+def test_models_discover_prints_one_line_per_tool(fake, capsys):
     fake.codex_list = (0, codex_json(("gpt-a", ["low"], "list")))
     assert cli.main(["models", "--discover", "--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -526,17 +517,10 @@ def test_models_discover_prints_one_line_per_tool(fake, monkeypatch, capsys):
     assert not core.STATE_DIR.exists()
 
 
-def test_models_refuses_while_a_check_runs(fake, monkeypatch, capsys):
+def test_models_refuses_while_a_check_runs(fake, capsys):
     assert D.acquire_lock()
     assert cli.main(["models", "--discover"]) == 1 and "Another model check is running" in capsys.readouterr().out
     D.release_lock()
-
-
-def test_probe_flag_was_removed(capsys):
-    with pytest.raises(SystemExit) as exc:
-        cli.main(["models", "--probe"])
-    err = capsys.readouterr().err
-    assert exc.value.code == 2 and "--probe was removed" in err and "models` already does the full check" in err
 
 
 def test_doctor_shows_the_last_check(fake, monkeypatch, capsys, tmp_path):
@@ -551,7 +535,6 @@ def test_doctor_shows_the_last_check(fake, monkeypatch, capsys, tmp_path):
     assert "off (" in capsys.readouterr().out
 
 
-# ---- tiers naming a model that is no longer available -----------------------------------------------------------
 
 def retire(provider, *ids):
     path = D.local_file()

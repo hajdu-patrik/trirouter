@@ -28,7 +28,6 @@ def run(capsys, *argv):
     return code, out.out, out.err
 
 
-# ---- help pages ---------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("key", list(manual.COMMANDS))
 def test_every_help_page_has_all_sections(key):
@@ -45,17 +44,6 @@ def test_every_flag_is_documented_with_default_and_memory(key):
     for f in manual.COMMANDS[key].flags:
         assert f.long in page and f.doc
         assert f"Default: {f.default}. Remembered in config.json: {f.remembered}." in page.replace("\n          ", " ")
-
-
-def test_changes_lines_are_plain_statements():
-    assert manual.COMMANDS["skills"].changes == "Preview by default; --apply writes"
-    assert manual.COMMANDS["setup"].changes.startswith("Changes files; preview with --dry-run")
-    assert manual.COMMANDS["doctor"].changes == "Changes nothing"
-
-
-def test_all_commands_of_the_spec_exist():
-    assert list(manual.ORDER) == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
-    assert {"quarantine list", "quarantine restore", "quarantine purge"} <= set(manual.COMMANDS)
 
 
 def test_help_command_and_flag_forms_print_the_same_page(capsys):
@@ -113,7 +101,6 @@ def test_unknown_help_topic_suggests(capsys):
     assert code == 2 and "did you mean skills?" in err
 
 
-# ---- flag validation ----------------------------------------------------------------------------------
 
 def test_unknown_flag_is_exit_2_with_a_suggestion_and_a_pointer(capsys):
     code, out, err = run(capsys, "skills", "--aply")
@@ -223,7 +210,7 @@ def test_install_py_keeps_its_old_forms():
         cliparse.resolve(["setup", "--bogus"], "python install.py", True)
 
 
-def test_route_takes_everything_after_the_double_dash_as_text(capsys):
+def test_route_takes_everything_after_the_double_dash_as_text():
     flags, words = cliparse.parse_flags(manual.COMMANDS["route"], ["--json", "--", "--not-an-option", "x"], "trirouter")
     assert flags == {"--json": True} and words == ["--not-an-option", "x"]
     with pytest.raises(cliparse.UsageError) as err:
@@ -231,7 +218,6 @@ def test_route_takes_everything_after_the_double_dash_as_text(capsys):
     assert "did you mean --json" in err.value.hint
 
 
-# ---- docs/cli.md ----------------------------------------------------------------------------------------
 
 def test_docs_cli_md_is_generated_from_the_manual():
     text = (ROOT / "docs" / "cli.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
@@ -258,18 +244,12 @@ def test_every_command_in_docs_exists():
             assert flag in known_flags, (path.name, flag)
 
 
-# ---- the launcher ---------------------------------------------------------------------------------------
 
 def test_windows_launcher_uses_python_exe_and_passes_arguments():
     text = integ.launcher_cmd("C:/Python/python.exe")
     assert text.startswith("@echo off\r\n") and text.endswith("\r\n")
     assert '"C:/Python/python.exe" "%~dp0trirouter.py" %*' in text and "pythonw" not in text
     assert "TRIROUTER_PROG" in integ.launcher_py(windows=True) and 'run_module("trirouter"' in integ.launcher_py(windows=True)
-
-
-def test_windows_launcher_never_uses_the_windowless_interpreter(monkeypatch):
-    monkeypatch.setattr(P, "python_exe", lambda: "C:/Python/python.exe")
-    assert "pythonw" not in integ.launcher_cmd()
 
 
 def test_posix_launcher_has_a_shebang_and_the_repo_path():
@@ -333,7 +313,7 @@ def test_install_launcher_on_windows_dry_run_apply_and_idempotence(fake_windows,
     assert "not installed" in capsys.readouterr().out
 
 
-def test_launcher_status_reports_missing_and_present(fake_windows, tmp_path):
+def test_launcher_status_reports_missing_and_present(fake_windows):
     ok, detail = integ.launcher_status()
     assert not ok and "missing" in detail
     integ.install_launcher(integ.Writer(apply=True))

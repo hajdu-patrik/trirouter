@@ -169,13 +169,12 @@ def test_the_daily_check_writes_the_skill_catalog(user_home):
     assert listed() == ["alpha"]
 
 
-def test_a_failing_item_is_reported_not_raised(user_home, monkeypatch):
+def test_a_failing_item_is_reported_under_its_label_not_raised(user_home, monkeypatch):
     monkeypatch.setattr(sync, "_agents", lambda apply: 1 / 0)
-    lines = sync.items(apply=True, repo=False)
-    assert any(d.startswith("failed: ZeroDivisionError") for _, _, d in lines)
+    lines = by_label(sync.items(apply=True, repo=False))
+    assert lines["worker agents"][0] and lines["worker agents"][1].startswith("failed: ZeroDivisionError")
 
 
-# ---- the pre-commit hook ------------------------------------------------------------------------------------
 
 def test_pre_commit_stages_the_regenerated_reference(checkout, user_home):
     (checkout / "trirouter" / "core.py").write_text("x = 1\n", encoding="utf-8")
@@ -207,12 +206,6 @@ def test_a_partly_staged_manual_stops_the_commit(checkout, user_home):
     assert sync.pre_commit(said.append, run_tests=False) == 1
     assert "only partly staged" in "\n".join(said)
     assert "docs/cli.md" not in git(checkout, "diff", "--cached", "--name-only")
-
-
-def test_a_failed_item_keeps_its_label(checkout, user_home, monkeypatch):
-    monkeypatch.setattr(sync, "_git_hook", lambda apply: 1 / 0)
-    lines = by_label(sync.items(apply=False))
-    assert lines["pre-commit hook"][0] and lines["pre-commit hook"][1].startswith("failed: ZeroDivisionError")
 
 
 def test_pre_commit_runs_the_tests_and_the_evaluation_only_for_routing_code(checkout, user_home, monkeypatch):

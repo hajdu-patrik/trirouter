@@ -86,7 +86,7 @@ def test_save_config_protects_where_possible(state):
     assert core.jev_key() == KEY  # whichever form was stored
 
 
-def test_setup_save_removes_plaintext_from_old_backups(state, monkeypatch):
+def test_setup_save_removes_plaintext_from_old_backups(state):
     write_cfg(state, openrouter_api_key=KEY)
     (state / "config.json.bak").write_text(json.dumps({"openrouter_api_key": KEY}), encoding="utf-8")
     assert secret.scrub_backups(state / "config.json", apply=True)[0][1] == ["openrouter_api_key"]

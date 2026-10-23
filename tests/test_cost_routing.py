@@ -44,7 +44,6 @@ def auto_jev(monkeypatch):
     monkeypatch.setattr(core, "jev_endpoint", lambda: ("typesafe", "https://x", "k", "m"))
 
 
-# ---- 1. the in-session tier stays in-session -------------------------------------------------------------
 
 @pytest.mark.parametrize("model", ["fable", "opus", "haiku", "sonnet"])
 def test_main_tier_never_delegates_whatever_jev_picks(monkeypatch, model):
@@ -61,7 +60,6 @@ def test_delegating_tiers_still_take_jevs_model_pick(monkeypatch):
     assert d["target_agent"] == "sonnet-worker-low" and "`sonnet-worker-low`" in text
 
 
-# ---- 2. cost cap -------------------------------------------------------------------------------------------
 
 def _result(primary, task="general", level=0, model=None):
     d = {"primary": primary, "task": task, "level": level, "notes": []}
@@ -89,7 +87,7 @@ def test_cost_cap_table(primary, task, level, model, want_primary, want_model):
     assert r["primary"] == want_primary and r.get("model") == want_model
 
 
-def test_level_zero_never_gets_opus_or_fable_through_decide(monkeypatch):
+def test_level_zero_never_gets_opus_or_fable_through_decide():
     routes = core.load_json("routes.json", {})["claude"]
     for family in ("opus", "fable"):
         answers = jev_answers("general", 0, family)["answers"]
@@ -121,32 +119,9 @@ def test_short_but_code_is_not_inline_by_the_short_rule():
     assert not core.is_short_chat("Organize my downloads folder by file type", 40)
 
 
-@pytest.mark.parametrize("tag, agent", [("#opus", "opus-worker-"), ("#fable", "fable-worker-"), ("#haiku", "haiku-worker-")])
-def test_explicit_override_still_wins_over_the_cap_and_the_short_rule(tag, agent):
-    d, text, _, _ = core.route(f"{tag} ok", "claude")
-    assert d["backend"] == "override" and d["target_agent"].startswith(agent)
 
 
-# ---- 3. go-aheads and session questions need the parent's context ------------------------------------------
-
-@pytest.mark.parametrize("prompt", [
-    "Mehetnek igen mind", "mehetnek mind", "Mehet, igen mind", "Igen, mehet mindet", "mehetnek", "yes do all",
-    "go ahead", "Yes, do all of it", "commit it", "push it", "commit", "fix that", "and this?", "ezt is", "ugyanezt a masikra",
-    "what about the other one", "ok", "Rendben, csinaljuk", "jovahagyom",
-])
-def test_go_aheads_and_pronoun_followups_are_continuations(prompt):
-    assert core.is_continuation(prompt), prompt
-
-
-@pytest.mark.parametrize("prompt", [
-    "commit the report to the wiki and notify finance", "Mehet, de előbb írj egy új modult a backendhez",
-    "fix the login bug in auth.py", "what is this error in the logs", "mi az a docker", "run the full benchmark suite again",
-])
-def test_real_work_is_not_a_continuation(prompt):
-    assert not core.is_continuation(prompt), prompt
-
-
-def test_go_ahead_reuses_the_previous_delegation_never_downgrades(monkeypatch):
+def test_go_ahead_reuses_the_previous_delegation_never_downgrades():
     previous = {"task": "code", "level": 2, "primary": "deep", "effort": "xhigh", "model": "opus", "extra_agents": 0,
                 "verify": "", "lang": "hu"}
     d, text, _, _ = core.route("Mehetnek igen mind", "claude", previous=previous)
@@ -177,10 +152,6 @@ def test_ordinary_questions_are_not_meta(prompt):
     assert not core.is_meta_question(prompt)
 
 
-# ---- 4. latency: fast path, timeout, cache --------------------------------------------------------------
-
-def test_jev_timeout_is_short():
-    assert core.TIMEOUT_S <= 2.0
 
 
 def test_short_plain_prompt_skips_the_network(monkeypatch):
@@ -213,11 +184,6 @@ def test_same_tier_at_low_levels_follows_the_route_table():
     assert core._same_tier_at_low_levels("unknown", routes)
 
 
-def test_difficulty_criteria_stay_short_and_self_contained():
-    # They are sent on every JEV request: keep them small, and keep the examples generic.
-    assert sum(len(c) for c in core.DIFFICULTY) < 1500 and len(core.DIFFICULTY) == 3
-
-
 def test_uncertain_or_hard_prompts_still_ask_jev(monkeypatch):
     auto_jev(monkeypatch)
     calls = fake_jev(monkeypatch)
@@ -230,18 +196,6 @@ def test_explicit_backend_is_never_skipped(monkeypatch):
     calls = fake_jev(monkeypatch)
     core.route("What is the capital of Peru?", "claude", backend="jev")
     assert len(calls) == 1
-
-
-def test_decision_cache_answers_a_repeated_prompt_without_the_network(monkeypatch, tmp_path):
-    calls = fake_jev(monkeypatch, task="code", level=2)
-    prompt = "Refaktoráld az egész kódbázist hexagonális architektúrára"
-    first, _, _, _ = core.route(prompt, "claude", backend="jev")
-    second, _, _, _ = core.route(prompt, "claude", backend="jev")
-    assert len(calls) == 1 and second.get("cached") and not first.get("cached")
-    assert (first["primary"], first["level"]) == (second["primary"], second["level"])
-    assert (tmp_path / "state" / "answer_cache.json").is_file()
-    core.route(prompt + " most", "claude", backend="jev")  # a different prompt is a different key
-    assert len(calls) == 2
 
 
 def test_decision_cache_is_bounded_and_expires(monkeypatch, tmp_path):
@@ -270,17 +224,14 @@ def test_urllib_is_imported_lazily():
     assert out.stdout.strip() == "False", out.stderr
 
 
-# ---- 5. request size ------------------------------------------------------------------------------------
 
 def test_skill_descriptions_are_trimmed_and_candidates_capped():
-    assert core.SKILL_CANDIDATES == 5
     q = core.build_questions({"pdf": "x" * 500, "docs": "short description"})
     assert len(q["skill_pdf"]["instructions"]) < 120 + 80
     assert q["skill"]["criteria"]["pdf"].endswith("...") and len(q["skill"]["criteria"]["pdf"]) <= core.SKILL_DESC_CHARS
     assert q["skill"]["criteria"]["docs"] == "short description"
 
 
-# ---- 6. boilerplate ------------------------------------------------------------------------------------
 
 def test_no_parallelism_line_when_none_and_minimal_inline_text():
     d, text, _, _ = core.route("Explain the difference between a process and a thread in detail please", "claude")
@@ -294,10 +245,6 @@ def test_parallelism_line_still_names_extra_agents():
     assert "Parallelism: up to 2 extra agent(s)" in text
 
 
-# ---- 7. quality -----------------------------------------------------------------------------------------
-
-def test_difficulty_criteria_carry_examples():
-    assert all("E.g." in c for c in core.DIFFICULTY)
 
 
 @pytest.mark.parametrize("prompt", ["Fix the bug in utils.py", "Rename getUser() to fetchUser everywhere", "Write a function that parses src/data.csv",

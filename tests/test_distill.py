@@ -64,7 +64,6 @@ def log(state):
     return path
 
 
-# ---- training data --------------------------------------------------------------------------------------------
 
 def test_tier_of_strips_the_verify_suffix():
     table = {"math": ["main", "deep", "deep+verify:antigravity"], "qa": ["main", "main", "deep"]}
@@ -99,7 +98,6 @@ def test_base_samples_read_the_eval_csvs():
     assert len(base) > 100 and all(v[1] in distill.CLASSES["task"] and v[2] in (0, 1, 2) for v in base.values())
 
 
-# ---- training, calibration, save/load -------------------------------------------------------------------------
 
 def test_train_enables_on_clear_data_and_round_trips(log, state):
     rep = distill.train(apply=True, log=log, files=[])
@@ -126,29 +124,22 @@ def test_dry_run_writes_nothing(log, state):
     assert distill.predict("anything") is None
 
 
-def test_disabled_when_labels_are_ambiguous(state):
+@pytest.mark.parametrize("rows, reason", [
+    (dict(shuffle_labels=True), "no threshold"), (dict(n_per_cluster=5), "distinct JEV-labelled prompts"), (None, "only 0 distinct"),
+])
+def test_disabled_without_a_usable_log(state, rows, reason):
     path = state / "logs" / "routing.jsonl"
-    write_log(path, [entry(*row) for row in synthetic(shuffle_labels=True)])
+    if rows is not None:
+        write_log(path, [entry(*row) for row in synthetic(**rows)])
     rep = distill.train(apply=True, log=path, files=[])
-    assert not rep["enabled"] and rep["threshold"] is None and "no threshold" in rep["reason"]
-    saved = json.loads(distill.model_file().read_text(encoding="utf-8"))
-    assert saved["enabled"] is False
+    assert not rep["enabled"] and rep["threshold"] is None and reason in rep["reason"]
+    assert any(line.lstrip().startswith("disabled") for line in distill.report_lines(rep))
+    if rows is None:
+        assert not rep["applied"] and not distill.model_file().exists()
+        return
+    assert json.loads(distill.model_file().read_text(encoding="utf-8"))["enabled"] is False
     p = distill.predict("write a short thank you note to sigma about the beta dinner")
     assert p is not None and p["confident"] is False   # a disabled model never claims to be sure
-    assert any(line.lstrip().startswith("disabled") for line in distill.report_lines(rep))
-
-
-def test_disabled_when_too_little_data(state):
-    path = state / "logs" / "routing.jsonl"
-    write_log(path, [entry(*row) for row in synthetic(n_per_cluster=5)])
-    rep = distill.train(apply=True, log=path, files=[])
-    assert not rep["enabled"] and "distinct JEV-labelled prompts" in rep["reason"]
-    assert json.loads(distill.model_file().read_text(encoding="utf-8"))["enabled"] is False
-
-
-def test_no_log_trains_nothing(state):
-    rep = distill.train(apply=True, log=state / "logs" / "missing.jsonl", files=[])
-    assert not rep["enabled"] and not rep["applied"] and not distill.model_file().exists()
 
 
 def test_calibrate_picks_the_lowest_qualifying_threshold():
@@ -197,7 +188,6 @@ def test_a_changed_route_table_makes_the_model_unsure(log, monkeypatch):
     assert not distill.predict(text)["confident"]
 
 
-# ---- the fast path ------------------------------------------------------------------------------------------
 
 @pytest.fixture
 def jev(monkeypatch):
@@ -273,7 +263,6 @@ def test_fast_path_not_taken_without_jev_access(log, monkeypatch):
     assert d.get("fast_path") != "distilled"
 
 
-# ---- background retraining ----------------------------------------------------------------------------------
 
 def test_maybe_retrain_throttles_and_needs_new_entries(log, state):
     t0 = 1_700_000_000.0

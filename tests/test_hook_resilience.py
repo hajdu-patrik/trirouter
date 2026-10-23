@@ -37,7 +37,6 @@ def log_entries(tmp_path):
     return [json.loads(line) for line in (tmp_path / "logs" / "routing.jsonl").read_text(encoding="utf-8").splitlines()]
 
 
-# ---- M-1: nothing crashes the hook --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("content", [
     '{"claude:s1": 5}', '{"claude:s1": ["text", 3, null]}', '{"claude:s1": [{"ts": "yesterday", "cwd": "/w"}]}',
@@ -116,7 +115,6 @@ def test_the_hook_shim_exits_zero_whatever_happens(tmp_path):
     assert "except BaseException" not in integrations.shim("trirouter", "route")  # the route shim keeps its exit codes
 
 
-# ---- K-1: a nested cli-bridge run is not routed again --------------------------------------------------------
 
 def test_a_nested_cli_run_gets_no_routing(monkeypatch, capsys):
     monkeypatch.setenv(hooks.NESTED_ENV, "1")
@@ -140,7 +138,6 @@ def test_cli_bridge_rejects_option_injection_and_removes_its_prompt_file(tmp_pat
     assert r.returncode == 0 and "ok" in r.stdout and not prompt_file.exists()
 
 
-# ---- K-3: log rotation and private files ---------------------------------------------------------------------
 
 def test_logs_rotate_to_their_newer_half_and_stay_owner_only(tmp_path):
     base = tmp_path / "base"
@@ -181,7 +178,6 @@ def test_a_log_can_be_read_while_another_process_appends(tmp_path):
             P._unlock_file(f)
 
 
-# ---- K-6: a huge prompt stays fast, the safety check still reads all of it ----------------------------------
 
 def test_a_huge_prompt_is_classified_on_its_ends_and_checked_whole():
     big = "hello world " * 100_000 + " then git push --force origin main"
@@ -191,7 +187,6 @@ def test_a_huge_prompt_is_classified_on_its_ends_and_checked_whole():
     assert core.clip("a" * 50_000).count("a") == 2 * core.CLASSIFY_MAX_CHARS and core.clip("short") == "short"
 
 
-# ---- K-10: skill names and paths are data ---------------------------------------------------------------------
 
 def test_a_skill_with_a_bad_name_or_path_is_never_quoted(tmp_path, monkeypatch):
     hub = tmp_path / "hub"
@@ -212,7 +207,6 @@ def test_a_skill_with_a_bad_name_or_path_is_never_quoted(tmp_path, monkeypatch):
     assert "elsewhere" not in core.render(dict(d), False, targets)
 
 
-# ---- K-11 / K-12: the other session's transcript and the logged reasons -------------------------------------
 
 def test_a_silent_other_session_no_longer_counts_as_concurrent(tmp_path):
     transcript = tmp_path / "other.jsonl"
@@ -233,7 +227,6 @@ def test_the_log_says_why_a_prompt_was_queued_and_whether_safety_fired(tmp_path,
     assert entries[1]["queued"] == {"ahead": 0, "others": 1} and entries[1]["destructive"] is True
 
 
-# ---- K-15: the Antigravity transcript is read from its tail ---------------------------------------------------
 
 def test_antigravity_reads_only_the_transcript_tail(tmp_path, monkeypatch, capsys):
     transcript = tmp_path / "t.jsonl"
@@ -249,7 +242,6 @@ def test_antigravity_reads_only_the_transcript_tail(tmp_path, monkeypatch, capsy
                     provider="antigravity") == ""  # the same turn (keyed by its text without a step index)
 
 
-# ---- what a failing or hostile prompt must not leak or lose ---------------------------------------------------
 
 def test_secrets_are_redacted_before_the_queue_summary_and_the_log_are_cut(monkeypatch, capsys, isolated):
     """The key sits across the 60-character cut of the queue summary: redaction runs on the whole prompt first."""

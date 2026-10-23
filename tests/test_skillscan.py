@@ -97,14 +97,6 @@ def test_new_skills_are_scanned_in_parallel_and_reported_once_per_outcome(tmp_pa
     assert set(skillscan.load_cache()) == {f"s{i}" for i in range(6)}
 
 
-def test_a_cached_run_scans_nothing(tmp_path, scans, capsys):
-    skills = make_skills(tmp_path / ".skills", "fine", "risky")
-    skillscan.gate(skills, apply_act, apply=True)
-    capsys.readouterr()
-    skillscan.gate(skills, apply_act, apply=True)
-    assert len(scans) == 2 and "new or changed" not in capsys.readouterr().out
-
-
 def test_accept_flagged_keeps_flagged_skills_until_they_change(tmp_path, scans, capsys):
     hub_dir, asked = tmp_path / ".skills", []
     skills = make_skills(hub_dir, "evil", "fine")

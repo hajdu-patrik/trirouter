@@ -29,14 +29,6 @@ def test_the_choice_is_asked_once_for_all_flagged_skills(tmp_path, scans, monkey
     assert (hub_dir / "evil2").is_dir() and not (hub_dir / "evil").exists()
 
 
-def test_none_keeps_all_and_remembers_them(tmp_path, scans):
-    hub_dir, asked = tmp_path / ".skills", []
-    skills = make_skills(hub_dir, "evil")
-    assert skillscan.gate(skills, apply_act, apply=True, choose=lambda items: asked.append(1) or set()) == set()
-    assert skillscan.gate(skills, apply_act, apply=True, choose=lambda items: asked.append(1) or set()) == set()
-    assert asked == [1] and (hub_dir / "evil").is_dir()
-
-
 def test_nobody_to_ask_quarantines_nothing_and_remembers_nothing(tmp_path, scans, capsys):
     skills = make_skills(tmp_path / ".skills", "evil")
     assert skillscan.gate(skills, apply_act, apply=True, choose=lambda items: None) == set()

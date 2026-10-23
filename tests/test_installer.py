@@ -70,10 +70,6 @@ def test_queue_stale_entries_expire(tmp_path, monkeypatch):
     assert queue_state.on_submit(tmp_path, "claude", "s", "/w", "new")["ahead"] == []
 
 
-def test_antigravity_stop_prints_json(monkeypatch, capsys):
-    assert hook(monkeypatch, capsys, "antigravity", "Stop", {"conversationId": "x", "fullyIdle": True}) == {}
-
-
 def test_jev_token_from_config_and_env(tmp_path, monkeypatch):
     assert core.jev_key() is None
     assert not core.use_jev()

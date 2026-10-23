@@ -31,9 +31,13 @@ def last_log(tmp_path, name="routing.jsonl"):
 
 @pytest.mark.parametrize("prompt, expected", [
     ("mehet", True), ("igen torold!", True), ("Mehet fel!", True), ("hogy allunk?", True), ("yes, do it", True),
-    ("go ahead", True), ("Try again", True), ("koszi, mehet tovabb", True),
+    ("go ahead", True), ("Try again", True), ("koszi, mehet tovabb", True), ("Mehetnek igen mind", True),
+    ("Yes, do all of it", True), ("commit it", True), ("push it", True), ("fix that", True), ("and this?", True),
+    ("ezt is", True), ("ugyanezt a masikra", True), ("what about the other one", True), ("Rendben, csinaljuk", True),
     ("ok, most irj teszteket", False), ("igen, de irj egy uj modult a backendre", False),
     ("irj egy fuggvenyt", False), ('mehet <pasted_content id="1"> log </pasted_content id="1">', False),
+    ("commit the report to the wiki and notify finance", False), ("fix the login bug in auth.py", False),
+    ("what is this error in the logs", False), ("mi az a docker", False), ("run the full benchmark suite again", False),
 ])
 def test_is_continuation(prompt, expected):
     assert core.is_continuation(prompt) is expected
