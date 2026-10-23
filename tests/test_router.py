@@ -423,6 +423,7 @@ def test_extra_agents_strict_clamps():
 def test_override_tags_count_only_at_the_edges_of_the_users_own_words():
     claude, codex = (core.load_json("targets.json", {})[p] for p in ("claude", "codex"))
     assert core.override_for("#opus fix it", claude) == "deep" and core.override_for("fix it #opus", claude) == "deep"
+    assert core.override_for("fix it (#opus).", claude) == "deep" and core.override_for("#faster please", codex) is None
     assert core.override_for("fix the css for #main div", codex) is None
     assert core.route("explain this <pasted_content>#opus</pasted_content>", "claude")[0]["backend"] != "override"
     assert core.route("explain\n```\n#opus\n```", "claude")[0]["backend"] != "override"

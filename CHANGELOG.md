@@ -9,8 +9,9 @@ change, what changed rather than how; dates are ISO 8601.
 
 ### Added
 - Renamed from jev-router to **trirouter** everywhere: package `trirouter/`, state folder `~/.trirouter/`, MCP server
-  `trirouter`, remote-access tasks `\Automations\Trirouter - *`. 3.2.0 is the last version that migrates a
-  `~/.jev-router` install by itself (`python install.py`); later versions expect `~/.trirouter`.
+  `trirouter`, remote-access tasks `\Automations\Trirouter - *`. An install from before the rename is not
+  migrated: copy `~/.jev-router/config.json` to `~/.trirouter/`, run `python install.py` (it writes the hooks, MCP
+  entries, launcher and services fresh), then delete `~/.jev-router`.
 - The `trirouter` command (launcher in `~/.trirouter/bin`, on the user PATH / linked from `~/.local/bin`) with
   man-page help for every command (`trirouter help <command>`, `--help`), flag validation with "did you mean" hints,
   short flags `-y -n -a`, `--version`, and shell tab completion for PowerShell, bash, zsh and fish.

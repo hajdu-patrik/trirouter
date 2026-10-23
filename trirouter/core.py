@@ -1366,11 +1366,11 @@ def _fast_path_reason(own, pasted, candidates, routes, backend):
 
 
 def override_for(text, targets):
-    """An override tag as its own word at the start or the end of the user's text ("#opus fix it", "fix it #opus"):
+    """An override tag as its own word at the start or the end of the user's text ("#opus fix it", "fix it (#opus)."):
     never inside prose ("the #main div") and, whole-tag, never #fast on #faster."""
     low = text.strip().lower()
     for tag, tier in targets.get("overrides", {}).items():
         tag = re.escape(tag.lower())
-        if re.search(rf"^{tag}(?![\w-])|(?<![\w#]){tag}$", low):
+        if re.search(rf"^\W*{tag}(?![\w-])|(?<![\w#]){tag}(?![\w-])\W*$", low):
             return tier
     return None
