@@ -8,9 +8,9 @@ import re
 import time
 from pathlib import Path
 
-from . import legacy, platforms as P
+from . import platforms as P
 
-STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (cli.prepare_state)
+STATE = P.STATE
 BIN = STATE / "bin"
 RUN_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_KEY = "HKCU:\\" + RUN_SUBKEY  # the same key as PowerShell names it
@@ -26,19 +26,10 @@ TASK_DESCRIPTIONS = {
     TASK_WATCHDOG: "trirouter: at logon and every 30 minutes re-hides the Antigravity autostart entry and restarts "
                    "a stopped remote-access task.",
 }
-# the names before the tasks moved into TASK_FOLDER (root folder): replaced by setup, reported by doctor
-PREV_TASKS = {"claude": "Trirouter-ClaudeRemote", "codex": "Trirouter-CodexRemote", "watchdog": "Trirouter-Watchdog"}
-PREV_TASK_ONCE = "Trirouter-Setup"
-# tasks from before the router had its own prefix, and the whole pre-rename (JevRouter-*) set
-LEGACY_TASKS = ("ClaudeRemoteControl", "ChatGPTAutostart", "CodexRemoteControl", "JevRouter-ChatGPT")
-OLD_TASKS = {"claude": legacy.TASK_CLAUDE, "codex": legacy.TASK_CODEX, "watchdog": legacy.TASK_WATCHDOG}
 LAUNCHD_LABEL = "com.trirouter.claude-remote"
 LAUNCHD = P.HOME / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 LOG = STATE / "logs" / "claude-remote.log"
 SYSTEMD = P.HOME / ".config" / "systemd" / "user" / "trirouter-claude-remote.service"
-OLD_LAUNCHD_LABEL = legacy.LAUNCHD_LABEL
-OLD_LAUNCHD = P.HOME / "Library" / "LaunchAgents" / f"{OLD_LAUNCHD_LABEL}.plist"
-OLD_SYSTEMD = P.HOME / ".config" / "systemd" / "user" / legacy.SYSTEMD_UNIT
 
 
 def load_config():
@@ -186,31 +177,8 @@ foreach ($t in {_psq(TASK_CLAUDE)}, {_psq(TASK_CODEX)}) {{
 def _setup_watchdog():
     script = BIN / "remote-watchdog.ps1"
     P.atomic_write(script, _watchdog_script())
-    _drop_old_task("watchdog")
     return _win_task(TASK_WATCHDOG, _conhost(), f'--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{script}"',
                      str(P.HOME), repeat_min=30)
-
-
-def _drop_old_task(kind):
-    """Windows: stop and unregister the pre-rename (JevRouter-*) and the pre-folder (root Trirouter-*) task of this
-    kind ("claude", "codex", "watchdog"). _win_loop stops their processes."""
-    for task in (OLD_TASKS[kind], PREV_TASKS[kind]):
-        _ps(f'Stop-ScheduledTask -TaskName "{task}" -ErrorAction SilentlyContinue; '
-            f'Unregister-ScheduledTask -TaskName "{task}" -Confirm:$false -ErrorAction SilentlyContinue')
-
-
-def _drop_old_launchd():
-    """macOS: unload and delete the pre-rename launchd agent."""
-    if OLD_LAUNCHD.exists():
-        P.run(["launchctl", "bootout", f"gui/{os.getuid()}/{OLD_LAUNCHD_LABEL}"])  # fails harmlessly when not loaded
-        OLD_LAUNCHD.unlink()
-
-
-def _drop_old_systemd():
-    """Linux: stop, disable and delete the pre-rename systemd user unit."""
-    if OLD_SYSTEMD.exists():
-        P.run(["systemctl", "--user", "disable", "--now", OLD_SYSTEMD.name])
-        OLD_SYSTEMD.unlink()
 
 
 def _loop_body(command):
@@ -307,14 +275,9 @@ WantedBy=default.target
 
 def _setup_claude(name, claude, workdir, args):
     if P.IS_WINDOWS:
-        for old in LEGACY_TASKS:
-            _ps(f'Unregister-ScheduledTask -TaskName "{old}" -Confirm:$false -ErrorAction SilentlyContinue')
-        _drop_old_task("claude")
         code, out = _win_loop(TASK_CLAUDE, "claude-remote.cmd", workdir, f'"{claude}" {_cmd_args(args)}',
-                              '($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") -or '
-                              '($_.Name -eq "cmd.exe" -and $_.CommandLine -match "start-rc\\.cmd")')
+                              '$_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control "')
     elif P.IS_MAC:
-        _drop_old_launchd()
         LAUNCHD.parent.mkdir(parents=True, exist_ok=True)
         LOG.parent.mkdir(parents=True, exist_ok=True)  # launchd does not create the log folder
         P.atomic_write(LAUNCHD, _launchd_plist(name, claude, workdir, args))
@@ -328,7 +291,6 @@ def _setup_claude(name, claude, workdir, args):
                 break
             time.sleep(1)
     else:
-        _drop_old_systemd()
         SYSTEMD.parent.mkdir(parents=True, exist_ok=True)
         P.atomic_write(SYSTEMD, _systemd_unit(name, claude, workdir, args))
         P.run(["systemctl", "--user", "daemon-reload"])
@@ -376,7 +338,6 @@ def _remote_codex(workdir):
     if P.IS_WINDOWS:
         # `remote-control start` cannot detach here (every process runs in a Job Object without breakaway): a scheduled
         # task runs the app server. One connection per computer: while the ChatGPT app holds it, this one retries.
-        _drop_old_task("codex")
         code, out = _win_loop(TASK_CODEX, "codex-remote.cmd", workdir,
                               f'call "{codex}" app-server --remote-control --listen off',
                               '$_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control"')
@@ -436,13 +397,9 @@ def codex_connection(minutes=30):
 def status():
     """Read-only (tool, ok, detail) lines for `doctor`."""
     if not P.IS_WINDOWS:
-        service, old_service = (LAUNCHD, OLD_LAUNCHD) if P.IS_MAC else (SYSTEMD, OLD_SYSTEMD)
-        lines = [("claude", service.exists(), str(service) if service.exists() else "not set up")]
-        if old_service.exists():
-            lines.append(("claude", False, f"{old_service} is a pre-rename service: run `{P.command_hint('remote')}` to replace it"))
-        return lines
-    _, out = _ps(f'Get-ScheduledTask | ? {{ $_.TaskName -like "Trirouter*" -or $_.TaskName -like "{legacy.TASK_PATTERN}" }} '
-                 '| % { $_.TaskName + "=" + $_.State }')
+        service = LAUNCHD if P.IS_MAC else SYSTEMD
+        return [("claude", service.exists(), str(service) if service.exists() else "not set up")]
+    _, out = _ps('Get-ScheduledTask | ? { $_.TaskName -like "Trirouter*" } | % { $_.TaskName + "=" + $_.State }')
     tasks = {task: state for task, sep, state in (line.partition("=") for line in out.splitlines()) if sep}
     _, out = _ps('Get-CimInstance Win32_Process | ? { $_.CommandLine -match "remote-control|app-server --remote-control" } '
                  '| % { $_.Name + "|" + $_.CommandLine }')
@@ -453,11 +410,6 @@ def status():
     if P.find_exe("agy"):
         lines.append(_agy_status(procs))
     lines.append(("watchdog", TASK_WATCHDOG in tasks, f"task {TASK_WATCHDOG}: {tasks.get(TASK_WATCHDOG, 'missing')}"))
-    lines += [("remote", False, f"pre-rename task {task} still exists: run `{P.command_hint('remote')}` to replace it")
-              for task in OLD_TASKS.values() if task in tasks]
-    lines += [("remote", False, f"task {task} (from before the {TASK_FOLDER} folder) still exists: "
-                                f"run `{P.command_hint('remote')}` to replace it")
-              for task in PREV_TASKS.values() if task in tasks]
     return lines
 
 
@@ -513,25 +465,18 @@ def remove():
         for task in (TASK_WATCHDOG, TASK_CLAUDE, TASK_CODEX, TASK_ONCE):
             _ps(f'Stop-ScheduledTask {_task(task)} -ErrorAction SilentlyContinue; '
                 f'Unregister-ScheduledTask {_task(task)} -Confirm:$false -ErrorAction SilentlyContinue')
-        for task in (*PREV_TASKS.values(), PREV_TASK_ONCE, *OLD_TASKS.values(), legacy.TASK_ONCE) + LEGACY_TASKS:
-            _ps(f'Stop-ScheduledTask -TaskName "{task}" -ErrorAction SilentlyContinue; '
-                f'Unregister-ScheduledTask -TaskName "{task}" -Confirm:$false -ErrorAction SilentlyContinue')
         _ps('Get-CimInstance Win32_Process | ? { ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "(claude|codex)-remote\\.cmd") '
             '-or ($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") '
             '-or ($_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control") } '
             '| % { Stop-Process -Id $_.ProcessId -Force }')
         report.append(("claude/codex", True, "scheduled tasks removed, servers stopped"))
-    elif P.IS_MAC and (LAUNCHD.exists() or OLD_LAUNCHD.exists()):
-        _drop_old_launchd()
-        if LAUNCHD.exists():
-            P.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])  # fails when not loaded
-            LAUNCHD.unlink()
+    elif P.IS_MAC and LAUNCHD.exists():
+        P.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])  # fails when not loaded
+        LAUNCHD.unlink()
         report.append(("claude", True, "launchd agent removed"))
-    elif SYSTEMD.exists() or OLD_SYSTEMD.exists():
-        _drop_old_systemd()
-        if SYSTEMD.exists():
-            P.run(["systemctl", "--user", "disable", "--now", SYSTEMD.name])
-            SYSTEMD.unlink()
+    elif SYSTEMD.exists():
+        P.run(["systemctl", "--user", "disable", "--now", SYSTEMD.name])
+        SYSTEMD.unlink()
         P.run(["systemctl", "--user", "daemon-reload"])
         report.append(("claude", True, "systemd user service removed"))
     if agy := P.find_exe("agy"):
@@ -543,33 +488,4 @@ def remove():
     if not P.IS_WINDOWS and (codex := P.find_exe("codex")):
         P.run([codex, "remote-control", "stop"], timeout=60)
         report.append(("codex", True, "daemon stopped"))
-    return report
-
-
-def legacy_services():
-    """Which pre-rename remote-access services exist: a subset of {"claude", "codex", "watchdog"}."""
-    if P.IS_WINDOWS:
-        _, out = _ps(f'Get-ScheduledTask -TaskName "{legacy.TASK_PATTERN}" | % {{ $_.TaskName }}')
-        present = {line.strip() for line in out.splitlines()}
-        return {kind for kind, task in OLD_TASKS.items() if task in present}
-    return {"claude"} if (OLD_LAUNCHD if P.IS_MAC else OLD_SYSTEMD).exists() else set()
-
-
-def migrate(name, workdir, apply=True):
-    """Re-creates the pre-rename services under the new names and paths: their scripts lived in the old state
-    folder, so after the folder moved they point nowhere. Only what existed is re-created. [(tool, ok, message)]"""
-    found = legacy_services()
-    if not found:
-        return []
-    if not apply:
-        return [("remote", True, f"would re-point the remote-access service(s) ({', '.join(sorted(found))}) to the new names")]
-    report = []
-    if "claude" in found:
-        report.append(_remote_claude(name, workdir))
-    if "codex" in found:
-        report.append(_remote_codex(workdir))
-    report = [line for line in report if line]
-    if P.IS_WINDOWS and ("watchdog" in found or any(ok for _, ok, _ in report)):
-        code, out = _setup_watchdog()
-        report.append(("watchdog", code == 0, "re-created under its new name" if code == 0 else out[:200]))
     return report

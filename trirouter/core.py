@@ -7,11 +7,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import catalog, lang, legacy, platforms, secret, store
+from . import catalog, lang, platforms, secret, store
 
 CFG_DIR = Path(__file__).resolve().parent / "config"
-# ~/.trirouter, or ~/.jev-router until `trirouter setup` has migrated it
-STATE_DIR = legacy.state_dir()
+STATE_DIR = platforms.STATE
 
 API_URL = os.environ.get("TYPESAFE_API_URL", "https://api.typesafe.ai/v1/systemone")
 JEV_MODEL = os.environ.get("JEV_MODEL", "jev-1.13.0")

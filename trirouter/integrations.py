@@ -6,10 +6,9 @@ import os
 import re
 from pathlib import Path
 
-from . import legacy, platforms as P
+from . import platforms as P
 
 BIN = P.STATE / "bin"
-LEGACY_BIN = P.HOME / legacy.STATE_NAME / "bin"  # the pre-rename shim folder: re-pointed, never written
 SHIM_HOOK, SHIM_MCP, SHIM_ROUTE = BIN / "run_hook.py", BIN / "mcp_server.py", BIN / "route.py"
 LOCAL_BIN = P.HOME / ".local" / "bin"  # macOS / Linux: where the `trirouter` link goes
 ALL = ("claude", "codex", "antigravity")
@@ -87,22 +86,13 @@ def load(path):
     return data
 
 
-# A hook command is ours when it mentions one of these: the current and the pre-rename module / shim path
-# ("router/run_hook.py" is an even older layout). Old entries are replaced, never duplicated.
-HOOK_MARKERS = ("router/run_hook.py", "trirouter.hooks", ".trirouter/bin/run_hook.py",
-                legacy.PACKAGE + ".hooks", legacy.STATE_NAME + "/bin/run_hook.py")
+HOOK_MARKERS = ("trirouter.hooks", ".trirouter/bin/run_hook.py")  # a hook command of ours mentions one of these
 
 
 def is_router_cmd(cmd):
     c = (cmd or "").replace("\\", "/").lower()
     return (any(m in c for m in HOOK_MARKERS)
             or fwd(SHIM_HOOK).lower() in c or fwd(P.short_path(SHIM_HOOK)).lower() in c)
-
-
-def is_legacy_cmd(cmd):
-    """A hook command written before the rename: it points at the old shim folder or module."""
-    c = (cmd or "").replace("\\", "/").lower()
-    return legacy.PACKAGE + ".hooks" in c or legacy.STATE_NAME + "/bin/" in c
 
 
 def hook_cmd(provider, event):
@@ -340,7 +330,6 @@ def antigravity_hooks(path, w, uninstall=False):
 def json_mcp(path, label, w, uninstall=False):
     cfg = load(path)
     servers = cfg.setdefault("mcpServers", {})
-    servers.pop(legacy.MCP_NAME, None)  # the pre-rename entry is ours: replaced, never left next to the new one
     if uninstall:
         servers.pop(MCP_NAME, None)
     else:
@@ -351,10 +340,9 @@ def json_mcp(path, label, w, uninstall=False):
 
 def codex_mcp(path, w, uninstall=False):
     text = Path(path).read_text(encoding="utf-8") if Path(path).exists() else ""
-    # The section ends at the next table or comment line (our agents block starts with one). A pre-rename section is
-    # ours too: the first one found is replaced in place by the new one, any further one is dropped.
-    pat = re.compile(r"\[mcp_servers\.(?:" + re.escape(MCP_NAME) + "|" + re.escape(legacy.MCP_NAME) + r")\]\n"
-                     r"(?:\n|[^\[#\n].*(?:\n|\Z))*")
+    # The section ends at the next table or comment line (our agents block starts with one); the first one found is
+    # replaced in place, any further one is dropped.
+    pat = re.compile(r"\[mcp_servers\." + re.escape(MCP_NAME) + r"\]\n(?:\n|[^\[#\n].*(?:\n|\Z))*")
     block = (f'[mcp_servers.{MCP_NAME}]\ncommand = {json.dumps(fwd(P.python_exe_windowless()))}\n'
              f'args = [{json.dumps(fwd(SHIM_MCP))}]\n\n')
     seen = []
@@ -375,53 +363,6 @@ def claude_desktop_mcp(w, uninstall=False):
     if w.changes > before and P.app_running("Claude"):
         print("[!!]  The Claude desktop app is running: quit it completely (tray icon > Quit) and reopen it, "
               "or it overwrites this change")
-
-
-def _router_commands(node):
-    """Every hook "command" string (or daemon hook "url") anywhere in a parsed config that is one of ours
-    (current or pre-rename)."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if (key == "command" and isinstance(value, str) and is_router_cmd(value)) or (
-                    key == "url" and is_router_url(value)):
-                yield value
-            else:
-                yield from _router_commands(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _router_commands(item)
-
-
-def _json_entries(hooks_path, mcp_path):
-    """(has router entries, has pre-rename entries) in one tool's hooks file and JSON MCP config."""
-    found = legacy_found = False
-    try:
-        cmds = list(_router_commands(load(hooks_path))) if hooks_path else []
-        servers = load(mcp_path).get("mcpServers") or {} if mcp_path else {}
-    except BadConfig:
-        return False, False
-    found = bool(cmds) or MCP_NAME in servers or legacy.MCP_NAME in servers
-    legacy_found = any(is_legacy_cmd(c) for c in cmds) or legacy.MCP_NAME in servers
-    return found, legacy_found
-
-
-def _codex_entries():
-    path = P.PATHS["codex_config"]
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
-    old, new = f"[mcp_servers.{legacy.MCP_NAME}]" in text, f"[mcp_servers.{MCP_NAME}]" in text
-    found, legacy_found = _json_entries(P.PATHS["codex_hooks"], None)
-    return found or old or new, legacy_found or old
-
-
-def configured_providers():
-    """([providers whose configs already hold a router hook or MCP entry], any entry from before the rename).
-    Used to re-point an existing install; a tool that was never set up is not added."""
-    checks = {"claude": _json_entries(P.PATHS["claude_settings"], P.claude_desktop_config()),
-              "codex": _codex_entries(),
-              "antigravity": _json_entries(P.PATHS["agy_hooks"], P.PATHS["agy_mcp"])}
-    return [p for p in ALL if checks[p][0]], any(c[1] for c in checks.values())
-
-
 def install_shims(w):
     w.write(SHIM_HOOK, shim("trirouter.hooks", hook=True), "hook shim")
     w.write(SHIM_MCP, shim("trirouter.mcp_server"), "MCP shim")
@@ -553,19 +494,11 @@ def posix_path_has(directory, path=None):
     return str(directory) in [e.rstrip("/") for e in path.split(os.pathsep)]
 
 
-def legacy_launcher_py_path():
-    return LEGACY_BIN / "trirouter.py" if P.IS_WINDOWS else LEGACY_BIN / "trirouter"
-
-
 def _posix_link_state():
-    """"ok" (our link), "legacy" (our link from before the rename: points into ~/.jev-router/bin, re-pointed),
-    "missing", or "foreign" (something else is in the way: never overwritten)."""
+    """"ok" (our link), "missing", or "foreign" (something else is in the way: never overwritten)."""
     link = LOCAL_BIN / "trirouter"
     if link.is_symlink():
-        target = os.path.realpath(link)
-        if target == os.path.realpath(launcher_py_path()):
-            return "ok"
-        return "legacy" if target == os.path.realpath(legacy_launcher_py_path()) else "foreign"
+        return "ok" if os.path.realpath(link) == os.path.realpath(launcher_py_path()) else "foreign"
     return "foreign" if link.exists() else "missing"
 
 
@@ -582,19 +515,12 @@ def _write_launcher(path, content):
 
 def _make_posix_link():
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)
-    link = LOCAL_BIN / "trirouter"
-    if link.is_symlink():  # our pre-rename link: re-point
-        link.unlink()
-    os.symlink(launcher_py_path(), link)
+    os.symlink(launcher_py_path(), LOCAL_BIN / "trirouter")
 
 
 def _set_user_path(value, kind):
     user_path_write(value, kind)
     broadcast_env_change()
-
-
-def _remove_from_user_path(value, kind):
-    _set_user_path(path_without(path_without(value, BIN), LEGACY_BIN), kind)
 
 
 def launcher_plan():
@@ -609,16 +535,10 @@ def launcher_plan():
                          lambda path=path, content=content: _write_launcher(path, content)))
     if P.IS_WINDOWS:
         value, kind = user_path_read()
-        msgs = ([f"remove the old {LEGACY_BIN} from your user PATH"] if path_has(value, LEGACY_BIN) else []) + (
-            [f"add {BIN} to your user PATH"] if not path_has(value, BIN) else [])
-        if msgs:  # one registry write: the legacy entry out, the new one in (never twice, no duplicates)
-            wanted = path_with(path_without(value, LEGACY_BIN), BIN)
-            plan.append(("; ".join(msgs), lambda: _set_user_path(wanted, kind)))
-    else:
-        state = _posix_link_state()
-        if state in ("missing", "legacy"):
-            plan.append((f"{'re-point' if state == 'legacy' else 'link'} {LOCAL_BIN / 'trirouter'} -> {launcher_py_path()}",
-                         _make_posix_link))
+        if not path_has(value, BIN):
+            plan.append((f"add {BIN} to your user PATH", lambda: _set_user_path(path_with(value, BIN), kind)))
+    elif _posix_link_state() == "missing":
+        plan.append((f"link {LOCAL_BIN / 'trirouter'} -> {launcher_py_path()}", _make_posix_link))
     return plan
 
 
@@ -655,19 +575,16 @@ def install_launcher(w):
 def uninstall_launcher(w):
     """Removes the launcher, the ~/.local/bin link (only ours) and the PATH entry."""
     todo = []
-    for base in (BIN, LEGACY_BIN):  # the pre-rename folder too
-        for name in ("trirouter.py", "trirouter.cmd") if P.IS_WINDOWS else ("trirouter",):
-            path = base / name
-            if path.exists():
-                todo.append((f"remove {path}", lambda path=path: Path(path).unlink()))
-    if not P.IS_WINDOWS and _posix_link_state() in ("ok", "legacy"):
+    for name in ("trirouter.py", "trirouter.cmd") if P.IS_WINDOWS else ("trirouter",):
+        path = BIN / name
+        if path.exists():
+            todo.append((f"remove {path}", lambda path=path: Path(path).unlink()))
+    if not P.IS_WINDOWS and _posix_link_state() == "ok":
         todo.append((f"remove {LOCAL_BIN / 'trirouter'}", lambda: (LOCAL_BIN / "trirouter").unlink()))
     if P.IS_WINDOWS:
         value, kind = user_path_read()
-        found = [base for base in (BIN, LEGACY_BIN) if path_has(value, base)]
-        if found:
-            todo.append((f"remove {' and '.join(str(b) for b in found)} from your user PATH",
-                         lambda: _remove_from_user_path(value, kind)))
+        if path_has(value, BIN):
+            todo.append((f"remove {BIN} from your user PATH", lambda: _set_user_path(path_without(value, BIN), kind)))
     if not todo:
         print(f"[OK]  {LAUNCHER_LABEL}: not installed")
     _run_plan(w, todo)

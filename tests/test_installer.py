@@ -10,6 +10,13 @@ import pytest
 from trirouter import core, hooks as run_hook, integrations as install_hooks, platforms as P, queue_state
 
 
+@pytest.mark.parametrize("cmd", ["python C:/Users/x/.trirouter/bin/run_hook.py claude UserPromptSubmit",
+                                 'cd "$D" && python -m trirouter.hooks claude UserPromptSubmit --cloud-only'])
+def test_our_hook_commands_are_recognized_and_foreign_ones_are_not(cmd):
+    assert install_hooks.is_router_cmd(cmd)
+    assert not install_hooks.is_router_cmd("python /opt/other/hook.py") and not install_hooks.is_router_cmd("")
+
+
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(run_hook, "LOG_FILE", tmp_path / "routing.jsonl")

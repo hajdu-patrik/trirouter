@@ -134,12 +134,12 @@ def suggest(word, choices):
     return f"did you mean {near[0]}?" if near else ""
 
 
-def resolve(argv, prog, legacy):
-    """The Invocation for argv. `legacy`: python install.py, where no command means setup and flags may precede it."""
+def resolve(argv, prog, install_py=False):
+    """The Invocation for argv. `install_py`: python install.py, where no command means setup and flags may precede it."""
     args = list(argv)
     names = tuple(manual.ORDER)
     if not args:
-        return Invocation("run", "setup") if legacy else Invocation("overview")
+        return Invocation("run", "setup") if install_py else Invocation("overview")
     if args[0] in ("-h", "--help"):
         return Invocation("overview")
     if args[0] in ("-V", "--version"):
@@ -150,7 +150,7 @@ def resolve(argv, prog, legacy):
         idx = _locate_command(args, names)
         if idx is None:
             cmd, rest = "setup", args
-            if not legacy:
+            if not install_py:
                 raise UsageError(f"unexpected option {args[0].partition('=')[0]} before a command",
                                  f"Run `{prog} help` for the command list.")
         else:

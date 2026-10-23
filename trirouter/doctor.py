@@ -3,10 +3,10 @@ import json
 import re
 from pathlib import Path
 
-from . import core, integrations, legacy, platforms as P, remote, secret, skillscan
+from . import core, integrations, platforms as P, remote, secret, skillscan
 
 HOME = P.HOME
-STATE = legacy.state_dir(HOME)
+STATE = P.STATE
 CLAUDE_EVENTS = integrations.HOOK_EVENTS["claude"]
 
 
@@ -27,15 +27,12 @@ def _commands(cfg, event):
 
 
 def has_hook(cfg, event):
-    """A router hook for the event: a command under the current or the pre-rename shim path (the latter is
-    reported separately by report_legacy), or an http hook to the daemon."""
+    """A router hook for the event: a command running our shim, or an http hook to the daemon."""
     return any(integrations.is_router_hook(h) for h in _hooks(cfg, event))
 
 
 def mcp_entry(cfg):
-    """The router's entry in an MCP config: the current name, else the pre-rename one."""
-    servers = (cfg or {}).get("mcpServers", {})
-    return servers.get(integrations.MCP_NAME) or servers.get(legacy.MCP_NAME)
+    return (cfg or {}).get("mcpServers", {}).get(integrations.MCP_NAME)
 
 
 def interpreters(claude_settings, codex_toml):
@@ -51,8 +48,7 @@ def interpreters(claude_settings, codex_toml):
         cmd = (mcp_entry(cfg) or {}).get("command")
         if cmd:
             found.append((label, cmd))
-    names = "|".join(re.escape(n) for n in (integrations.MCP_NAME, legacy.MCP_NAME))
-    m = re.search(r'\[mcp_servers\.(?:' + names + r')\]\ncommand = "([^"]+)"', codex_toml or "")
+    m = re.search(r'\[mcp_servers\.' + re.escape(integrations.MCP_NAME) + r'\]\ncommand = "([^"]+)"', codex_toml or "")
     if m:
         found.append(("Codex MCP", m.group(1)))
     return found
@@ -81,7 +77,7 @@ def report_tools():
 
 def report_hooks():
     print("\n== Router hooks")
-    line((STATE / "bin" / "run_hook.py").is_file(), "hook shim", "~/.trirouter/bin/run_hook.py")
+    line(integrations.SHIM_HOOK.is_file(), "hook shim", str(integrations.SHIM_HOOK))
     cs, cx = jload(P.PATHS["claude_settings"]), jload(P.PATHS["codex_hooks"])
     agy = (jload(P.PATHS["agy_hooks"]) or {}).get("router", {})
     missing = [e for e in CLAUDE_EVENTS if not has_hook(cs, e)]
@@ -118,34 +114,9 @@ def report_mcp():
     line(ok, "Claude desktop (Chat/Cowork)", "" if ok else "missing - the app rewrites its config from memory: "
          f"close the Claude app, run {P.command_hint('setup --yes')}, reopen it")
     cfg_toml = P.PATHS["codex_config"].read_text(encoding="utf-8") if P.PATHS["codex_config"].exists() else ""
-    line(any(f"[mcp_servers.{n}]" in cfg_toml for n in (integrations.MCP_NAME, legacy.MCP_NAME)), "Codex")
+    line(f"[mcp_servers.{integrations.MCP_NAME}]" in cfg_toml, "Codex")
     line(bool(mcp_entry(jload(P.PATHS["agy_mcp"]))), "Antigravity")
     return cfg_toml
-
-
-def report_legacy(claude_settings, cfg_toml):
-    """Everything from before the rename that is still around. Printed only when there is something."""
-    cmds = [c for event in integrations.ROUTER_EVENTS for c in _commands(claude_settings, event)]
-    cmds += [c for event in ("UserPromptSubmit", "Stop") for c in _commands(jload(P.PATHS["codex_hooks"]), event)]
-    cmds += [h.get("command", "") for spec in (jload(P.PATHS["agy_hooks"]) or {}).values() if isinstance(spec, dict)
-             for hooks in spec.values() if isinstance(hooks, list) for h in hooks if isinstance(h, dict)]
-    old_mcp = (legacy.MCP_NAME in (jload(P.claude_desktop_config()) or {}).get("mcpServers", {})
-               or legacy.MCP_NAME in (jload(P.PATHS["agy_mcp"]) or {}).get("mcpServers", {})
-               or f"[mcp_servers.{legacy.MCP_NAME}]" in cfg_toml)
-    problems = []
-    if legacy.old_state(HOME).is_dir():
-        problems.append(f"state folder ~/{legacy.STATE_NAME} (the new one is ~/{legacy.NEW_STATE_NAME})")
-    if any(integrations.is_legacy_cmd(c) for c in cmds):
-        problems.append("hook entries that call the old shim")
-    if old_mcp:
-        problems.append(f"MCP server entry '{legacy.MCP_NAME}' (now '{integrations.MCP_NAME}')")
-    if problems:
-        print("\n== Left over from before the rename to trirouter")
-        for p in problems:
-            line(False, "old", p)
-        line(False, "fix", f"{P.command_hint('setup --yes')} (it migrates the state folder and rewrites all of these)")
-
-
 def count_in(folder, test):
     return sum(1 for p in folder.iterdir() if test(p)) if folder.is_dir() else 0
 
@@ -361,5 +332,4 @@ def main():
     cfg = report_config()
     report_interpreters(claude_settings, cfg_toml)
     report_remote(cfg)
-    report_legacy(claude_settings, cfg_toml)
     report_activity()

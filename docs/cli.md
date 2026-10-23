@@ -104,8 +104,6 @@ Interactive setup in five steps: (1) detect Claude Code, Codex and Antigravity a
 
 Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. `python install.py` with no arguments does the same. A saved JEV key is stored protected, and a plaintext key left by an older version is protected on the next save (see `trirouter keys`).
 
-An install from before the rename (state folder ~/.jev-router) is migrated first: the folder moves to ~/.trirouter, and the hooks, MCP entries (renamed to `trirouter`), PATH entry and remote-access services that point into it are rewritten. A dry run only reports this. `skills --apply`, `remote`, `models` and `uninstall` do the same before they write.
-
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `-y`, `--yes` | - | off | no | Never prompt: answer every question with its default. Unattended runs move, quarantine or delete nothing that needs a decision. |

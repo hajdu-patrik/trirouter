@@ -238,7 +238,7 @@ def test_http_registration_and_back(tmp_path, capsys):
                                "headers": {daemon.TOKEN_HEADER: tok}, "timeout": 10}
     assert foreign_http in entries["Stop"] and not integ.is_router_hook(foreign_http)
     assert integ.http_hook_tokens(json.loads(settings.read_text(encoding="utf-8"))) == {tok}
-    assert integ.has_router_hooks(settings) and integ.configured_providers()[0][:1] == ["claude"]
+    assert integ.has_router_hooks(settings)
 
     integ.claude_codex_hooks(settings, "claude", integ.Writer(True), transport="command")
     entries = _entries(settings)

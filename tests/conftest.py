@@ -26,7 +26,6 @@ def isolated_machine(tmp_path_factory, monkeypatch):
     from trirouter import integrations, remote
     base = tmp_path_factory.mktemp("machine")
     monkeypatch.setattr(integrations, "BIN", base / "bin")
-    monkeypatch.setattr(integrations, "LEGACY_BIN", base / "old-bin")
     monkeypatch.setattr(integrations, "LOCAL_BIN", base / "local-bin")
     for name, file in (("SHIM_HOOK", "run_hook.py"), ("SHIM_MCP", "mcp_server.py"), ("SHIM_ROUTE", "route.py")):
         monkeypatch.setattr(integrations, name, base / "bin" / file)

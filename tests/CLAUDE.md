@@ -10,6 +10,6 @@ real home, `~/.trirouter`, `~/.claude`, a real CLI or the network.
 - A fixture shared by several files goes into `conftest.py` and plain helpers into a module such as `skillscan_helpers.py`; never import a
   fixture from another test module (pyflakes reports it, and it is easy to break).
 - Comments say why a test does what it does; the test name says what it checks. pyflakes must stay clean:
-  `python -m pyflakes trirouter tests eval install.py jev_router`.
+  `python -m pyflakes trirouter tests eval install.py`.
 - `test_policy.py` checks the model policy across `config/*.json`, `test_cli_manual.py` that `docs/cli.md` matches `manual.py`
   (`python -m trirouter sync` regenerates it), `test_eval_delegation.py` the evaluation script's own bookkeeping.

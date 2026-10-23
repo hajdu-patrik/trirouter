@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from trirouter import catalog, core, hub, legacy, platforms as P, skillscan, sync
+from trirouter import catalog, core, hub, platforms as P, skillscan, sync
 
 GOOGLE = ("gke-basics", "google-cloud-waf-security", "cloud-run-basics")
 OTHERS = ("pdf", "finding-google-skills")
@@ -38,7 +38,7 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.setattr(catalog, "BUNDLED", repo)
     state = tmp_path / "state"
     state.mkdir()
-    monkeypatch.setenv(legacy.ENV_HOME_NEW, str(state))
+    monkeypatch.setenv("TRIROUTER_HOME", str(state))
     return tmp_path
 
 

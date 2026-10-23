@@ -15,7 +15,6 @@ KEY = "sk-or-v1-" + "a1b2c3d4" * 6  # fake
 @pytest.fixture
 def state(tmp_path, monkeypatch):
     monkeypatch.setattr(core, "STATE_DIR", tmp_path)
-    monkeypatch.setattr(cli, "STATE", tmp_path)
     monkeypatch.setattr(cli, "CONFIG", tmp_path / "config.json")
     monkeypatch.setattr(doctor, "STATE", tmp_path)
     monkeypatch.setattr(cli, "DRY", False)

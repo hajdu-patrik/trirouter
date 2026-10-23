@@ -89,11 +89,7 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "generated; (5) optional remote access and speech-to-text.\n\n"
          "Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. "
          "`python install.py` with no arguments does the same. A saved JEV key is stored protected, and a plaintext "
-         "key left by an older version is protected on the next save (see `{prog} keys`).\n\n"
-         "An install from before the rename (state folder ~/.jev-router) is migrated first: the folder moves to "
-         "~/.trirouter, and the hooks, MCP entries (renamed to `trirouter`), PATH entry and remote-access services "
-         "that point into it are rewritten. A dry run only reports this. `skills --apply`, `remote`, `models` and "
-         "`uninstall` do the same before they write."),
+         "key left by an older version is protected on the next save (see `{prog} keys`)."),
      flags=(YES, DRY,
             Flag("--providers", value="LIST", default="every installed, logged-in tool",
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),

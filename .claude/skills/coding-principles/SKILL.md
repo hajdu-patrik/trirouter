@@ -23,7 +23,7 @@ Use this on every changed `.py` file of `trirouter/`, `tests/` and `eval/`. Reme
 Use a scratch `TRIROUTER_HOME` (see `tests/CLAUDE.md`); never run `install.py` or `trirouter setup` for real.
 
 ```bash
-python -m pyflakes trirouter tests eval install.py jev_router   # silent
+python -m pyflakes trirouter tests eval install.py   # silent
 python -m pytest tests -q                                       # all green
 python -m trirouter sync --check                                # docs/cli.md matches manual.py; `python -m trirouter sync` after editing it
 python eval/eval_router.py                                      # when routing code or config changed

@@ -8,7 +8,7 @@ import re
 import time
 from pathlib import Path, PurePath
 
-from . import lang, legacy, platforms as P
+from . import lang, platforms as P
 
 HOME = Path.home()
 HUB = Path(os.environ.get("JEV_SKILLS_HUB", str(HOME / ".skills")))
@@ -157,22 +157,20 @@ def parse_patterns(value):
 
 
 def catalog_only_patterns():
-    """config.json -> skills.catalog_only (the folder with config.json: ~/.trirouter, or ~/.jev-router until
-    migrated). Hub linking and the catalog both read it, so they agree. Never raises: hooks call the catalog."""
+    """config.json -> skills.catalog_only; hub linking and the catalog both read it. Never raises: hooks call it."""
     try:
-        cfg = json.loads((legacy.state_dir(P.HOME) / "config.json").read_text(encoding="utf-8"))
+        cfg = json.loads((P.state_dir() / "config.json").read_text(encoding="utf-8"))
         return parse_patterns(cfg["skills"]["catalog_only"])
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
 
 
 def is_bundled(skill_dir, bundled=None):
-    """A skill that ships with trirouter (also from a moved clone or the pre-rename package folder)."""
+    """A skill that ships with trirouter (also from a moved clone: <any>/trirouter/skills)."""
     parent = Path(os.path.realpath(skill_dir)).parent
     if parent == Path(os.path.realpath(bundled or BUNDLED)):
         return True
-    tail = tuple(os.path.normcase(x) for x in parent.parts[-2:])
-    return tail in {(os.path.normcase(pkg), "skills") for pkg in ("trirouter", legacy.PACKAGE)}
+    return tuple(os.path.normcase(x) for x in parent.parts[-2:]) == (os.path.normcase("trirouter"), "skills")
 
 
 def is_catalog_only(skill_dir, patterns, bundled=None):
@@ -219,7 +217,7 @@ _INDEX_MEMO = {}   # (key) -> (docs, df) for this process
 
 
 def _index_path():
-    return legacy.state_dir() / "catalog-index.json"
+    return P.state_dir() / "catalog-index.json"
 
 
 def load_catalog():

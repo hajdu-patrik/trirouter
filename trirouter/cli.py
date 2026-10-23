@@ -7,10 +7,9 @@ import sys
 from pathlib import Path
 
 from . import (__version__, catalog, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt,
-               legacy, manual, platforms as P, remote, secret, skillscan, sync)
+               manual, platforms as P, remote, secret, skillscan, sync)
 
-STATE = legacy.state_dir(P.HOME)  # the old ~/.jev-router until migrated (prepare_state)
-CONFIG = STATE / "config.json"
+CONFIG = P.STATE / "config.json"
 ALL = ("claude", "codex", "antigravity")
 ON_WORDS = ("on", "1", "true", "yes")
 
@@ -35,9 +34,6 @@ def configure(inv):
     DRY = "--dry-run" in FLAGS
 
 
-# Commands that write per-user state or rewrite the tools' configs: they migrate a pre-rename ~/.jev-router first, so
-# nothing is ever written to a half-migrated pair of folders.
-STATE_WRITERS = ("setup", "keys", "skills", "models", "remote", "uninstall", "quarantine restore", "quarantine purge")
 
 
 def say(msg=""):
@@ -72,52 +68,6 @@ def save_config(cfg):
     # atomic and owner-only from the start; the JEV token is stored protected (secret.py), never as plain text
     # where the system can encrypt it
     P.atomic_write(CONFIG, json.dumps(secret.protect_config(cfg), indent=2), mode=0o600)
-
-
-def rebase_state(state):
-    """Points every module that captured the state folder at import time to `state` (after a migration)."""
-    global STATE, CONFIG
-    STATE, CONFIG = state, state / "config.json"
-    core.STATE_DIR = state
-    doctor.STATE = state
-    remote.STATE, remote.BIN, remote.CONFIG = state, state / "bin", state / "config.json"
-    remote.LOG = state / "logs" / "claude-remote.log"
-    skillscan.STATE, skillscan.CONFIG = state, state / "config.json"
-    skillscan.QUARANTINE, skillscan.CACHE = state / "quarantine", state / "state" / "skillscan.json"
-
-
-def repoint_install(apply):
-    """After the state folder moved: rewrites the hooks, MCP entries, PATH entry and remote-access services that point
-    into the old bin folder (old entries are replaced, never duplicated)."""
-    providers, has_old = integrations.configured_providers()
-    if providers:
-        say(f"\nRe-pointing the existing hooks and MCP entries ({', '.join(providers)}) to {integrations.BIN}:")
-        integrations.install(providers, apply=apply)
-    cfg = load_config()
-    name = cfg.get("remote_name") or P.hostname()
-    report(remote.migrate(name, remote_workdir(cfg), apply=apply), indent="  ")
-
-
-def prepare_state(key):
-    """Moves ~/.jev-router to ~/.trirouter before a command that writes state (see legacy.migrate_state).
-    Returns an exit code to stop with, or None to continue. A dry run only reports."""
-    if key not in STATE_WRITERS or (key == "remote" and "--remove" in FLAGS):
-        return None
-    apply = not DRY and (key != "skills" or "--apply" in FLAGS)
-    status = legacy.migrate_state(P.HOME, apply=apply, say=say)
-    if status == "failed":
-        say("Nothing else was changed. The hooks keep working from the old folder.")
-        return 1
-    if status in ("moved", "merged"):
-        rebase_state(P.STATE)
-        if key != "uninstall":  # an uninstall removes every entry anyway
-            repoint_install(apply=True)
-    elif status.startswith("would-") and key != "uninstall":
-        say("[DRY] ...then every hook, MCP entry, the PATH entry and remote-access service that points at the old "
-            "folder is rewritten.")
-    elif apply and key != "uninstall" and integrations.configured_providers()[1]:
-        repoint_install(apply=True)  # the folder was moved by hand, but old entries remain
-    return None
 
 
 def report(lines, indent=""):
@@ -334,8 +284,6 @@ def next_steps(providers):
     if "claude" in providers:
         say("  * Claude desktop Chat/Cowork: restart the app, then add to Settings > Profile > Personal preferences:")
         say('      "Before answering any new request, call the trirouter route_prompt tool with my message and follow its instructions."')
-        say(f"    The MCP server was renamed from {legacy.MCP_NAME} to {integrations.MCP_NAME}: if you added the old sentence "
-            f"(\"... call the {legacy.MCP_NAME} route_prompt tool ...\"), replace it with this one.")
     if not DRY:
         say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
             "then run `trirouter help`.")
@@ -727,9 +675,8 @@ def _main(argv):
     prog = program_name()
     if argv[:1] == ["route"]:  # before parsing: the prompt text is free-form
         return run_route(argv[1:])
-    legacy = prog != "trirouter"
     try:
-        inv = cliparse.resolve(argv, prog, legacy)
+        inv = cliparse.resolve(argv, prog, install_py=prog != "trirouter")
     except cliparse.UsageError as exc:
         sys.exit(usage_error(exc, prog))
     if inv.kind in ("help", "overview", "markdown"):
@@ -738,8 +685,6 @@ def _main(argv):
         say(f"trirouter {__version__}")
         return 0
     configure(inv)
-    if (code := prepare_state(inv.key)) is not None:
-        return code
     commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
                 "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn,
                 "sync": lambda: sync.main(FLAGS, say)}

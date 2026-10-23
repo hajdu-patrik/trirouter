@@ -18,12 +18,6 @@ in every project, in the desktop apps and in remote sessions – and decides for
 * whether the request is **irreversible** (then the model must ask before acting),
 * **which language** to answer in (the language of the prompt).
 
-> Formerly **jev-router** (repository `claude-workspace`), renamed to trirouter everywhere: the Python
-> package, `~/.trirouter/`, the `trirouter` MCP server and the scheduled tasks. An existing install is
-> migrated by `python install.py` (the state folder moves, hooks, MCP entries, PATH and remote-access
-> services are rewritten); see the CHANGELOG for the steps. `JEV` alone is the external routing engine
-> and keeps its name.
-
 It also **protects running work**: a prompt sent while an earlier one is still being processed is
 queued behind it and must not stop or overwrite it.
 
@@ -424,14 +418,12 @@ trirouter/                 the package
 ├── integrations.py        hook + MCP registration per tool, ~/.trirouter/bin shims
 ├── platforms.py           OS abstraction (paths, links, executables, detection)
 ├── secret.py              protected storage for the saved API key, secret redaction
-├── legacy.py              the pre-rename names and the state-folder migration
 ├── remote.py              optional remote access
 ├── doctor.py              health report
 ├── config/                models.json (catalog + policy), routes.json (task → tier), targets.json (tier → worker)
 ├── templates/agents/      role templates fast/balanced/deep/test-worker.md (rendered into
 │                          ~/.claude/agents, ~/.codex/agents and ~/.gemini/config/agents)
 └── skills/                skills bundled with trirouter (cli-bridge)
-jev_router/                compatibility package for shims written before the rename (remove after the next release)
 tests/                     unit tests, model-policy test
 eval/                      100 Hungarian + 100 English labelled prompts, 45 real-traffic shapes, evaluation script
 docs/                      cli.md (command reference, generated), speech-to-text and remote-access guides
@@ -444,7 +436,7 @@ docs/                      cli.md (command reference, generated), speech-to-text
 
 ```bash
 pip install -e .[dev]              # optional: editable install, adds a `trirouter` console script
-python -m pyflakes trirouter tests eval install.py jev_router   # lint: must stay silent
+python -m pyflakes trirouter tests eval install.py   # lint: must stay silent
 python -m pytest tests -q          # unit tests incl. the model-policy check
 python eval/eval_router.py         # full pipeline on the labelled prompts (exit 1 below target)
 python -m trirouter sync           # after a change: docs/cli.md, tab completion, agents, skill catalog, pre-commit hook

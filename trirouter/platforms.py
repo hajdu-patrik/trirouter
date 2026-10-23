@@ -15,7 +15,14 @@ REPO = PKG.parent
 HOME = Path.home()
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
-STATE = HOME / ".trirouter"  # per-user state; see legacy.state_dir() for the pre-migration fallback
+
+
+def state_dir():
+    """~/.trirouter, or TRIROUTER_HOME (tests point it at a scratch folder)."""
+    return Path(os.environ.get("TRIROUTER_HOME") or HOME / ".trirouter")
+
+
+STATE = state_dir()
 
 
 def claude_desktop_config():

@@ -23,7 +23,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e .[dev]
       - name: Lint (unused imports and names)
-        run: python -m pyflakes trirouter tests eval install.py jev_router
+        run: python -m pyflakes trirouter tests eval install.py
       - name: Unit tests
         run: python -m pytest tests -q
       - name: Generated files in sync (docs/cli.md)

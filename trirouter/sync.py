@@ -74,7 +74,7 @@ def _completion(apply):
 
 def _generated(folder, pattern):
     try:
-        return folder.is_dir() and any(any(m in f.read_text(encoding="utf-8", errors="replace") for m in hub.GEN_MARKS)
+        return folder.is_dir() and any(hub.GEN_MARK in f.read_text(encoding="utf-8", errors="replace")
                                        for f in folder.glob(pattern))
     except OSError:
         return False

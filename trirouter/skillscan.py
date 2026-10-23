@@ -12,9 +12,9 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import legacy, platforms as P
+from . import platforms as P
 
-STATE = legacy.state_dir(P.HOME)
+STATE = P.STATE
 QUARANTINE = STATE / "quarantine"
 CACHE = STATE / "state" / "skillscan.json"
 CONFIG = STATE / "config.json"

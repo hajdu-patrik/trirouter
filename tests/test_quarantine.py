@@ -249,7 +249,6 @@ def test_restore_command_allows_the_skill_in_config(q, tmp_path, monkeypatch, ca
     put(q, "evil", 1)
     monkeypatch.setattr(hub, "HUB", tmp_path / ".skills")
     monkeypatch.setattr(cli, "CONFIG", tmp_path / "config.json")
-    monkeypatch.setattr(cli, "STATE", tmp_path)
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "POSITIONAL", ["evil"])
     assert cli.quarantine_restore({}) == 0
@@ -266,7 +265,6 @@ def test_purge_all_needs_a_confirmation_unless_yes(q, monkeypatch, capsys):
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "YES", False)
     monkeypatch.setattr(cli, "interactive", lambda: False)
-    monkeypatch.setattr(cli, "STATE", q.parent)
     monkeypatch.setattr(cli, "CONFIG", q.parent / "config.json")
     assert cli.quarantine_purge({}) == 1 and (q / "fresh").is_dir()
     assert "Cancelled" in capsys.readouterr().out

@@ -162,7 +162,6 @@ def test_hub_links_neither_blocked_nor_scans_bundled_skills(tmp_path, scans, mon
 
 def test_scan_flags_are_remembered_only_when_applied(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "CONFIG", tmp_path / "config.json")
-    monkeypatch.setattr(cli, "STATE", tmp_path)
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "FLAGS", {"--allow-skill": "b, a", "--scan-llm": "on"})
     monkeypatch.setattr(hub, "CHOOSE", hub.CHOOSE)

@@ -512,8 +512,6 @@ def test_spawn_detached_reports_failure(monkeypatch):
 
 def test_models_auto_flag_is_remembered(fake, monkeypatch, capsys):
     monkeypatch.setattr(cli, "CONFIG", core.STATE_DIR / "config.json")
-    monkeypatch.setattr(cli, "STATE", core.STATE_DIR)
-    monkeypatch.setattr(cli, "prepare_state", lambda key: None)
     assert cli.main(["models", "--auto=off"]) == 0
     assert json.loads((core.STATE_DIR / "config.json").read_text())["model_discovery"]["auto"] is False
     assert not fake.calls and not D.auto_enabled()
@@ -521,7 +519,6 @@ def test_models_auto_flag_is_remembered(fake, monkeypatch, capsys):
 
 
 def test_models_discover_prints_one_line_per_tool(fake, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "prepare_state", lambda key: None)
     fake.codex_list = (0, codex_json(("gpt-a", ["low"], "list")))
     assert cli.main(["models", "--discover", "--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -530,7 +527,6 @@ def test_models_discover_prints_one_line_per_tool(fake, monkeypatch, capsys):
 
 
 def test_models_refuses_while_a_check_runs(fake, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "prepare_state", lambda key: None)
     assert D.acquire_lock()
     assert cli.main(["models", "--discover"]) == 1 and "Another model check is running" in capsys.readouterr().out
     D.release_lock()

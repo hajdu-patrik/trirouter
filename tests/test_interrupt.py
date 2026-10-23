@@ -40,7 +40,6 @@ def test_eof_at_a_question_cancels_the_whole_command(capsys, monkeypatch):
     monkeypatch.setattr(cli, "YES", False)
     monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError()))
     monkeypatch.setattr(cli, "run_remote", lambda: cli.ask("Set up remote access?", "n"))
-    monkeypatch.setattr(cli, "prepare_state", lambda key: None)
     assert cli.main(["remote"]) == 130
     out, err = capsys.readouterr()
     assert err == MESSAGE and "Traceback" not in out + err
@@ -51,7 +50,6 @@ def test_ctrl_c_at_a_question_reaches_the_guard(capsys, monkeypatch):
     monkeypatch.setattr(cli, "YES", False)
     monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(KeyboardInterrupt()))
     monkeypatch.setattr(cli, "run_remote", lambda: cli.ask("Set up remote access?", "n"))
-    monkeypatch.setattr(cli, "prepare_state", lambda key: None)
     assert cli.main(["remote"]) == 130 and capsys.readouterr().err == MESSAGE
 
 
@@ -189,7 +187,6 @@ def test_save_config_is_atomic(tmp_path, monkeypatch):
     cfg = tmp_path / "config.json"
     cfg.write_text('{"keep": true}', encoding="utf-8")
     monkeypatch.setattr(cli, "CONFIG", cfg)
-    monkeypatch.setattr(cli, "STATE", tmp_path)
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(KeyboardInterrupt()))
     with pytest.raises(KeyboardInterrupt):
