@@ -1,10 +1,10 @@
 {
-  "_comment": "Model catalog per provider. 'selectable' is the default availability (per-account overrides and discovered models live in ~/.trirouter/models.local.json); 'role' (fast / balanced / deep) picks the worker template, 'routable': false marks a model that is never a routing target, policy.excluded_efforts is stripped from every provider in code.",
+  "_comment": "Model catalog per provider: 'selectable' is the default availability; per-account overrides and discovered models live in ~/.trirouter/models.local.json.",
   "policy": {
     "excluded_efforts": [
       "ultra"
     ],
-    "note": "'ultra' (Codex: automatic task delegation) is never offered: not by JEV, the local classifier or an override."
+    "note": "'ultra' (Codex: automatic task delegation) is never offered."
   },
   "claude": {
     "allowed_families": [
@@ -14,7 +14,7 @@
       "fable"
     ],
     "excluded_families": [],
-    "policy": "Generic family aliases only (never a dated ID), every family routable, cost order haiku < sonnet < opus < fable; excluded_families only exists to drop a family without touching code.",
+    "policy": "Generic family aliases only (never a dated ID), every family routable, cost order haiku < sonnet < opus < fable.",
     "models": [
       {
         "id": "haiku",

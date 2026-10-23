@@ -193,7 +193,7 @@ def test_completion_is_no_command_any_more(capsys, monkeypatch):
 
 
 def test_scripts_offer_exactly_the_commands(monkeypatch):
-    assert C.commands() == ["setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
+    assert C.commands() == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert "--version -V --help -h" in C.bash_script()
 
 
@@ -243,7 +243,7 @@ t trirouter --v
     assert lines[1] == "models"
     assert lines[2] == "--discover --auto= --main= --subagent-model= --dry-run --help"
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
-    assert lines[6] == "setup keys models skills quarantine remote sync daemon learn doctor route uninstall help"
+    assert lines[6] == "setup models skills quarantine remote sync daemon learn doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
 
 

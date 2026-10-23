@@ -103,7 +103,7 @@ def test_usage_errors_exit_2(monkeypatch, capsys, argv, stdin):
     code, out, err = route(monkeypatch, capsys, *argv, stdin=stdin)
     assert code == 2
     assert out == ""
-    assert "usage:" in err
+    assert "route" in err and "help route" in err or "expected" in err
     assert "secret-value" not in err
 
 

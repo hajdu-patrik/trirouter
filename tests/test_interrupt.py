@@ -256,7 +256,7 @@ def test_ctrl_d_fires_the_trigger_once_and_other_keys_do_not(real_start):
     assert w.start() is True
     assert wait_for(lambda: fired)
     w.stop()
-    assert fired == [1] and w.fired and keys.calls[0] == "enter" and keys.calls[-1] == "leave"
+    assert fired == [1] and keys.calls[0] == "enter" and keys.calls[-1] == "pause"
 
 
 def test_the_watcher_does_not_read_while_a_question_is_shown(real_start):
@@ -274,7 +274,7 @@ def test_the_watcher_does_not_read_while_a_question_is_shown(real_start):
     finally:
         interrupt._WATCHER = None
         w.stop()
-    assert keys.calls[-1] == "leave"
+    assert keys.calls[-1] == "pause"
 
 
 def test_the_terminal_is_restored_when_the_command_fails(real_start, monkeypatch):
@@ -283,7 +283,7 @@ def test_the_terminal_is_restored_when_the_command_fails(real_start, monkeypatch
     monkeypatch.setattr(P, "is_terminal", lambda stream: True)
     with pytest.raises(ValueError):
         interrupt.run_guarded(lambda: (_ for _ in ()).throw(ValueError("boom")))
-    assert keys.calls[0] == "enter" and keys.calls[-1] == "leave" and interrupt._WATCHER is None
+    assert keys.calls[0] == "enter" and keys.calls[-1] == "pause" and interrupt._WATCHER is None
 
 
 def test_ctrl_d_while_a_command_runs_is_exit_130(real_start, monkeypatch, capsys):
@@ -296,7 +296,7 @@ def test_ctrl_d_while_a_command_runs_is_exit_130(real_start, monkeypatch, capsys
             time.sleep(0.01)  # interrupt_main raises in the main thread at the next bytecode
         return 0
     assert interrupt.run_guarded(slow_command) == 130
-    assert capsys.readouterr().err == MESSAGE and keys.calls[-1] == "leave"
+    assert capsys.readouterr().err == MESSAGE and keys.calls[-1] == "pause"
 
 
 def test_ask_line_steps_the_watcher_aside(real_start, monkeypatch):

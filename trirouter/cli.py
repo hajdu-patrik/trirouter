@@ -1,6 +1,5 @@
 """trirouter command line (`trirouter <command>`, `python install.py`, `python -m trirouter`; the last two run setup
 without a command). Commands and help texts live in manual.py, flag validation in cliparse.py."""
-import difflib
 import json
 import os
 import sys
@@ -10,7 +9,7 @@ from . import (__version__, catalog, cliparse, completion, core, discovery, doct
                manual, platforms as P, remote, secret, skillscan, sync)
 
 CONFIG = P.STATE / "config.json"
-ALL = ("claude", "codex", "antigravity")
+ALL = P.PROVIDER_NAMES
 ON_WORDS = ("on", "1", "true", "yes")
 
 FLAGS, POSITIONAL, YES, DRY = {}, [], False, False
@@ -32,8 +31,6 @@ def configure(inv):
     FLAGS, POSITIONAL = inv.flags, inv.positional
     YES = "--yes" in FLAGS
     DRY = "--dry-run" in FLAGS
-
-
 
 
 def say(msg=""):
@@ -243,17 +240,18 @@ def connect(providers, cfg):
         if hub.APPLY:
             hub.cmd_migrate()
         hub.APPLY = not DRY
+    link_hub()
+
+
+def link_hub():
+    """Setup step 4 and `skills`: link the scanned hub, purge the expired quarantine, regenerate the agents and
+    rebuild the catalog (when applying), then report the skill folders."""
     hub.cmd_link()
-    purge_old_quarantine()
+    skillscan.purge_expired(apply=hub.APPLY, days=hub.SCAN.get("quarantine_days"))
     hub.cmd_agents()
-    if not DRY:
+    if hub.APPLY:
         hub.cmd_catalog()
     hub.cmd_doctor()
-
-
-def purge_old_quarantine():
-    """Deletes quarantine entries past their retention (a dry run only reports them)."""
-    skillscan.purge_expired(apply=hub.APPLY, days=hub.SCAN.get("quarantine_days"))
 
 
 def ask_remote_name(cfg):
@@ -302,7 +300,6 @@ def next_steps(providers):
 
 
 def set_model_auto(value):
-    """`models --auto=on|off`, remembered as config.json model_discovery.auto."""
     cfg = load_config()
     on = value.strip().lower() in ON_WORDS
     cfg["model_discovery"] = dict(cfg.get("model_discovery") or {}, auto=on)
@@ -334,7 +331,6 @@ def set_claude_models(main, sub):
 
 
 def run_models():
-    """The model check (discovery.py): --discover is the cheap daily one, without it every Codex model is tried."""
     main, sub = (FLAGS.get(f) if isinstance(FLAGS.get(f), str) else None for f in ("--main", "--subagent-model"))
     if main or sub:
         code = set_claude_models(main and main.strip().lower(), sub and sub.strip().lower())
@@ -393,7 +389,6 @@ def run_daemon(key):
 
 
 def run_learn():
-    """`learn`: trains the distilled routing model (distill.py) and prints its cross-validation report."""
     from . import distill
     rep = distill.train(apply=not DRY)
     for line in distill.report_lines(rep):
@@ -420,58 +415,13 @@ def run_skills():
     hub.PROVIDERS = tuple(p for p, i in found.items() if i["installed"])
     hub.APPLY = "--apply" in FLAGS and not DRY
     scan_settings(load_config(), persist=hub.APPLY)
-    hub.cmd_link()
-    purge_old_quarantine()
-    hub.cmd_agents()
-    if hub.APPLY:
-        hub.cmd_catalog()
-    hub.cmd_doctor()
+    link_hub()
     if not hub.APPLY:
         say(f"\nPreview only. Re-run with --apply to write the changes: {P.command_hint('skills --apply')}")
 
 
-def route_usage():
-    return f"usage: {program_name()} route [--provider claude] [--json] [--] <prompt text...>   (no text: read stdin)"
-
-
-ROUTE_PROVIDERS = ALL + ("claude-chat",)
 ROUTE_KEYS = ("provider", "model", "effort", "agent", "tier", "task", "difficulty", "extra_agents", "destructive",
               "skill", "verify", "lang", "backend", "text", "note")
-
-
-def provider_option(argv, i):
-    _, eq, provider = argv[i].partition("=")
-    if not eq:
-        i += 1
-        provider = argv[i] if i < len(argv) else ""
-    if provider not in ROUTE_PROVIDERS:
-        raise ValueError(f"--provider must be one of: {', '.join(ROUTE_PROVIDERS)}")
-    return provider, i
-
-
-def parse_route_args(argv):
-    """(provider, as_json, prompt or None), or None for --help. A usage error's message never
-    echoes an option's value."""
-    provider, as_json, words, i = "claude", False, [], 0
-    while i < len(argv):
-        a = argv[i]
-        if a == "--":
-            words += argv[i + 1:]
-            break
-        if a in ("-h", "--help"):
-            return None
-        if a == "--json":
-            as_json = True
-        elif a == "--provider" or a.startswith("--provider="):
-            provider, i = provider_option(argv, i)
-        elif a.startswith("--"):
-            name = a.partition("=")[0]
-            near = difflib.get_close_matches(name, ["--json", "--provider", "--help"], n=1, cutoff=0.5)
-            raise ValueError(f"unknown option {name}" + (f" (did you mean {near[0]}?)" if near else ""))
-        else:
-            words.append(a)
-        i += 1
-    return provider, as_json, (" ".join(words) if words else None)
 
 
 def read_stdin():
@@ -501,23 +451,23 @@ def route_decision(prompt, provider):
 
 
 def run_route(argv):
-    """Exit codes: 0 success, 2 usage error, 1 unexpected error."""
+    """Exit codes: 0 success, 2 usage error, 1 unexpected error. The prompt is every non-flag word (or stdin)."""
+    prog = program_name()
     try:
-        parsed = parse_route_args(argv)
-    except ValueError as exc:
-        print(f"route: {exc}\n{route_usage()}\nRun `{program_name()} help route` for the options.", file=sys.stderr)
-        return 2
-    if parsed is None:
-        print(manual.render_help("route", program_name()))
+        flags, words = cliparse.parse_flags(manual.COMMANDS["route"], argv, prog)
+    except cliparse.UsageError as exc:
+        return usage_error(exc, prog)
+    if flags.get("--help"):
+        print(manual.render_help("route", prog))
         return 0
-    provider, as_json, prompt = parsed
     try:
-        prompt = (read_stdin() if prompt is None else prompt).strip()
+        prompt = (" ".join(words) if words else read_stdin()).strip()
         if not prompt:
-            print(f"route: empty prompt\n{route_usage()}", file=sys.stderr)
+            print(f"route: empty prompt (give it as arguments or on stdin)\n  Run `{prog} help route` for the usage.",
+                  file=sys.stderr)
             return 2
-        result = route_decision(prompt, provider)
-        if as_json:
+        result = route_decision(prompt, flags.get("--provider", "claude"))
+        if "--json" in flags:
             print(json.dumps(result))  # ASCII-escaped, safe for any console code page
         elif result["text"]:
             print(result["text"])
@@ -543,20 +493,6 @@ def run_setup():
     extras(providers, load_config() if not DRY else cfg)
     next_steps(providers)
     return 0
-
-
-def run_keys():
-    """`keys`: protects the plaintext API keys in config.json (preview by default) and keeps no plaintext copy."""
-    apply = "--apply" in FLAGS and not DRY
-    say("trirouter keys" + ("" if apply else " (preview - nothing is changed; --apply writes)"))
-    cfg = load_config()
-    for field in secret.KEY_FIELDS:
-        state = secret.status(cfg.get(field))
-        if state != secret.NONE:
-            say(f"  {field}: {state}")
-    results = secret.migrate(CONFIG, apply)
-    report([("keys", ok, msg) for ok, msg in results], indent="  ")
-    return 0 if all(ok for ok, _ in results) else 1
 
 
 def run_remote():
@@ -652,15 +588,8 @@ def quarantine_purge(cfg):
 
 
 def show_help(inv):
-    prog = manual.DOC_PROG if inv.kind == "markdown" else program_name()
-    if inv.kind == "markdown":
-        sys.stdout.flush()  # bytes, so the file has LF endings on every platform
-        sys.stdout.buffer.write(manual.render_markdown().encode("utf-8"))
-        sys.stdout.buffer.flush()
-    elif inv.kind == "overview":
-        say(manual.render_overview(prog))
-    else:
-        say(manual.render_help(inv.key, prog))
+    prog = program_name()
+    say(manual.render_overview(prog) if inv.kind == "overview" else manual.render_help(inv.key, prog))
     return 0
 
 
@@ -685,13 +614,13 @@ def _main(argv):
         inv = cliparse.resolve(argv, prog, install_py=prog != "trirouter")
     except cliparse.UsageError as exc:
         sys.exit(usage_error(exc, prog))
-    if inv.kind in ("help", "overview", "markdown"):
+    if inv.kind in ("help", "overview"):
         return show_help(inv)
     if inv.kind == "version":
         say(f"trirouter {__version__}")
         return 0
     configure(inv)
-    commands = {"setup": run_setup, "keys": run_keys, "doctor": doctor.main, "skills": run_skills, "models": run_models,
+    commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models,
                 "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn,
                 "sync": lambda: sync.main(FLAGS, say)}
     try:

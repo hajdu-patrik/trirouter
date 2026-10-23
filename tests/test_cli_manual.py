@@ -54,7 +54,7 @@ def test_changes_lines_are_plain_statements():
 
 
 def test_all_commands_of_the_spec_exist():
-    assert list(manual.ORDER) == ["setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
+    assert list(manual.ORDER) == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert {"quarantine list", "quarantine restore", "quarantine purge"} <= set(manual.COMMANDS)
 
 
@@ -84,7 +84,7 @@ def test_version_flag(capsys, flag):
 def test_overview_lists_exactly_the_commands_and_the_version_flag(capsys):
     _, out, _ = run(capsys)
     rows = [line.split()[0] for line in out.split("Commands:\n")[1].split("\n\n")[0].splitlines()]
-    assert rows == ["setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
+    assert rows == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert "-V, --version" in out and "-h, --help" in out
 
 
@@ -223,22 +223,19 @@ def test_install_py_keeps_its_old_forms():
         cliparse.resolve(["setup", "--bogus"], "python install.py", True)
 
 
-def test_route_keeps_its_parsing(capsys):
-    assert cli.parse_route_args(["--json", "--", "--not-an-option", "x"]) == ("claude", True, "--not-an-option x")
-    with pytest.raises(ValueError, match="did you mean --json"):
-        cli.parse_route_args(["--jsn", "x"])
+def test_route_takes_everything_after_the_double_dash_as_text(capsys):
+    flags, words = cliparse.parse_flags(manual.COMMANDS["route"], ["--json", "--", "--not-an-option", "x"], "trirouter")
+    assert flags == {"--json": True} and words == ["--not-an-option", "x"]
+    with pytest.raises(cliparse.UsageError) as err:
+        cliparse.parse_flags(manual.COMMANDS["route"], ["--jsn", "x"], "trirouter")
+    assert "did you mean --json" in err.value.hint
 
 
 # ---- docs/cli.md ----------------------------------------------------------------------------------------
 
 def test_docs_cli_md_is_generated_from_the_manual():
     text = (ROOT / "docs" / "cli.md").read_bytes().decode("utf-8").replace("\r\n", "\n")
-    assert text == manual.render_markdown(), "regenerate: TRIROUTER_PROG=trirouter python -m trirouter help --markdown > docs/cli.md"
-
-
-def test_help_markdown_prints_the_same(capsys):
-    code, out, _ = run(capsys, "help", "--markdown")
-    assert code == 0 and out.replace("\r\n", "\n") == manual.render_markdown()
+    assert text == manual.render_markdown(), "regenerate: python -m trirouter sync"
 
 
 def test_markdown_has_contents_and_a_section_per_command():

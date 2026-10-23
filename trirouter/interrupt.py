@@ -26,9 +26,6 @@ class _WindowsKeys:
     def enter(self):
         return True
 
-    def leave(self):
-        pass
-
     def pause(self):
         pass
 
@@ -66,9 +63,6 @@ class _PosixKeys:
         except (OSError, self.termios.error):
             self.saved = None
             return False
-
-    def leave(self):
-        self.pause()
 
     def pause(self):
         if self.saved is not None:
@@ -108,7 +102,6 @@ class KeyWatcher:
         self._paused = False
         self._stop = threading.Event()
         self._thread = None
-        self.fired = False
 
     def start(self):
         if self.backend is None:
@@ -134,7 +127,6 @@ class KeyWatcher:
                     except (OSError, ValueError):
                         return
             if EOT in keys:
-                self.fired = True
                 self.trigger()
                 return
             if not keys:
@@ -162,7 +154,7 @@ class KeyWatcher:
             self._thread.join(1)
         with self._lock:
             self.active = False
-            self.backend.leave()
+            self.backend.pause()
         with contextlib.suppress(Exception):
             atexit.unregister(self.stop)
 

@@ -91,6 +91,11 @@ def _task(name):
     return f"-TaskPath '{TASK_FOLDER}' -TaskName \"{name}\""
 
 
+def _unregister(name):
+    _ps(f'Stop-ScheduledTask {_task(name)} -ErrorAction SilentlyContinue; '
+        f'Unregister-ScheduledTask {_task(name)} -Confirm:$false -ErrorAction SilentlyContinue')
+
+
 def _conhost():
     """A console that is never shown, not even handed to Windows Terminal (a plain `cmd.exe` task
     opens a terminal window at every logon)."""
@@ -119,7 +124,7 @@ def _run_once(script, wait_s=30):
             break
     else:
         out = ""
-    _ps(f'Unregister-ScheduledTask {_task(TASK_ONCE)} -Confirm:$false -ErrorAction SilentlyContinue')
+    _unregister(TASK_ONCE)
     result.unlink(missing_ok=True)
     return out
 
@@ -463,8 +468,7 @@ def remove():
     report = []
     if P.IS_WINDOWS:
         for task in (TASK_WATCHDOG, TASK_CLAUDE, TASK_CODEX, TASK_ONCE):
-            _ps(f'Stop-ScheduledTask {_task(task)} -ErrorAction SilentlyContinue; '
-                f'Unregister-ScheduledTask {_task(task)} -Confirm:$false -ErrorAction SilentlyContinue')
+            _unregister(task)
         _ps('Get-CimInstance Win32_Process | ? { ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "(claude|codex)-remote\\.cmd") '
             '-or ($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") '
             '-or ($_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control") } '

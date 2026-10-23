@@ -14,16 +14,14 @@ from . import core, lang, platforms
 VERSION = 1
 CLASSES = {"task": list(core.TASKS), "level": [0, 1, 2]}
 HEADS = ("task", "level")
-SKIP_TASKS = {"override", "continuation"}
 
-ALPHA = 0.1             # smoothing of the feature likelihoods (CV: 0.03-1.0 are within noise of each other)
+ALPHA = 0.1             # smoothing of the feature likelihoods
 SCALE = 30.0            # the likelihood sum is divided by this: ~600 correlated features otherwise give posteriors of 0/1
 MIN_DF = 2              # features seen in fewer samples are pruned (keeps the file small and generalises better)
 MAX_CHARS = 400         # feature extraction looks at this much of a prompt
-DECIDE_MAX_CHARS = 200  # the log keeps only the first 200 chars of a prompt: the model never saw longer ones (and
-                        # 23 of 26 'deep' answers were on such prompts), so it never decides one
+DECIDE_MAX_CHARS = 200  # the log keeps only the first 200 chars of a prompt: the model never saw longer ones, so it
+                        # never decides one
 BASE_WEIGHT = 0.5       # an eval-CSV prompt counts half as much as one of the user's own JEV-labelled prompts
-LOWCONF_WEIGHT = 1.0    # weight of a log prompt JEV itself was unsure about (task_conf below ROUTER_MIN_CONFIDENCE)
 CV_FOLDS = 5
 TARGET_AGREEMENT = 0.92
 MIN_COVERAGE = 0.10
@@ -35,12 +33,10 @@ THRESHOLDS = [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.97, 0.98, 0.99, 0.995, 0.99
 RETRAIN_MIN_NEW = 30    # new JEV entries in the log before maybe_retrain() trains again
 CHECK_INTERVAL_S = 24 * 3600
 ENV_OFF = "ROUTER_DISTILLED"
-JEV_LATENCY_MS = 600    # p50 of the JEV call (measured on the routing log), for the "time saved" estimate
+JEV_LATENCY_MS = 600    # p50 of the JEV call, for the "time saved" estimate
 
 _WORD_RE = re.compile(r"[a-z0-9_]+")
 
-
-# ---- files --------------------------------------------------------------------------------------------------
 
 def model_file():
     return Path(core.STATE_DIR) / "state" / "distilled.json"
@@ -57,8 +53,6 @@ def check_file():
 def eval_files():
     return sorted((Path(core.__file__).resolve().parents[1] / "eval").glob("*_prompts.csv"))
 
-
-# ---- features -----------------------------------------------------------------------------------------------
 
 def features(text):
     """The set of binary features of a prompt: words, word pairs, char 3-5-grams inside words, a length bucket."""
@@ -78,15 +72,17 @@ def tier_of(task, level, table):
     return core.tier_of({"table": table}, task, level)
 
 
+def _claude_routes():
+    return core.load_json("routes.json", {}).get("claude") or {}
+
+
 def claude_table():
-    return ((core.load_json("routes.json", {}).get("claude") or {}).get("table")) or {}
+    return _claude_routes().get("table") or {}
 
 
 def default_tier():
-    return (core.load_json("routes.json", {}).get("claude") or {}).get("default") or "main"
+    return _claude_routes().get("default") or "main"
 
-
-# ---- training data ------------------------------------------------------------------------------------------
 
 def key_of(text):
     return " ".join(lang.fold(text).split())
@@ -115,7 +111,7 @@ def log_samples(path=None):
             r = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(r, dict) or r.get("backend") != "jev" or r.get("task") in SKIP_TASKS:
+        if not isinstance(r, dict) or r.get("backend") != "jev":
             continue
         task, level, prompt = r.get("task"), r.get("level"), r.get("prompt")
         if task not in CLASSES["task"] or level not in CLASSES["level"] or not isinstance(prompt, str) or not _usable(prompt):
@@ -149,9 +145,7 @@ def base_samples(files=None):
     return out
 
 
-# ---- the model ----------------------------------------------------------------------------------------------
-
-def fit(samples, weights=None, min_df=MIN_DF):
+def fit(samples, weights=None):
     """samples: [(text, task, level, ...)]; weights: per sample (default 1). -> the trained part of the model:
     per feature the weighted class counts [task classes..., level classes...], plus class totals."""
     weights = weights or [1.0] * len(samples)
@@ -170,7 +164,7 @@ def fit(samples, weights=None, min_df=MIN_DF):
             row[ti] += w
             row[nt + li] += w
             df[f] += 1
-    table = {f: [round(x, 2) for x in row] for f, row in table.items() if df[f] >= min_df}
+    table = {f: [round(x, 2) for x in row] for f, row in table.items() if df[f] >= MIN_DF}
     totals = {"task": [0.0] * nt, "level": [0.0] * len(CLASSES["level"])}
     for row in table.values():
         for i in range(nt):
@@ -235,37 +229,29 @@ def confidence(pred, mode):
     return pred["tier_p"]
 
 
-def sample_weight(sample):
-    """A log prompt JEV itself was unsure about counts LOWCONF_WEIGHT."""
-    return 1.0 if sample[3] >= core.MIN_CONF else LOWCONF_WEIGHT
-
-
 def true_tier(sample, table, default):
     """The tier JEV's answer routed to: below ROUTER_MIN_CONFIDENCE the router takes the default tier, whatever
     the task label says (decide() marks it 'routing uncertain')."""
     return default if sample[3] < core.MIN_CONF else tier_of(sample[1], sample[2], table)
 
 
-# ---- evaluation ---------------------------------------------------------------------------------------------
-
 def _fold_of(key, k):
     return int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % k
 
 
-def training_set(user, base, held=(), base_weight=BASE_WEIGHT):
-    """(samples, weights): the user prompts outside `held` plus the base set."""
+def training_set(user, base, held=()):
+    """(samples, weights): the user prompts outside `held` (weight 1) plus the base set (BASE_WEIGHT each)."""
     mine = [v for key, v in user.items() if key not in held]
-    return mine + list(base.values()), [sample_weight(v) for v in mine] + [base_weight] * len(base)
+    return mine + list(base.values()), [1.0] * len(mine) + [BASE_WEIGHT] * len(base)
 
 
-def cross_validate(user, base, table, k=CV_FOLDS, base_weight=BASE_WEIGHT, **fit_kw):
+def cross_validate(user, base, table, k=CV_FOLDS):
     """Out-of-fold predictions for every user sample: {key: prediction}. The folds are by normalised prompt hash,
     so a prompt the log holds many times is never in its own training set. The base set is always trained on."""
     pred = {}
     for fold in range(k):
         held = {key for key in user if _fold_of(key, k) == fold}
-        samples, weights = training_set(user, base, held, base_weight)
-        model = fit(samples, weights, **fit_kw)
+        model = fit(*training_set(user, base, held))
         for key in held:
             pred[key] = predict_with(model, user[key][0], table)
     return pred
@@ -281,13 +267,14 @@ def evaluate(user, pred, table, default, entries=None, mode="tier"):
     return rows
 
 
-def calibrate(rows, target=TARGET_AGREEMENT, min_cov=MIN_COVERAGE, min_n=MIN_COVERED):
-    """The lowest threshold on THRESHOLDS whose held-out tier agreement is >= target with enough coverage:
+def calibrate(rows):
+    """The lowest threshold on THRESHOLDS whose held-out tier agreement is >= TARGET_AGREEMENT with enough coverage:
     (threshold, agreement, coverage) or None. Counted per unique prompt (rows are deduplicated)."""
     total = len(rows)
     for t in THRESHOLDS:
         above = [r for r in rows if r[0] >= t]
-        if total and len(above) >= max(min_n, min_cov * total) and sum(r[3] for r in above) / len(above) >= target:
+        if total and len(above) >= max(MIN_COVERED, MIN_COVERAGE * total) \
+                and sum(r[3] for r in above) / len(above) >= TARGET_AGREEMENT:
             return t, sum(r[3] for r in above) / len(above), len(above) / total
     return None
 
@@ -386,8 +373,7 @@ def train(apply=True, log=None, files=None, now=None):
     for v in user.values():
         report["classes"].setdefault(v[1], [0, 0, 0])[v[2]] += 1
     if user:
-        samples, weights = training_set(user, base)
-        model = fit(samples, weights)
+        model = fit(*training_set(user, base))
         doc = {"version": VERSION, "trained_at": report["trained_at"], "n_user": len(user), "n_base": len(base),
                "enabled": report["enabled"], "threshold": report["threshold"], "conf_mode": mode,
                "alpha": ALPHA, "scale": SCALE, "reason": report["reason"], "table": table, "default": default,
@@ -432,8 +418,6 @@ def report_lines(rep):
                    + (" (saved)" if rep["applied"] else " (dry run, nothing written)"))
     return out
 
-
-# ---- loading and prediction ---------------------------------------------------------------------------------
 
 _cache = {}   # path -> (mtime_ns, model); the hook process is short-lived, the MCP server is not
 
@@ -480,8 +464,6 @@ def predict(text):
     except Exception:  # noqa: BLE001 - a broken model must never break routing
         return None
 
-
-# ---- background retraining ----------------------------------------------------------------------------------
 
 def count_new_jev(path, saved):
     """JEV entries appended to the log since the model was trained, or None when the log was replaced/rotated."""

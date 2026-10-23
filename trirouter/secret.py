@@ -34,8 +34,6 @@ def redact(text):
     return text
 
 
-# ---- Windows DPAPI -------------------------------------------------------------------------------------------
-
 def _dpapi(encrypt, data):
     """CryptProtectData / CryptUnprotectData for the current user; bytes in, bytes out. Raises OSError."""
     import ctypes
@@ -129,8 +127,6 @@ def scrub_config(cfg):
     return {k: v for k, v in cfg.items() if k not in plaintext_fields(cfg)}
 
 
-# ---- files ---------------------------------------------------------------------------------------------------
-
 def restrict(path):
     """Owner-only (0600) on POSIX; on Windows the user profile's ACL already limits the folder."""
     if IS_WINDOWS:
@@ -177,43 +173,3 @@ def scrub_backups(config_path, apply):
         if apply:
             P.atomic_write(p, json.dumps(scrub_config(cfg), indent=2), mode=0o600)
     return found
-
-
-def migrate(config_path, apply):
-    """Protects the plaintext keys in config.json and keeps no plaintext copy: -> [(ok, message)]. The new value is
-    decrypted again before anything is written; if that does not give the original key, nothing changes."""
-    path, out = Path(config_path), []
-    cfg = _load(path)
-    if cfg is None:
-        return [(True, "no config.json: no key stored")]
-    plain = plaintext_fields(cfg)
-    if plain and protection_available():
-        new = protect_config(cfg)
-        bad = [k for k in plain if reveal(new[k]) != cfg[k]]
-        if bad:
-            return [(False, f"cannot protect {', '.join(bad)} on this machine: config.json left unchanged")]
-        out.append((True, f"{'would protect' if not apply else 'protected'} {', '.join(plain)} "
-                          f"(Windows DPAPI, readable only by this user on this machine)"))
-        if apply:
-            bak = path.with_name(path.name + ".bak")
-            P.atomic_write(bak, json.dumps(scrub_config(cfg), indent=2), mode=0o600)  # no plaintext key in the copy
-            P.atomic_write(path, json.dumps(new, indent=2), mode=0o600)
-            out.append((True, f"previous config.json kept as {bak.name} without its key"))
-        else:
-            out.append((True, "would keep the previous config.json as config.json.bak without its key"))
-    elif plain:
-        out.append((True, "plaintext key kept: this system has no keystore in the standard library; "
-                          "config.json is limited to its owner (mode 0600)"))
-    else:
-        out.append((True, "no plaintext key in config.json"))
-    if path.exists() and not mode_is_private(path):
-        out.append((True, f"{'restricted' if apply else 'would restrict'} config.json to its owner (mode 0600)"))
-        if apply:
-            restrict(path)
-    for p, fields in scrub_backups(path, apply):
-        out.append((True, f"{'removed' if apply else 'would remove'} the plaintext key from {p.name}"))
-    if apply and not IS_WINDOWS:
-        for p in [path, *backups(path)]:
-            if p.exists():
-                restrict(p)
-    return out

@@ -38,10 +38,6 @@ class Command:
     exit_status: str = ""
     positional: str = ""     # what the non-flag arguments are (documentation only)
 
-    @property
-    def name(self):
-        return self.key.split()[0]
-
 
 HELP_FLAG = Flag("--help", "-h", doc="Show this help page and exit.", default="-", remembered="no")
 
@@ -92,8 +88,9 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "is installed, linked into every tool, and expired quarantine entries are purged; worker agents are "
          "generated; (5) optional remote access and speech-to-text.\n\n"
          "Every change is shown first, a changed config file keeps a .bak copy, and re-running is safe. "
-         "`python install.py` with no arguments does the same. A saved JEV key is stored protected, and a plaintext "
-         "key left by an older version is protected on the next save (see `{prog} keys`)."),
+         "`python install.py` with no arguments does the same. A saved JEV key is stored protected (Windows DPAPI, "
+         "owner-only file elsewhere); a plaintext key left by an older version is protected on the next save and "
+         "removed from old backups of config.json."),
      flags=(YES, DRY,
             Flag("--providers", value="LIST", default="every installed, logged-in tool",
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
@@ -121,28 +118,8 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
                ("cat key.txt | {prog} setup --jev-token-stdin", "add a TypeSafe token or OpenRouter key from a file and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
      exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found.",
-     see_also=("keys", "models", "skills", "remote", "doctor", "uninstall"))
+     see_also=("models", "skills", "remote", "doctor", "uninstall"))
 
-_add(key="keys", summary="Protect the API keys saved in config.json",
-     synopsis=("{prog} keys [-a] [-n]",),
-     description=(
-         "Older versions kept the TypeSafe token or OpenRouter key as plain text in ~/.trirouter/config.json. "
-         "This command re-writes it protected: on Windows encrypted with the Data Protection API (DPAPI), so "
-         "the value opens only for your user account on this machine (a copy of config.json on another machine "
-         "or account holds an unusable blob and the router falls back to the built-in local model); on macOS and "
-         "Linux the standard library has no keystore, so the key stays a string and the file is limited to its "
-         "owner (mode 0600). Plain-text values stay readable until they are migrated; the environment variables "
-         "always win.\n\n"
-         "No plaintext copy is left behind: the previous config.json is kept as config.json.bak WITHOUT its key, "
-         "and the key is also removed from older backups next to it (config.json.*). Without --apply the command "
-         "only previews; `{prog} doctor` reports the state. A key saved with `setup` is stored "
-         "protected right away, and `setup` also removes plaintext keys from old backups."),
-     flags=(APPLY, DRY),
-     changes="Preview by default; --apply writes",
-     examples=(("{prog} keys", "show what would be protected"),
-               ("{prog} keys --apply", "protect the key and scrub the backups")),
-     exit_status="0 on success. 2 on a usage error. 1 when a key could not be protected.",
-     see_also=("setup", "doctor"))
 
 _add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
      synopsis=("{prog} models [-n]", "{prog} models --discover [-n]", "{prog} models --auto=on|off",
@@ -288,7 +265,7 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
      see_also=("setup", "doctor"))
 
 _add(key="sync", summary="Bring everything generated from the sources up to date (after a pull or a change)",
-     synopsis=("{prog} sync [--check | -n]", "{prog} sync --pre-commit"),
+     synopsis=("{prog} sync [--check]", "{prog} sync --pre-commit"),
      description=(
          "One step after every development round or `git pull`, so new commands, flags, models and skills work "
          "everywhere: rewrites the installed tab-completion scripts from the manual (shell profiles are left alone), "
@@ -304,9 +281,8 @@ _add(key="sync", summary="Bring everything generated from the sources up to date
          "commit; `git commit --no-verify` skips the hook once."),
      flags=(Flag("--check", doc="Change nothing; exit 1 when something is out of date (for CI)."),
             Flag("--pre-commit", doc="What the git pre-commit hook runs: sync, stage docs/cli.md, tests, evaluation. "
-                                     "Only in a trirouter checkout."),
-            DRY),
-     changes="Changes files; preview with --dry-run or --check",
+                                     "Only in a trirouter checkout.")),
+     changes="Changes files; preview with --check",
      examples=(("{prog} sync", "after a pull or a change"), ("{prog} sync --check", "is anything out of date?"),
                ("{prog} sync --pre-commit", "the checks the git hook runs, by hand")),
      exit_status="0 on success. 2 on a usage error. 1 when --check found something out of date, an item failed, "
@@ -426,17 +402,16 @@ _add(key="uninstall", summary="Remove hooks, MCP entries, remote access and the 
      see_also=("setup", "remote"))
 
 _add(key="help", summary="Show the manual of a command",
-     synopsis=("{prog} help [COMMAND [SUBCOMMAND]]", "{prog} help --markdown"),
-     description="Prints the man-page-like help of a command. `{prog} <command> --help` does the same. "
-                 "With --markdown it prints the complete reference (docs/cli.md).",
-     flags=(Flag("--markdown", doc="Print the whole reference as Markdown (this is how docs/cli.md is generated)."),),
-     positional="COMMAND a command name; SUBCOMMAND for quarantine",
+     synopsis=("{prog} help [COMMAND [SUBCOMMAND]]",),
+     description="Prints the man-page-like help of a command. `{prog} <command> --help` does the same; docs/cli.md "
+                 "holds every page (regenerated by `{prog} sync`).",
+     flags=(), positional="COMMAND a command name; SUBCOMMAND for quarantine and daemon",
      changes="Changes nothing",
      examples=(("{prog} help", "the command list"), ("{prog} help skills", "the skills page"),
-               ("{prog} help quarantine purge", "a subcommand"), ("{prog} help --markdown > docs/cli.md", "regenerate the reference")),
+               ("{prog} help quarantine purge", "a subcommand")),
      see_also=("doctor",))
 
-ORDER = ("setup", "keys", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))
@@ -446,8 +421,12 @@ REMOVED_COMMANDS = {
     "completion": "completion was removed: `{prog} setup` installs tab completion (skip it with --no-completion) and "
                   "`{prog} uninstall` removes it",
     "version": "version was removed: use `{prog} --version`",
+    "keys": "keys was removed: `{prog} setup` stores the key protected and scrubs old backups; `{prog} doctor` reports "
+            "the state",
 }
-REMOVED_FLAGS = {("models", "--probe"): "--probe was removed: plain `{prog} models` already does the full check"}
+REMOVED_FLAGS = {("models", "--probe"): "--probe was removed: plain `{prog} models` already does the full check",
+                 ("help", "--markdown"): "--markdown was removed: `{prog} sync` regenerates docs/cli.md",
+                 ("sync", "--dry-run"): "--dry-run was removed: use --check"}
 SUBCOMMANDS = {"quarantine": ("list", "restore", "purge"), "daemon": ("status", "enable", "disable", "start", "stop")}
 DEFAULT_SUBCOMMAND = {"quarantine": "list", "daemon": "status"}
 
@@ -513,10 +492,6 @@ def all_flags(cmd):
     return cmd.flags + (HELP_FLAG,)
 
 
-def prog_name(prog=None):
-    return prog or DOC_PROG
-
-
 def _fmt(text, prog):
     return text.replace("{prog}", prog)
 
@@ -549,7 +524,7 @@ def overview_lines(prog):
 
 
 def render_overview(prog=None):
-    prog = prog_name(prog)
+    prog = prog or DOC_PROG
     lines = [f"usage: {prog} <command> [subcommand] [flags]", "", "Commands:"]
     lines += overview_lines(prog)
     lines += ["", "Options:"]
@@ -561,7 +536,7 @@ def render_overview(prog=None):
 
 
 def render_help(key, prog=None):
-    prog = prog_name(prog)
+    prog = prog or DOC_PROG
     c = COMMANDS[key]
     out = ["NAME", textwrap.fill(f"{prog} {c.key} - {_fmt(c.summary, prog)}", width=WIDTH, initial_indent="    ",
                                  subsequent_indent="        "), "", "SYNOPSIS"]
@@ -614,7 +589,7 @@ def _md_command(c, level):
 def render_markdown():
     p = DOC_PROG
     out = ["# trirouter command reference", "",
-           "<!-- generated by `trirouter help --markdown` from trirouter/manual.py; do not edit by hand -->", "",
+           "<!-- generated by `trirouter sync` from trirouter/manual.py; do not edit by hand -->", "",
            "`trirouter <command> [subcommand] [flags]` -- the same pages are shown by `trirouter help <command>`.", "",
            "## Contents", "", "* [Getting started](#getting-started)", "* [Conventions](#conventions)",
            "* [Common tasks](#common-tasks)"]

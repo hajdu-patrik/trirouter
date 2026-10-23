@@ -1,9 +1,10 @@
 """Read-only health report (`trirouter doctor`)."""
+import datetime
 import json
 import re
 from pathlib import Path
 
-from . import core, integrations, platforms as P, remote, secret, skillscan
+from . import catalog, core, integrations, platforms as P, remote, secret, skillscan
 
 HOME = P.HOME
 STATE = P.STATE
@@ -122,15 +123,14 @@ def count_in(folder, test):
 
 def report_skills(cfg_toml):
     print("\n== Skill hub + agents")
-    hub = HOME / ".skills"
-    n_hub = count_in(hub, lambda p: (p / "SKILL.md").is_file())
+    n_hub = count_in(catalog.HUB, catalog.is_skill_dir)
     line(n_hub > 0, "~/.skills", f"{n_hub} skills")
     for label, base in [("Claude links", P.PATHS["claude_skills"]), ("Codex links", P.PATHS["codex_skills"])]:
         n = count_in(base, P.is_link)
         line(n > 0, label, f"{n} links")
     agy_skills = jload(P.PATHS["agy_skills_json"]) or {}
     line(any(e.get("path", "").endswith("/.skills") for e in agy_skills.get("entries", [])), "Antigravity skills.json")
-    cat = jload(hub / "catalog.json") or {}
+    cat = jload(catalog.CATALOG) or {}
     line(bool(cat.get("skills")), "catalog.json", f"{len(cat.get('skills', []))} skills, generated {cat.get('generated', '-')}")
     ca = list(P.PATHS["claude_agents"].glob("*-worker-*.md")) if P.PATHS["claude_agents"].is_dir() else []
     line(len(ca) > 0, "Claude worker agents", f"{len(ca)}")
@@ -184,13 +184,13 @@ def report_keys(cfg):
                 line(False, label, "cannot be decrypted on this account - set it again with "
                      f"{P.command_hint('setup --jev-token-stdin')}")
             elif secret.protection_available():
-                line(False, label, f"plaintext in config.json - protect it with {P.command_hint('keys --apply')}")
+                line(False, label, f"plaintext in config.json - protect it with {P.command_hint('setup --yes')}")
             else:
                 private = secret.mode_is_private(STATE / "config.json")
                 line(private, label, "plaintext, config.json is owner-only (mode 0600)" if private else
-                     f"plaintext and config.json is readable by others - run {P.command_hint('keys --apply')}")
+                     f"plaintext and config.json is readable by others - run {P.command_hint('setup --yes')}")
         for bak in secret.backups_with_plaintext(STATE / "config.json"):
-            line(False, f"Plaintext key in {bak.name}", f"remove it with {P.command_hint('keys --apply')}")
+            line(False, f"Plaintext key in {bak.name}", f"remove it with {P.command_hint('setup --yes')}")
     except Exception as exc:  # noqa: BLE001 - a read-only report never fails
         line(False, "Stored keys", f"unreadable ({type(exc).__name__})")
 
@@ -283,7 +283,6 @@ GUARD_DAYS = 7
 def guard_summary(rows, days=GUARD_DAYS, now=None):
     """{"deny", "model", "prompts"} over the guard log's last `days` days: subagent calls denied over the routed
     budget, general-purpose calls given the routed worker's model, and the distinct prompts involved."""
-    import datetime
     now = now or datetime.datetime.now()
     since = (now - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
     recent = [r for r in rows if isinstance(r, dict) and str(r.get("ts", "")) >= since]

@@ -16,6 +16,10 @@ IDLE_S = _minutes("ROUTER_QUEUE_IDLE_MIN", 10)
 INFLIGHT = store.Store("inflight")  # {key: [entries]}: pruned per entry by on_submit, so no ttl of its own
 
 
+def _key(provider, session_id):
+    return f"{provider}:{session_id}"
+
+
 def _fresh_entries(value, now):
     """The entries of one session still within TTL_S; whatever else sits in the file (a number, a list of strings,
     an entry with a text stamp) is dropped, so a damaged file heals on the next prompt."""
@@ -49,7 +53,7 @@ def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
         return {"ahead": [], "others": []}
     path = INFLIGHT.path(state_dir)
     now = time.time()
-    key = f"{provider}:{session_id}"
+    key = _key(provider, session_id)
     norm_cwd = os.path.normcase(os.path.abspath(cwd)) if cwd else ""
     with INFLIGHT.lock(path) as lock:
         data = _prune(store.load(path), now, key, transcript)
@@ -66,7 +70,7 @@ def on_submit(state_dir, provider, session_id, cwd, summary, transcript=None):
 
 def on_stop(state_dir, provider, session_id):
     if session_id:
-        INFLIGHT.pop(state_dir, f"{provider}:{session_id}")
+        INFLIGHT.pop(state_dir, _key(provider, session_id))
 
 
 LAST_KEYS = ("task", "task_conf", "level", "primary", "verify", "skill", "skill_path", "skill_native", "effort",
@@ -77,19 +81,17 @@ LAST = store.Store("last_decision", ttl=_minutes("ROUTER_CONTINUATION_TTL_MIN", 
 def remember(state_dir, provider, session_id, decision):
     """The session's latest decision, so a following "mehet" can continue it."""
     if session_id:
-        LAST.put(state_dir, f"{provider}:{session_id}", {k: decision[k] for k in LAST_KEYS if k in decision})
+        LAST.put(state_dir, _key(provider, session_id), {k: decision[k] for k in LAST_KEYS if k in decision})
 
 
 def recall(state_dir, provider, session_id):
-    return LAST.get(state_dir, f"{provider}:{session_id}") if session_id else None
+    return LAST.get(state_dir, _key(provider, session_id)) if session_id else None
 
 
 def forget(state_dir, provider, session_id):
     if session_id:
-        LAST.pop(state_dir, f"{provider}:{session_id}")
+        LAST.pop(state_dir, _key(provider, session_id))
 
-
-# ---- the model a session runs (Claude: SessionStart / PostModelSwitch) --------------------------------------
 
 # a session can stay open for days; a switch re-records it
 MODELS = store.Store("session_models", ttl=7 * 24 * 3600, limit=200)
@@ -99,16 +101,14 @@ def remember_model(state_dir, provider, session_id, model):
     """Records the model (Claude: the family) a session runs; None forgets it (a switch to an unknown model).
     Bounded to the 200 newest sessions."""
     if session_id:
-        MODELS.put(state_dir, f"{provider}:{session_id}", {"model": model} if model else None)
+        MODELS.put(state_dir, _key(provider, session_id), {"model": model} if model else None)
 
 
 def session_model(state_dir, provider, session_id):
     """The recorded model of the session, or None."""
-    entry = MODELS.get(state_dir, f"{provider}:{session_id}") if session_id else None
+    entry = MODELS.get(state_dir, _key(provider, session_id)) if session_id else None
     return (entry or {}).get("model") or None
 
-
-# ---- per-prompt subagent budget (Claude PreToolUse guard) ---------------------------------------------------
 
 PROMPTS = store.Store("agent_budget", ttl=12 * 3600, limit=300)
 

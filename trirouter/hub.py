@@ -15,14 +15,14 @@ REPO_SKILLS = P.PKG / "skills"
 AGENT_TEMPLATES = P.PKG / "templates" / "agents"
 CLAUDE_SKILLS = P.PATHS["claude_skills"]
 CODEX_SKILLS = P.PATHS["codex_skills"]
-LEGACY_CODEX_SKILLS = HOME / ".codex" / "skills"
+LEGACY_CODEX_SKILLS = P.CODEX_HOME / "skills"  # Codex's old location, served from ~/.agents/skills
 AGY_SKILLS_JSON = P.PATHS["agy_skills_json"]
 CLAUDE_AGENTS = P.PATHS["claude_agents"]
 CODEX_AGENTS = P.PATHS["codex_agents"]
 CODEX_CONFIG = P.PATHS["codex_config"]
 AGY_AGENTS = P.PATHS["agy_agents"]
 DEFAULT_ROLE = "balanced"
-PROVIDERS = ("claude", "codex", "antigravity")  # narrowed by the installer to what is installed
+PROVIDERS = P.PROVIDER_NAMES  # narrowed by the installer to what is installed
 APP_MANAGED = {"synced"}  # owned by the Claude desktop app
 GEN_MARK = "generated-by: trirouter"
 TOML_BEGIN, TOML_END = "# >>> trirouter agents (generated - edit trirouter/config/targets.json, not this block)", "# <<< trirouter agents"
@@ -101,7 +101,7 @@ def repo_skills():
 
 # Real skill folders here are moved into the hub and replaced by a link. App-managed folders stay put.
 MIGRATE_SOURCES = {"claude": [CLAUDE_SKILLS], "codex": [CODEX_SKILLS, LEGACY_CODEX_SKILLS],
-                   "antigravity": [HOME / ".gemini" / "config" / "skills"]}
+                   "antigravity": [P.AGY_CONFIG / "skills"]}
 
 
 def cmd_migrate():
@@ -178,7 +178,6 @@ def _link_hub_skills(blocked=frozenset()):
 
 
 def _drop_stale_links(names):
-    """~/.codex/skills is Codex's legacy location; its skills are served from ~/.agents/skills."""
     for base in (CLAUDE_SKILLS, CODEX_SKILLS, LEGACY_CODEX_SKILLS):
         links = base.iterdir() if base.is_dir() else []
         for link in links:
@@ -188,13 +187,10 @@ def _drop_stale_links(names):
 
 def _register_hub_with_antigravity():
     """Absolute paths only: agy 1.2.9 rejects "~/.skills" at runtime, despite its docs."""
-    cfg = {}
-    if AGY_SKILLS_JSON.exists():
-        try:
-            cfg = json.loads(AGY_SKILLS_JSON.read_text(encoding="utf-8"))
-        except ValueError:
-            print(f"[FAIL] {AGY_SKILLS_JSON}: invalid JSON - fix manually")
-            return
+    cfg = P.read_json(AGY_SKILLS_JSON, None, kind=dict) if AGY_SKILLS_JSON.exists() else {}
+    if cfg is None:
+        print(f"[FAIL] {AGY_SKILLS_JSON}: invalid JSON - fix manually")
+        return
     entries = cfg.get("entries", [])
     repo_path = str(REPO_SKILLS).replace("\\", "/")
     hub_path = str(HUB).replace("\\", "/")
@@ -412,6 +408,5 @@ def cmd_doctor():
     if only:
         print(f"[INFO] {len(only)} of {len(hub_skills())} hub skill(s) are catalog-only: not linked into Claude/Codex, "
               f"served by the router and the MCP get_skill tool (Antigravity still lists them)")
-    print(f"doctor: {problems} problem(s)")
-    return problems
+    print(f"skill folders: {problems} problem(s)")
 

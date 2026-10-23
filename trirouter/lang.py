@@ -6,7 +6,7 @@ import unicodedata
 
 HU_CHARS = set("áéíóöőúüűÁÉÍÓÖŐÚÜŰ")
 HU_WORDS = {
-    "a", "az", "egy", "es", "és", "hogy", "nem", "is", "meg", "mi", "mit", "mik", "ki", "van", "vagy",
+    "az", "egy", "es", "és", "hogy", "nem", "meg", "mi", "mit", "mik", "ki", "van", "vagy",
     "ez", "ezt", "azt", "kell", "kerlek", "kérlek", "nekem", "legyen", "majd", "csak", "hogyan",
     "miert", "miért", "mikor", "hol", "irj", "írj", "keszits", "készíts", "csinald", "csináld",
     "nezd", "nézd", "javitsd", "javítsd", "oldd", "magyarazd", "magyarázd", "egyetemi", "matek",
@@ -14,9 +14,9 @@ HU_WORDS = {
     "mert", "ha", "akkor", "valamint", "illetve", "szerint", "utan", "után", "elott", "előtt",
 }
 EN_WORDS = {
-    "the", "and", "is", "are", "was", "to", "of", "in", "for", "with", "on", "this", "that", "it",
+    "the", "and", "are", "was", "to", "of", "in", "for", "with", "on", "this", "that", "it",
     "please", "write", "make", "create", "fix", "explain", "what", "why", "how", "when", "where",
-    "can", "could", "would", "should", "my", "your", "a", "an", "be", "do", "does", "from", "into",
+    "can", "could", "would", "should", "my", "your", "an", "be", "do", "does", "from", "into",
     "run", "test", "tests", "code", "function", "file", "files", "about", "which", "who",
     "solve", "prove", "calculate", "compute", "find", "summarize", "translate", "delete", "send", "add",
     "implement", "review", "design", "plan", "help", "me", "all", "by", "at", "as", "not",

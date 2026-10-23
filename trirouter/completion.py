@@ -13,8 +13,6 @@ BLOCK_RE = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END) + r"[ \t]*(?:\r
 NAMES = ("trirouter",)
 
 
-# ---- the data, from manual.py -------------------------------------------------------------------------------
-
 def commands():
     return list(manual.ORDER)
 
@@ -54,8 +52,6 @@ def short_doc(text, limit=70):
     first = re.split(r"(?<=[.:;])\s", text)[0].rstrip(".:;")
     return first if len(first) <= limit else first[:limit - 3].rstrip() + "..."
 
-
-# ---- bash ---------------------------------------------------------------------------------------------------
 
 def _sh_case(pairs, indent):
     return "\n".join(f'{indent}"{k}") {v};;' for k, v in pairs)
@@ -146,8 +142,6 @@ complete -o default -F _trirouter_completion {" ".join(NAMES)}
 """
 
 
-# ---- zsh ----------------------------------------------------------------------------------------------------
-
 def _zq(text):
     """A single-quoted zsh word."""
     return "'" + text.replace("'", "'\\''") + "'"
@@ -232,8 +226,6 @@ compdef _trirouter {" ".join(NAMES)}
 """
 
 
-# ---- fish ---------------------------------------------------------------------------------------------------
-
 def _fq(text):
     return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
@@ -268,8 +260,6 @@ def fish_script():
             out.append(" ".join(parts))
     return "\n".join(out) + "\n"
 
-
-# ---- PowerShell ---------------------------------------------------------------------------------------------
 
 def _pq(text):
     return "'" + text.replace("'", "''") + "'"
@@ -431,8 +421,6 @@ def setup_shells(env=None):
         shells.append("powershell")
     return shells
 
-
-# ---- install ------------------------------------------------------------------------------------------------
 
 def script_dir():
     return P.HOME / ".trirouter" / "completion"  # the path the profile blocks name ($HOME/.trirouter/...)

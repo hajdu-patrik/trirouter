@@ -9,7 +9,7 @@ import time
 
 from . import core, platforms as P, store
 
-ALL = ("claude", "codex", "antigravity")
+ALL = P.PROVIDER_NAMES
 LABELS = {"claude": "Claude Code", "codex": "Codex", "antigravity": "Antigravity"}
 EXE = {p: P.PROVIDERS[p]["exe"] for p in ALL}
 LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
@@ -30,8 +30,6 @@ REJECT_MARKERS = ("not supported", "does not exist", "model_not_found", "not_fou
 class Unchecked(Exception):
     """The provider could not be checked; nothing about it is changed."""
 
-
-# ---- files in ~/.trirouter ---------------------------------------------------------------------------------
 
 def local_file():
     return core.STATE_DIR / "models.local.json"
@@ -84,8 +82,6 @@ def auto_enabled(cfg=None):
     cfg = core.user_config() if cfg is None else cfg
     return (cfg.get("model_discovery") or {}).get("auto", True) is not False
 
-
-# ---- lock and schedule -------------------------------------------------------------------------------------
 
 _held = None  # the lock this process holds, while it does
 
@@ -172,8 +168,6 @@ def pending_note():
     except OSError:
         return ""
 
-
-# ---- listing ------------------------------------------------------------------------------------------------
 
 def _last_line(text):
     return (text.strip().splitlines() or ["no output"])[-1][:160]
@@ -273,8 +267,6 @@ def list_claude(exe, catalog):
     return found, rejected
 
 
-# ---- probing ------------------------------------------------------------------------------------------------
-
 def verdict(code, out):
     """True: the model answered; False: the service refused the model; None: the call failed otherwise."""
     if any(m in (out or "").lower() for m in REJECT_MARKERS):
@@ -301,8 +293,6 @@ def probe_claude(exe, alias):
 PROBES = {"codex": probe_codex, "claude": probe_claude, "antigravity": lambda exe, model_id: True}
 
 
-# ---- one provider -------------------------------------------------------------------------------------------
-
 def infer_role(model_id, text=""):
     s = f"{model_id} {text}".lower()
     if re.search(r"\b(pro|opus|ultra|strongest|most capable|frontier)\b", s):
@@ -312,15 +302,10 @@ def infer_role(model_id, text=""):
     return "balanced"
 
 
-def clean_levels(levels, banned):
-    out = [lvl for lvl in levels or [] if lvl in LEVELS and lvl not in banned]
-    return out or [lvl for lvl in DEFAULT_LEVELS if lvl not in banned]
-
-
 def new_entry(provider, model_id, info, ok, today, banned):
     levels = [lvl for lvl in info.get("levels") or [] if lvl in LEVELS and lvl not in banned]
     if provider != "antigravity":  # Antigravity: no suffix means one fixed setting, not "unknown"
-        levels = clean_levels(levels, banned)
+        levels = levels or [lvl for lvl in DEFAULT_LEVELS if lvl not in banned]
     entry = {"selectable": bool(ok), "listed": True, "discovered": today, "role": infer_role(model_id, info.get("description", "")),
              "levels": levels, "description": f"{info.get('description') or model_id} (discovered {today})"}
     if provider == "antigravity":
@@ -430,8 +415,6 @@ def _set(loc, model_id, selectable, listed, today):
     loc[model_id] = entry
 
 
-# ---- the whole check ----------------------------------------------------------------------------------------
-
 # result list -> its label in the summary, in summary order; "rejected" holds (name, reason) pairs
 SUMMARY = {"added": "new", "restored": "back", "removed": "removed", "found_unavailable": "found but not available",
            "hidden": "new hidden (not selected)", "rejected": "policy rejected", "pending": "retry next time"}
@@ -537,8 +520,6 @@ def last_check():
     state = read_state()
     return (state["last_run"], state.get("changed"), state.get("results") or {}) if state.get("last_run") else None
 
-
-# ---- the background process ---------------------------------------------------------------------------------
 
 def run_scheduled():
     if not wait_lock():

@@ -25,8 +25,6 @@ def git(*args, timeout=30):
     return P.run(["git", "-C", str(REPO), *args], timeout=timeout)
 
 
-# ---- the items: each returns [(label, stale, detail)] and fixes what is stale when apply is set ---------------
-
 def _docs(apply):
     want = manual.render_markdown()
     try:
@@ -151,8 +149,6 @@ def show(lines, apply, say):
         say(f"  {mark}{label}: {detail}")
 
 
-# ---- the git pre-commit hook --------------------------------------------------------------------------------
-
 def staged():
     code, out = git("diff", "--cached", "--name-only")
     return [ln.strip() for ln in out.splitlines() if ln.strip()] if code == 0 else []
@@ -216,20 +212,20 @@ def pre_commit(say=print, run_tests=True):
 
 def main(flags, say=print):
     if "--pre-commit" in flags:
-        if "--check" in flags or "--dry-run" in flags:
-            say("sync: --pre-commit runs the checks for real; it cannot be combined with --check or --dry-run")
+        if "--check" in flags:
+            say("sync: --pre-commit runs the checks for real; it cannot be combined with --check")
             return 2
         if not is_checkout():
             say("--pre-commit only works in a trirouter checkout")
             return 1
         return pre_commit(say)
-    check = "--check" in flags or "--dry-run" in flags
+    check = "--check" in flags
     say("trirouter sync" + (" (check - nothing is changed)" if check else ""))
     lines = items(apply=not check)
     show(lines, not check, say)
     failed = any(d.startswith("failed") for _, _, d in lines)
     # the hook folder is a setting of this clone, not a generated file: a fresh clone (CI) is not out of date
-    if "--check" in flags and any(s for label, s, _ in lines if label not in LOCAL_SETTINGS):
+    if check and any(s for label, s, _ in lines if label not in LOCAL_SETTINGS):
         say(f"\nOut of date: run `{P.command_hint('sync')}`")
         return 1
     return 1 if failed else 0

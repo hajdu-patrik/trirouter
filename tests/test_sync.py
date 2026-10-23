@@ -70,7 +70,6 @@ def test_check_reports_and_changes_nothing(checkout, user_home, capsys):
     assert "docs/cli.md: out of date" in out and "core.hooksPath not set" in out and "trirouter sync" in out
     assert (checkout / "docs" / "cli.md").read_text(encoding="utf-8") == "old\n"
     assert subprocess.run(["git", "-C", str(checkout), "config", "--get", "core.hooksPath"]).returncode == 1
-    assert sync.main({"--dry-run": True}) == 0  # a preview is not a failure
 
 
 def test_check_passes_on_a_fresh_clone_with_current_files(checkout, user_home, capsys):

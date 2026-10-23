@@ -21,14 +21,12 @@ DEFAULT_PORT = 47621
 IDLE_EXIT_S = 7 * 24 * 3600  # Remote Control sessions live for days; SessionStart restarts it anyway
 MAX_BODY = 2 * 1024 * 1024
 TOKEN_HEADER = "X-Trirouter-Token"
-PROVIDERS = ("claude", "codex", "antigravity")
+PROVIDERS = P.PROVIDER_NAMES
 EVENT_RE = re.compile(r"^[A-Za-z]{1,64}$")
 HEALTH_TIMEOUT_S = 0.2   # the SessionStart hook's check: a local answer takes a few milliseconds
 LOG_MAX = 512 * 1024     # daemon.log is cut to its newer half beyond this
 RELOAD_WAIT_S = 30.0     # a reload waits this long for the running requests; a stuck one must not freeze the daemon
 
-
-# ---- state: ~/.trirouter/state/daemon.json ------------------------------------------------------------------
 
 def state_file():
     return core.STATE_DIR / "state" / "daemon.json"
@@ -76,8 +74,6 @@ def log(message):
     """One line in logs/daemon.log (never a prompt, never the token); bounded, never raises."""
     P.append_line(log_file(), f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {message}", max_bytes=LOG_MAX)
 
-
-# ---- the server ----------------------------------------------------------------------------------------------
 
 class HookRunner:
     """Runs hooks.handle with the freshest code. A reload waits (up to RELOAD_WAIT_S) until no request is in flight,
@@ -301,8 +297,6 @@ def serve(port=None, idle_s=IDLE_EXIT_S):
     return 0
 
 
-# ---- lifecycle: used by the SessionStart hook and the CLI -----------------------------------------------------
-
 def _request(method, port, path, timeout, headers=None):
     """(status, parsed JSON body or None); raises OSError when nothing answers."""
     import http.client
@@ -414,8 +408,6 @@ def _token_check(tok):
         return "missing" if transport() == "http" else "ok"
     return "ok" if tok and all(hmac.compare_digest(s.encode(), tok.encode()) for s in sent) else "mismatch"
 
-
-# ---- switching the Claude hooks between command and http ------------------------------------------------------
 
 def _switch(mode, apply, say):
     """Sets hooks.transport, re-registers Claude's hooks for it (dry run unless `apply`; a changed settings.json

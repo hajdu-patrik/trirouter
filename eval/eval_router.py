@@ -25,8 +25,7 @@ from trirouter import core  # noqa: E402
 # level0_delegated (share of all prompts): level-0 prompts whose expected tier is the inline `main` but
 # which the final routing outcome hands to a subagent / another tool.
 TARGETS = {"task": 0.85, "uncertain": 0.30, "destr_recall": 1.0, "destr_fp": 0.05, "lang": 1.0, "level0_delegated": 0.05}
-# Regression gates for the real-traffic set, not goals: the local classifier is weak on it by design,
-# JEV is the fix. Raise them whenever the measured numbers improve.
+# Regression gates for the real-traffic set, not goals: the local classifier is weak on it by design, JEV is the fix.
 REAL_TARGETS = {**TARGETS, "task": 0.70, "uncertain": 0.45}
 # (metric, how the RESULT line states its target, passes(measured, target)); a metric measured as None is skipped
 GATES = (("task", "task>={:.0%}", operator.ge), ("uncertain", "uncertain<={:.0%}", operator.le),

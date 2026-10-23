@@ -86,58 +86,6 @@ def test_save_config_protects_where_possible(state):
     assert core.jev_key() == KEY  # whichever form was stored
 
 
-def test_migration_dry_run_changes_nothing(state, capsys):
-    write_cfg(state, openrouter_api_key=KEY)
-    (state / "config.json.bak").write_text(json.dumps({"openrouter_api_key": KEY}), encoding="utf-8")
-    before = {p.name: p.read_bytes() for p in state.iterdir()}
-    cli.FLAGS = {}
-    assert cli.run_keys() == 0
-    assert {p.name: p.read_bytes() for p in state.iterdir()} == before
-    out = capsys.readouterr().out
-    assert KEY not in out and "preview" in out
-    cli.FLAGS = {"--apply": True}
-    monkey_dry = cli.DRY
-    cli.DRY = True  # --apply together with --dry-run is still a preview
-    try:
-        assert cli.run_keys() == 0
-    finally:
-        cli.DRY = monkey_dry
-    assert {p.name: p.read_bytes() for p in state.iterdir()} == before
-
-
-def test_migration_apply_protects_and_scrubs_backups(state, capsys):
-    write_cfg(state, openrouter_api_key=KEY, remote_name="box")
-    (state / "config.json.bak").write_text(json.dumps({"openrouter_api_key": KEY, "x": 1}), encoding="utf-8")
-    (state / "config.json.old").write_text(json.dumps({"typesafe_api_key": KEY}), encoding="utf-8")
-    cli.FLAGS = {"--apply": True}
-    assert cli.run_keys() == 0
-    assert KEY not in capsys.readouterr().out
-    cfg = read_cfg(state)
-    assert cfg["remote_name"] == "box"
-    for p in state.glob("config.json*"):
-        assert p.name == "config.json" or KEY not in p.read_text(encoding="utf-8"), p.name
-    assert not secret.backups_with_plaintext(state / "config.json")
-    assert core.jev_key() == KEY
-    if WIN:  # the copy of the previous config.json keeps the other fields, not the key
-        assert json.loads((state / "config.json.bak").read_text(encoding="utf-8")) == {"remote_name": "box"}
-    if WIN:
-        assert KEY not in (state / "config.json").read_text(encoding="utf-8")
-        assert secret.status(cfg["openrouter_api_key"]) == secret.PROTECTED
-    # idempotent: a second run changes nothing
-    snapshot = {p.name: p.read_bytes() for p in state.iterdir()}
-    assert cli.run_keys() == 0
-    assert {p.name: p.read_bytes() for p in state.iterdir()} == snapshot
-
-
-def test_bak_written_by_migration_has_no_plaintext_key(state):
-    write_cfg(state, typesafe_api_key=KEY, openrouter_api_key=KEY, remote_name="box")
-    results = secret.migrate(state / "config.json", apply=True)
-    assert all(ok for ok, _ in results)
-    if WIN:
-        bak = json.loads((state / "config.json.bak").read_text(encoding="utf-8"))
-        assert bak == {"remote_name": "box"}
-
-
 def test_setup_save_removes_plaintext_from_old_backups(state, monkeypatch):
     write_cfg(state, openrouter_api_key=KEY)
     (state / "config.json.bak").write_text(json.dumps({"openrouter_api_key": KEY}), encoding="utf-8")
@@ -164,10 +112,9 @@ def test_posix_config_and_backups_are_owner_only(state):
     os.chmod(state / "config.json", 0o644)
     (state / "config.json.bak").write_text(json.dumps({"openrouter_api_key": KEY}), encoding="utf-8")
     os.chmod(state / "config.json.bak", 0o644)
-    secret.migrate(state / "config.json", apply=True)
+    cli.save_config({"openrouter_api_key": KEY})  # what setup does
+    secret.scrub_backups(state / "config.json", apply=True)
     for name in ("config.json", "config.json.bak"):
         assert (state / name).stat().st_mode & 0o077 == 0, name
     assert json.loads((state / "config.json").read_text(encoding="utf-8"))["openrouter_api_key"] == KEY
     assert KEY not in (state / "config.json.bak").read_text(encoding="utf-8")
-    cli.save_config({"openrouter_api_key": KEY})
-    assert (state / "config.json").stat().st_mode & 0o077 == 0

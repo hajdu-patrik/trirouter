@@ -98,11 +98,10 @@ GO_AHEAD = {
     "perfect", "done", "try", "approved", "approve", "confirmed", "confirm", "accept", "accepted", "agreed", "y", "ya",
     "yea", "fine", "good", "alright", "right",
 }
-GO_AHEAD_FILLER = {
-    "am", "akkor", "is", "meg", "csak", "most", "kerlek", "fel", "tovabb", "ezt", "azt", "mind", "mindet", "mindent",
-    "igy", "ugy", "nyugodtan", "nyomjad", "mehet", "igen", "ok", "please", "do", "it", "ahead", "on", "again",
-    "then", "all", "that", "this", "now", "go", "keep", "going", "yes", "sure", "ujra", "mindegyiket", "osszeset",
-    "mehetnek", "everything", "too", "also", "them",
+GO_AHEAD_FILLER = {  # allowed next to a go-ahead word (GO_AHEAD words count as filler too)
+    "am", "akkor", "is", "meg", "csak", "most", "kerlek", "fel", "ezt", "azt", "mind", "mindet", "mindent", "igy", "ugy",
+    "nyugodtan", "do", "it", "ahead", "on", "again", "then", "all", "that", "this", "now", "keep", "going", "ujra",
+    "mindegyiket", "osszeset", "everything", "too", "also", "them",
 }
 # A verb that acts on the previous work ("commit it", "push", "fix that"): a continuation only with a pronoun object.
 ACTION_VERBS = {
@@ -110,10 +109,10 @@ ACTION_VERBS = {
     "mergeljuk", "deploy", "deployold", "ship", "apply", "alkalmazd", "run", "futtasd", "implement", "implementald",
     "implementalj", "do", "fix", "javitsd", "start", "inditsd", "finish", "fejezd",
 }
-ACTION_OBJECTS = {
-    "it", "this", "that", "them", "those", "these", "all", "everything", "now", "please", "too", "also", "again",
-    "changes", "the", "ezt", "azt", "ezeket", "azokat", "mindet", "mindent", "mind", "osszeset", "most", "kerlek", "is",
-    "el", "fel", "ki", "be", "valtozasokat", "valtoztatasokat", "ugyanezt", "ujra", "right", "away", "meg",
+ACTION_OBJECTS = {  # GO_AHEAD words are accepted here too
+    "it", "this", "that", "them", "those", "these", "all", "everything", "now", "too", "also", "again", "changes", "the",
+    "ezt", "azt", "ezeket", "azokat", "mindet", "mindent", "mind", "osszeset", "most", "kerlek", "is", "el", "fel", "ki",
+    "be", "valtozasokat", "valtoztatasokat", "ugyanezt", "ujra", "away", "meg",
 }
 # A pronoun-only follow-up ("and this?", "ezt is", "ugyanezt a masikra"): words from this closed set, one a pronoun.
 FOLLOWUP_PRONOUNS = {"this", "that", "it", "those", "these", "them", "same", "other", "another", "ez", "ezt", "azt",

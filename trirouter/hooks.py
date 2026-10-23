@@ -305,8 +305,6 @@ def handle(provider, hook_event_name, raw):
     return prompt_output(provider, hook_event_name, raw)
 
 
-# ---- Claude: the session's model and the subagent guard ---------------------------------------------------------
-
 AGENT_TOOLS = ("Agent", "Task")  # the subagent tool's current and former name
 
 

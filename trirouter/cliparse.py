@@ -14,25 +14,25 @@ class UsageError(Exception):
 
 @dataclass
 class Invocation:
-    kind: str                  # "run" | "help" | "overview" | "version" (--version) | "markdown"
+    kind: str                  # "run" | "help" | "overview" | "version" (--version)
     key: str = ""              # command key ("skills", "quarantine restore"), the page for kind == "help"
     flags: dict = field(default_factory=dict)
     positional: list = field(default_factory=list)
 
 
-def _value_error(f, text):
-    return UsageError(f"{f.long}: invalid value {text!r}" if text else f"{f.long} needs a value",
+def _value_error(f, text, cmd):
+    return UsageError(f"{cmd.key}: {f.long}: invalid value {text!r}" if text else f"{cmd.key}: {f.long} needs a value",
                       f"expected {f.choices_hint or ' or '.join(f.choices)}" if f.choices else
                       ("expected a whole number, 0 or more" if f.kind == "int" else ""))
 
 
-def _check_value(f, text):
+def _check_value(f, text, cmd):
     if not text:
-        raise _value_error(f, "")
+        raise _value_error(f, "", cmd)
     if f.kind == "int" and not (text.isascii() and text.isdigit()):
-        raise _value_error(f, text)
+        raise _value_error(f, text, cmd)
     if f.choices and text.lower() not in f.choices:
-        raise _value_error(f, text)
+        raise _value_error(f, text, cmd)
     return text
 
 
@@ -73,7 +73,7 @@ def parse_flags(cmd, args, prog, command_names=()):
                     raise UsageError(f"{cmd.key}: {name} does not take a value", f"Run `{prog} help {cmd.key}` for the options.")
                 flags[name] = True
             elif eq:
-                flags[name] = _check_value(f, val)
+                flags[name] = _check_value(f, val, cmd)
             elif f.optional:
                 nxt = args[i + 1] if i + 1 < len(args) else None
                 if nxt is not None and not nxt.startswith("-") and nxt not in command_names:
@@ -86,7 +86,7 @@ def parse_flags(cmd, args, prog, command_names=()):
                 if nxt is None or (nxt.startswith("-") and nxt != "-"):
                     raise UsageError(f"{cmd.key}: {name} needs a value ({name}={f.value})",
                                      f"Run `{prog} help {cmd.key}` for the options.")
-                flags[name] = _check_value(f, nxt)
+                flags[name] = _check_value(f, nxt, cmd)
                 i += 1
         elif a.startswith("-") and len(a) > 1:
             for ch in a[1:]:
@@ -193,13 +193,7 @@ def resolve(argv, prog, install_py=False):
 
 
 def _help_invocation(flags, pos, prog):
-    if flags.get("--help"):
-        return Invocation("overview")
-    if flags.get("--markdown"):
-        if pos:
-            raise UsageError("help: --markdown prints the whole reference and takes no command")
-        return Invocation("markdown")
-    if not pos:
+    if flags.get("--help") or not pos:
         return Invocation("overview")
     if len(pos) > 2:
         raise UsageError(f"help: unexpected argument {pos[2]!r}")

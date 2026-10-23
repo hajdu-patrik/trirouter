@@ -42,12 +42,10 @@ PATHS = {
     "claude_settings": CLAUDE_HOME / "settings.json",
     "claude_skills": CLAUDE_HOME / "skills",
     "claude_agents": CLAUDE_HOME / "agents",
-    "codex_home": CODEX_HOME,
     "codex_hooks": CODEX_HOME / "hooks.json",
     "codex_config": CODEX_HOME / "config.toml",
     "codex_agents": CODEX_HOME / "agents",
     "codex_skills": HOME / ".agents" / "skills",
-    "agy_config": AGY_CONFIG,
     "agy_hooks": AGY_CONFIG / "hooks.json",
     "agy_skills_json": AGY_CONFIG / "skills.json",
     "agy_mcp": AGY_CONFIG / "mcp_config.json",
@@ -103,7 +101,7 @@ def find_exe(name):
     elif name == "claude":
         candidates = [HOME / ".local" / "bin" / ("claude.exe" if IS_WINDOWS else "claude"), CLAUDE_HOME / "local" / "claude"]
     for c in candidates:
-        if str(c) and Path(c).is_file():
+        if Path(c).is_file():
             return str(c)
     return None
 
@@ -183,8 +181,6 @@ def env_number(var, default, cast=float):
     except (TypeError, ValueError):
         return cast(default)
 
-
-# ---- files: JSON reads, atomic writes, locked appends ------------------------------------------------------
 
 def ensure_dir(path):
     """Creates the folder and its missing parents owner-only (0o700): the state, log and shim folders hold prompts,
@@ -328,8 +324,6 @@ def _copy_mode(path, tmp):
         pass
 
 
-# ---- child processes ----------------------------------------------------------------------------------------
-
 # Windows: set by a background process that has no console (spawn_detached), so the console programs it runs
 # (codex.cmd, agy.exe, ...) do not each open a visible console window.
 NO_WINDOW = False
@@ -469,24 +463,24 @@ PROVIDERS = {
                     "install": "https://antigravity.google/docs/cli/install/",
                     "login": "agy  (sign in with Google in the browser window that opens)"},
 }
+PROVIDER_NAMES = tuple(PROVIDERS)
 
 
 def detect_one(provider, deep=True):
-    """logged_in is None when unknown."""
+    """{provider, label, installed, version, logged_in}; logged_in is None when unknown."""
     spec = PROVIDERS[provider]
     exe = find_exe(spec["exe"])
-    info = {"provider": provider, "label": spec["label"], "installed": bool(exe), "path": exe,
-            "version": None, "logged_in": None, "detail": ""}
+    info = {"provider": provider, "label": spec["label"], "installed": bool(exe), "version": None, "logged_in": None}
     if not exe:
         return info
     _, out = run([exe, "--version"], timeout=30)
     info["version"] = (out.splitlines() or [""])[0][:80]
     if provider == "claude":
-        code, out = run([exe, "auth", "status"], timeout=30)
+        _, out = run([exe, "auth", "status"], timeout=30)
         try:
             info["logged_in"] = bool(json.loads(out[out.index("{"):]).get("loggedIn"))
         except (ValueError, AttributeError):
-            info["detail"] = out[:120]
+            pass
     elif provider == "codex":
         code, out = run([exe, "login", "status"], timeout=30)
         info["logged_in"] = code == 0 and "logged in" in out.lower() and "not logged in" not in out.lower()
@@ -497,8 +491,6 @@ def detect_one(provider, deep=True):
             info["logged_in"] = False
         elif re.search(r"^\S+\s+\S", out, re.M) and code == 0:
             info["logged_in"] = True
-        else:
-            info["detail"] = out[:120]
     return info
 
 
@@ -511,9 +503,13 @@ def hostname():
     return socket.gethostname()
 
 
+LAUNCHER_PY = "trirouter.py" if IS_WINDOWS else "trirouter"  # the Python launcher integrations.install_launcher writes
+LAUNCHER_CMD = "trirouter.cmd"                                 # Windows: runs it with python.exe
+
+
 def launcher_path():
-    """The `trirouter` launcher the installer writes (see integrations.install_launcher)."""
-    return STATE / "bin" / ("trirouter.cmd" if IS_WINDOWS else "trirouter")
+    """The `trirouter` launcher the installer writes."""
+    return STATE / "bin" / (LAUNCHER_CMD if IS_WINDOWS else LAUNCHER_PY)
 
 
 def command_hint(args=""):
