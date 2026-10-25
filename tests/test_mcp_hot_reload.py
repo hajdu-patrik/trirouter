@@ -68,3 +68,10 @@ def test_initialize_reports_the_package_version():
     from trirouter import __version__, mcp_server
     reply = mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert reply["result"]["serverInfo"] == {"name": "trirouter", "version": __version__}
+
+
+def test_resource_and_prompt_lists_are_empty_not_errors():
+    from trirouter import mcp_server
+    for method, key in mcp_server.EMPTY_LISTS.items():
+        assert mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": method})["result"] == {key: []}
+    assert mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "nope/list"})["error"]["code"] == -32601

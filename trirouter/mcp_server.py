@@ -7,6 +7,7 @@ from . import __version__, platforms as P
 from .hotreload import HotReloader
 
 PROTOCOL = "2025-06-18"
+EMPTY_LISTS = {"resources/list": "resources", "resources/templates/list": "resourceTemplates", "prompts/list": "prompts"}
 RELOADER = HotReloader("trirouter", P.PKG, "mcp_tools", keep=("hotreload", "mcp_server"))
 
 
@@ -38,6 +39,8 @@ def _handle(msg, tools):
         result = {}
     elif method == "tools/list":
         result = {"tools": tools.TOOLS}
+    elif method in EMPTY_LISTS:  # some clients (Codex) ask anyway; an empty list keeps their logs free of errors
+        result = {EMPTY_LISTS[method]: []}
     elif method == "tools/call":
         fn = tools.HANDLERS.get(params.get("name"))
         if not fn:
