@@ -195,14 +195,34 @@ def _loop_body(command):
             'set /a w*=2\nif %w% gtr 600 set "w=600"\ntimeout /t %w% /nobreak >nul\ngoto loop\n')
 
 
-def _win_loop(task, script_name, workdir, command, kill):
-    """Keeps `command` running from logon in a restart loop. `kill` matches a previous instance's
-    processes: the scheduler ignores Start while the old loop still runs."""
+def _stop_loop(script_name, tail=""):
+    """PowerShell that ends our restart loop running `script_name`, everything it started, and a server an earlier loop
+    left behind (a command line ending in `tail`); a remote-control session the user started is never matched."""
+    orphan = f' -or "$($_.CommandLine)".TrimEnd().EndsWith({_psq(tail)})' if tail else ""
+    return ('$all = @(Get-CimInstance Win32_Process); '
+            f'$ids = @($all | ? {{ ($_.Name -eq "cmd.exe" -and $_.CommandLine -match {_psq(re.escape(script_name))}){orphan} }} '
+            '| % ProcessId); '
+            'do { $more = @($all | ? { $ids -notcontains $_.ProcessId -and $ids -contains $_.ParentProcessId } | % ProcessId); '
+            '$ids += $more } while ($more.Count); '
+            '$ids | % { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }')
+
+
+def _script_tail(script):
+    """The server's arguments in one of our loop scripts ('' when it has none)."""
+    try:
+        lines = script.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    line = next((x for x in lines if " remote-control" in x or "app-server" in x), "")
+    return line.split('" ', 1)[1] if '" ' in line else ""
+
+
+def _win_loop(task, script_name, workdir, command, tail):
+    """Keeps `command` running from logon in a restart loop; `tail` is how its server's command line ends. The previous
+    loop is stopped first: the scheduler ignores Start while it still runs."""
     script = BIN / script_name
     P.atomic_write(script, f'@echo off\ncd /d "{workdir}"\n' + _loop_body(command), newline="\r\n")
-    _ps(f'Stop-ScheduledTask {_task(task)} -ErrorAction SilentlyContinue; '
-        f'Get-CimInstance Win32_Process | ? {{ ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "{script_name}") -or ({kill}) }} '
-        '| % { Stop-Process -Id $_.ProcessId -Force }')
+    _ps(f'Stop-ScheduledTask {_task(task)} -ErrorAction SilentlyContinue; ' + _stop_loop(script_name, tail))
     return _win_task(task, _conhost(), f'--headless cmd.exe /c "{script}"', str(workdir))
 
 
@@ -281,7 +301,7 @@ WantedBy=default.target
 def _setup_claude(name, claude, workdir, args):
     if P.IS_WINDOWS:
         code, out = _win_loop(TASK_CLAUDE, "claude-remote.cmd", workdir, f'"{claude}" {_cmd_args(args)}',
-                              '$_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control "')
+                              _cmd_args(args))
     elif P.IS_MAC:
         LAUNCHD.parent.mkdir(parents=True, exist_ok=True)
         LOG.parent.mkdir(parents=True, exist_ok=True)  # launchd does not create the log folder
@@ -345,7 +365,7 @@ def _remote_codex(workdir):
         # task runs the app server. One connection per computer: while the ChatGPT app holds it, this one retries.
         code, out = _win_loop(TASK_CODEX, "codex-remote.cmd", workdir,
                               f'call "{codex}" app-server --remote-control --listen off',
-                              '$_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control"')
+                              "app-server --remote-control --listen off")
         done = ("remote app server runs hidden from logon; pair once: ChatGPT app > Settings > "
                 "Connections > Control this PC, or `codex remote-control pair`")
     else:
@@ -474,10 +494,7 @@ def remove():
         for task in (TASK_WATCHDOG, TASK_CLAUDE, TASK_CODEX, TASK_ONCE):
             _unregister(task)
         if ours:
-            _ps('Get-CimInstance Win32_Process | ? { ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "(claude|codex)-remote\\.cmd") '
-                '-or ($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") '
-                '-or ($_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control") } '
-                '| % { Stop-Process -Id $_.ProcessId -Force }')
+            _ps("; ".join(_stop_loop(s.name, _script_tail(s)) for s in scripts[:2]))
             report.append(("claude/codex", True, "scheduled tasks removed, servers stopped"))
         for s in scripts:
             s.unlink(missing_ok=True)

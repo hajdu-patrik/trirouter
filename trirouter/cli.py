@@ -105,10 +105,14 @@ def detect_and_login(chosen):
             if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
                 break
             info.update(P.detect_one(p))
-    chosen = [p for p, i in found.items() if (chosen is None or p in chosen) and i["installed"]
-              and i["logged_in"] is not False]
-    say(f"\n  Tools to connect: {', '.join(chosen) or 'none'}")
-    return chosen
+    ready = [p for p, i in found.items() if (chosen is None or p in chosen) and i["installed"]
+             and i["logged_in"] is not False]
+    if DRY and chosen is not None and ready != chosen:  # a preview of named tools works without them (CI)
+        say(f"\n  Dry run: previewing {', '.join(p for p in chosen if p not in ready)} as well; "
+            "a real run skips a tool that is not installed or not logged in.")
+        ready = list(chosen)
+    say(f"\n  Tools to connect: {', '.join(ready) or 'none'}")
+    return ready
 
 
 def store_jev_key(cfg, key):

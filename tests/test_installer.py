@@ -280,14 +280,14 @@ def test_windows_remote_loops_run_headless(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(remote, "BIN", tmp_path)
     monkeypatch.setattr(remote, "_ps", lambda script: calls.append(script) or (0, ""))
-    remote._win_loop("Trirouter-Test", "test-remote.cmd", tmp_path, 'call "codex.cmd" app-server', '$_.Name -eq "x"')
+    remote._win_loop("Trirouter-Test", "test-remote.cmd", tmp_path, 'call "codex.cmd" app-server', "app-server")
     script = (tmp_path / "test-remote.cmd").read_bytes().decode("utf-8")
     assert '\r\ncall "codex.cmd" app-server\r\n' in script
     assert "timeout /t %w% /nobreak" in script
     assert "goto loop\r\n" in script
     assert "\r\r" not in script
     assert "Stop-ScheduledTask" in calls[0]
-    assert "test-remote.cmd" in calls[0]
+    assert r"test\-remote\.cmd" in calls[0] and ".EndsWith('app-server')" in calls[0]
     assert "conhost.exe" in calls[1]
     assert "--headless cmd.exe /c" in calls[1]
     assert "-AtLogOn" in calls[1]
@@ -360,6 +360,8 @@ def test_providers_flag_never_connects_a_missing_or_logged_out_tool(monkeypatch)
     assert cli.detect_and_login(["codex", "antigravity"]) == []
     assert cli.detect_and_login(["claude", "codex"]) == ["claude"]
     assert cli.detect_and_login(None) == ["claude"]
+    monkeypatch.setattr(cli, "DRY", True)  # a dry run previews the named tools anyway (CI has none)
+    assert cli.detect_and_login(["codex", "antigravity"]) == ["codex", "antigravity"]
 
 
 def test_removing_claude_models_without_a_settings_file_creates_none(tmp_path):

@@ -16,8 +16,10 @@ change, what changed rather than how; dates are ISO 8601.
 - `setup`, `remote` and `daemon enable` exit with status 1 when a step failed; `remote` says so when no tool is
   installed or nothing was set up to remove.
 - A `config.json` that is not valid JSON is kept as `config.json.corrupt` before a command writes a new one.
-- `uninstall` and `remote --remove` stop remote-control processes only when trirouter set up remote access, delete
-  their loop scripts and forget the remote name, so `doctor` no longer reports a removed setup.
+- `remote`, `uninstall` and `remote --remove` stop only trirouter's own restart loops and the servers they started;
+  a Claude remote-control session started by hand or by another task keeps running. Removal deletes the loop scripts
+  and forgets the remote name, so `doctor` no longer reports a removed setup.
+- `setup --dry-run --providers=...` still previews the named tools when they are not installed.
 - `--quarantine-days` accepts at most 36500; a larger saved value no longer breaks `quarantine` and `doctor`.
 - Choice values are case-insensitive end to end (`route --provider=CODEX` routes like `codex`).
 - A subcommand may follow flags (`daemon -n enable`), as the conventions say.

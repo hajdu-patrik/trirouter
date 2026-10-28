@@ -174,3 +174,14 @@ def test_remote_without_any_tool_says_so_and_fails(monkeypatch, capsys):
     monkeypatch.setattr(remote, "setup", lambda *a, **k: pytest.fail("setup ran without a tool"))
     cli.configure(cliparse.resolve(["remote"], "trirouter", False))
     assert cli.run_remote() == 1 and "No AI tool" in capsys.readouterr().out
+
+
+def test_a_loop_restart_stops_only_its_own_processes(tmp_path):
+    script = tmp_path / "claude-remote.cmd"
+    script.write_text('@echo off\n"C:\\bin\\claude.exe" remote-control --remote-control-session-name-prefix Box\n', encoding="utf-8")
+    tail = remote._script_tail(script)
+    assert tail == "remote-control --remote-control-session-name-prefix Box"
+    ps = remote._stop_loop("claude-remote.cmd", tail)
+    assert r"claude\-remote\.cmd" in ps and ".EndsWith('remote-control --remote-control-session-name-prefix Box')" in ps
+    assert "ParentProcessId" in ps and '-match " remote-control "' not in ps  # never every remote-control session
+    assert remote._script_tail(tmp_path / "missing.cmd") == ""
