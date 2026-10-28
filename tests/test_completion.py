@@ -1,5 +1,6 @@
 """Shell tab completion: scripts cover the whole manual; shell and profile choice per OS (simulated); install is
 idempotent, keeps a .bak and honours --dry-run. A real bash / PowerShell checks the scripts when present."""
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +46,25 @@ def test_value_flags_end_in_equals_and_values_follow_the_hint():
     assert C.values_of(auto) == ["on", "off"]
     provider = next(f for f in manual.COMMANDS["route"].flags if f.long == "--provider")
     assert C.values_of(provider) == ["claude", "codex", "antigravity", "claude-chat"]
+    providers = next(f for f in manual.COMMANDS["setup"].flags if f.long == "--providers")
+    assert C.values_of(providers) == list(P.PROVIDER_NAMES)
+
+
+def test_short_doc_keeps_parentheses_and_abbreviations_and_cuts_at_a_word():
+    assert C.short_doc("Under NAME (default: the saved name). More.") == "Under NAME (default: the saved name)"
+    assert C.short_doc("Match patterns (e.g. gke-*). More.") == "Match patterns (e.g. gke-*)"
+    assert C.short_doc("The daemon: details.") == "The daemon"
+    assert C.short_doc("word " * 20) == "word " * 12 + "word..."
+    assert C.short_doc("Hub skills whose folder name matches these fnmatch patterns (e.g. gke-*,google-*) stay") ==         "Hub skills whose folder name matches these fnmatch patterns..."
+
+
+def test_fish_conditions_look_only_at_the_non_flag_words():
+    text = C.fish_script()
+    assert "__fish_seen_subcommand_from" not in text
+    assert r"-n '__trirouter_key \'setup\'' -l providers -x -a '(__trirouter_list claude codex antigravity)'" in text
+    assert "-l workdir -r -F" in text and "-a '(__trirouter_quarantined)'" in text
+    assert r"-n '__trirouter_args \'help quarantine\'' -a restore" in text
+    assert not re.search(r"-l remote -r", text)
 
 
 
@@ -219,8 +239,12 @@ t trirouter help quarantine ""
 t trirouter ""
 t trirouter -
 t trirouter --v
+t trirouter setup --providers claude,c
+t trirouter quarantine restore ""
 ''')
-    out = subprocess.run([real_bash(), str(probe), str(script)], capture_output=True, text=True, timeout=60)
+    (tmp_path / "home" / "quarantine" / "some-skill").mkdir(parents=True)
+    env = {**os.environ, "TRIROUTER_HOME": str(tmp_path / "home")}
+    out = subprocess.run([real_bash(), str(probe), str(script)], capture_output=True, text=True, timeout=60, env=env)
     assert out.returncode == 0, out.stderr
     lines = out.stdout.splitlines()
     assert lines[0] == "complete -o default -F _trirouter_completion trirouter"
@@ -229,6 +253,7 @@ t trirouter --v
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
     assert lines[6] == "setup models skills quarantine remote sync daemon learn doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
+    assert lines[9] == "claude,claude claude,codex" and lines[10] == "some-skill"
 
 
 def real_powershell():
@@ -246,16 +271,21 @@ def test_powershell_script_parses_and_completes(tmp_path):
     test = tmp_path / "test.ps1"
     test.write_text('''param($s)
 . $s
-foreach ($line in @('trirouter mo', 'trirouter models --', 'trirouter models --auto=', 'trirouter quarantine ', 'trirouter -')) {
+foreach ($line in @('trirouter mo', 'trirouter models --', 'trirouter models --auto=', 'trirouter quarantine ', 'trirouter -',
+                    'trirouter setup --providers=claude,c', 'trirouter quarantine restore ')) {
   $r = TabExpansion2 -inputScript $line -cursorColumn $line.Length
   ($r.CompletionMatches | ForEach-Object CompletionText) -join ' '
 }
+(TabExpansion2 'trirouter mo').CompletionMatches.CompletionText
 ''', encoding="utf-8")
+    (tmp_path / "home" / "quarantine" / "some-skill").mkdir(parents=True)
+    env = {**os.environ, "TRIROUTER_HOME": str(tmp_path / "home")}
     out = subprocess.run([real_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(test), str(script)],
-                         capture_output=True, text=True, timeout=120)
+                         capture_output=True, text=True, timeout=120, env=env)
     assert out.returncode == 0 and not out.stderr.strip(), out.stderr
     assert out.stdout.splitlines() == ["models", "--discover --auto= --main= --subagent-model= --dry-run --help", "--auto=on --auto=off",
-                                       "list restore purge", "--version -V --help -h"]
+                                       "list restore purge", "--version -V --help -h",
+                                       "claude codex", "some-skill", "models"]
 
 
 

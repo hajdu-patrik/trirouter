@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from trirouter import core, hooks as run_hook, integrations as install_hooks, platforms as P, queue_state
+from trirouter import cli, core, hooks as run_hook, integrations as install_hooks, platforms as P, queue_state
 
 
 @pytest.mark.parametrize("cmd", ["python C:/Users/x/.trirouter/bin/run_hook.py claude UserPromptSubmit",
@@ -125,8 +125,8 @@ def test_install_hooks_idempotent_and_uninstall(tmp_path, monkeypatch):
     isolate_launcher(tmp_path, monkeypatch)
     paths["claude_settings"].parent.mkdir(parents=True)
     paths["claude_settings"].write_text(json.dumps({"model": "sonnet", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}}))
-    assert install_hooks.install(apply=True) > 0
-    assert install_hooks.install(apply=True) == 0                      # second run: nothing changes
+    assert install_hooks.install(apply=True).changes > 0
+    assert install_hooks.install(apply=True).changes == 0                     # second run: nothing changes
     s = json.loads(paths["claude_settings"].read_text())
     assert s["model"] == "sonnet"
     assert len(s["hooks"]["Stop"]) == 2                                # foreign hook kept, ours added
@@ -350,3 +350,19 @@ def test_doctor_lists_hook_and_mcp_interpreters(tmp_path, monkeypatch):
     toml = '[mcp_servers.trirouter]\ncommand = "/opt/py/python"\nargs = []\n'
     assert doctor.interpreters(settings, toml) == [("Claude hook", "/usr/bin/python3"), ("Antigravity MCP", "/opt/py/pythonw"),
                                                    ("Codex MCP", "/opt/py/python")]
+
+
+def test_providers_flag_never_connects_a_missing_or_logged_out_tool(monkeypatch):
+    found = {"claude": {"installed": True, "logged_in": True}, "codex": {"installed": False, "logged_in": None},
+             "antigravity": {"installed": True, "logged_in": False}}
+    monkeypatch.setattr(P, "detect", lambda: {p: {**i, "label": p, "version": ""} for p, i in found.items()})
+    monkeypatch.setattr(cli, "YES", True)
+    assert cli.detect_and_login(["codex", "antigravity"]) == []
+    assert cli.detect_and_login(["claude", "codex"]) == ["claude"]
+    assert cli.detect_and_login(None) == ["claude"]
+
+
+def test_removing_claude_models_without_a_settings_file_creates_none(tmp_path):
+    w = install_hooks.Writer(True)
+    install_hooks.claude_model_settings(w, "off", "off", path=tmp_path / "settings.json")
+    assert w.changes == 0 and not (tmp_path / "settings.json").exists()

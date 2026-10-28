@@ -370,3 +370,27 @@ def test_help_inside_a_combined_short_flag_shows_the_page():
 def test_a_non_ascii_digit_is_a_usage_error():
     with pytest.raises(cliparse.UsageError):
         cliparse.resolve(["skills", "--quarantine-days=²"], "trirouter")
+
+
+@pytest.mark.parametrize("argv, key, pos", [
+    (["daemon", "-n", "enable"], "daemon enable", []),
+    (["quarantine", "--all", "purge"], "quarantine purge", []),
+    (["quarantine", "-n", "restore", "x"], "quarantine restore", ["x"]),
+    (["quarantine", "--quarantine-days", "5", "purge"], "quarantine purge", []),
+])
+def test_a_subcommand_may_follow_flags(argv, key, pos):
+    inv = cliparse.resolve(argv, "trirouter")
+    assert (inv.key, inv.positional) == (key, pos)
+
+
+def test_choices_are_lower_cased_and_numbers_are_capped():
+    assert cliparse.resolve(["models", "--main=SONNET"], "trirouter").flags["--main"] == "sonnet"
+    assert cliparse.resolve(["skills", "--quarantine-days=36500"], "trirouter").flags["--quarantine-days"] == "36500"
+    with pytest.raises(cliparse.UsageError, match="36501"):
+        cliparse.resolve(["skills", "--quarantine-days=36501"], "trirouter")
+
+
+def test_an_unknown_command_points_at_help_not_at_setup():
+    with pytest.raises(cliparse.UsageError) as exc:
+        cliparse.resolve(["bogus"], "python install.py", install_py=True)
+    assert "`python install.py help`" in exc.value.hint

@@ -45,6 +45,7 @@ class Writer:
     def __init__(self, apply):
         self.apply = apply
         self.changes = 0
+        self.failed = 0
 
     def write(self, path, content, label):
         path = Path(path)
@@ -251,6 +252,9 @@ def claude_model_settings(w, main_model=None, subagent_model=None, path=None):
     (remove) or None (leave); ValueError for an unknown family, BadConfig for a settings.json that is not an object."""
     path = Path(path or P.PATHS["claude_settings"])
     cfg = apply_claude_models(load(path), main_model, subagent_model)
+    if not cfg and not path.exists():
+        print("[OK]  claude model defaults: nothing to remove")
+        return
     w.write_json(path, cfg, "claude model defaults")
 
 
@@ -354,8 +358,8 @@ def install_shims(w):
 
 
 def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None):
-    """Number of files that changed (or would change). claude_models: (main, subagent) Claude model defaults to keep
-    in settings.json; None re-applies the ones remembered in config.json (remembered_claude_models)."""
+    """The Writer: .changes files changed (or would change), .failed could not be. claude_models: (main, subagent)
+    Claude model defaults to keep in settings.json; None re-applies the ones remembered in config.json."""
     w = Writer(apply)
     if not uninstall:
         install_shims(w)
@@ -380,8 +384,9 @@ def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_m
         try:
             step()
         except BadConfig as exc:  # one broken file must not stop the others
+            w.failed += 1
             print(f"[FAIL] {exc}")
-    return w.changes
+    return w
 
 
 LAUNCHER_LABEL = "trirouter command"
@@ -532,6 +537,7 @@ def _run_plan(w, plan):
             try:
                 action()
             except OSError as exc:
+                w.failed += 1
                 print(f"[FAIL] {LAUNCHER_LABEL}: {exc}")
 
 

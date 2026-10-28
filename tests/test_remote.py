@@ -150,3 +150,27 @@ def test_the_autostart_entry_is_read_from_the_current_users_run_key(monkeypatch)
     assert remote._agy_autostart_entry() == ""
     registry.clear()  # no key at all
     assert remote._agy_autostart_entry() == ""
+
+
+def test_remove_leaves_remote_control_alone_when_trirouter_never_set_it_up(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(remote, "BIN", tmp_path)
+    monkeypatch.setattr(remote, "CONFIG", tmp_path / "config.json")
+    monkeypatch.setattr(remote, "_ps", lambda script: calls.append(script) or (0, ""))
+    monkeypatch.setattr(remote, "_run_once", lambda *a, **k: calls.append("run_once") or (0, ""))
+    monkeypatch.setattr(P, "run", lambda *a, **k: calls.append(a) or (0, ""))
+    monkeypatch.setattr(P, "find_exe", lambda exe: f"/bin/{exe}")
+    assert remote.remove() == []
+    assert not any("Stop-Process" in str(c) or "remote-control" in str(c) for c in calls)
+    (tmp_path / "config.json").write_text(json.dumps({"remote_name": "Box", "remote_workdir": "x"}), encoding="utf-8")
+    (tmp_path / "claude-remote.cmd").write_text("x", encoding="utf-8")
+    assert remote.remove()
+    assert not (tmp_path / "claude-remote.cmd").exists() or not P.IS_WINDOWS
+    assert json.loads((tmp_path / "config.json").read_text(encoding="utf-8")) == {"remote_workdir": "x"}
+
+
+def test_remote_without_any_tool_says_so_and_fails(monkeypatch, capsys):
+    monkeypatch.setattr(P, "detect", lambda deep=False: {"claude": {"installed": False}})
+    monkeypatch.setattr(remote, "setup", lambda *a, **k: pytest.fail("setup ran without a tool"))
+    cli.configure(cliparse.resolve(["remote"], "trirouter", False))
+    assert cli.run_remote() == 1 and "No AI tool" in capsys.readouterr().out

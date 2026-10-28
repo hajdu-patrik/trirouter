@@ -416,6 +416,8 @@ def report_lines(rep):
     if rep.get("model_bytes"):
         out.append(f"  model: {rep.get('vocab', 0)} features, {rep['model_bytes'] / 1024:.0f} KiB"
                    + (" (saved)" if rep["applied"] else " (dry run, nothing written)"))
+    else:
+        out.append("  nothing saved: the log has no JEV-labelled prompt to learn from")
     return out
 
 

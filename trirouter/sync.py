@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from . import catalog, completion, hub, manual, platforms as P
+from .cliparse import UsageError
 
 REPO = P.REPO
 DOCS_CLI = REPO / "docs" / "cli.md"
@@ -213,8 +214,7 @@ def pre_commit(say=print, run_tests=True):
 def main(flags, say=print):
     if "--pre-commit" in flags:
         if "--check" in flags:
-            say("sync: --pre-commit runs the checks for real; it cannot be combined with --check")
-            return 2
+            raise UsageError("sync: --pre-commit runs the checks for real; it cannot be combined with --check")
         if not is_checkout():
             say("--pre-commit only works in a trirouter checkout")
             return 1

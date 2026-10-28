@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import platforms as P
+from .cliparse import MAX_INT
 
 STATE = P.STATE
 QUARANTINE = STATE / "quarantine"
@@ -163,7 +164,7 @@ def configured_days(cfg=None, default=DEFAULT_DAYS):
         if cfg is None:
             cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
         days = cfg["skillscan"]["quarantine_days"]
-        return days if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else default
+        return min(days, MAX_INT) if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else default
     except (OSError, ValueError, KeyError, TypeError):
         return default
 

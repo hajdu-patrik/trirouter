@@ -118,3 +118,13 @@ def test_posix_config_and_backups_are_owner_only(state):
         assert (state / name).stat().st_mode & 0o077 == 0, name
     assert json.loads((state / "config.json").read_text(encoding="utf-8"))["openrouter_api_key"] == KEY
     assert KEY not in (state / "config.json.bak").read_text(encoding="utf-8")
+
+
+def test_a_config_that_is_not_json_is_kept_before_it_is_replaced(state, capsys):
+    (state / "config.json").write_text("{bad", encoding="utf-8")
+    cli.save_config({"remote_name": "box"})
+    assert read_cfg(state) == {"remote_name": "box"}
+    assert (state / "config.json.corrupt").read_text(encoding="utf-8") == "{bad"
+    assert "config.json.corrupt" in capsys.readouterr().err
+    cli.save_config({"remote_name": "pc"})  # a valid file is replaced without a copy
+    assert (state / "config.json.corrupt").read_text(encoding="utf-8") == "{bad"

@@ -65,8 +65,10 @@ def save_config(cfg):
 
 
 def report(lines, indent=""):
+    """Prints the (tool, ok, message) lines; the number that failed."""
     for tool, ok, msg in lines:
         say(f"{indent}[{'OK' if ok else '!!'}] {tool}: {msg}")
+    return sum(not ok for _, ok, _ in lines)
 
 
 def print_report(found):
@@ -103,8 +105,8 @@ def detect_and_login(chosen):
             if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
                 break
             info.update(P.detect_one(p))
-    if chosen is None:
-        chosen = [p for p, i in found.items() if i["installed"] and i["logged_in"] is not False]
+    chosen = [p for p, i in found.items() if (chosen is None or p in chosen) and i["installed"]
+              and i["logged_in"] is not False]
     say(f"\n  Tools to connect: {', '.join(chosen) or 'none'}")
     return chosen
 
@@ -225,8 +227,9 @@ def select_numbers(count):
 
 
 def connect(providers, cfg):
+    """Setup steps 3 and 4; the number of files that could not be written."""
     say("\n== 3/5  Hooks + MCP server")
-    integrations.install(providers, apply=not DRY)
+    failed = integrations.install(providers, apply=not DRY).failed
     setup_completion()
     say("\n== 4/5  Shared skill folder (~/.skills) and worker agents")
     hub.PROVIDERS = tuple(providers)
@@ -241,6 +244,7 @@ def connect(providers, cfg):
             hub.cmd_migrate()
         hub.APPLY = not DRY
     link_hub()
+    return failed
 
 
 def link_hub():
@@ -262,18 +266,21 @@ def ask_remote_name(cfg):
 
 
 def extras(providers, cfg):
+    """Setup step 5; the number of steps that failed."""
     say("\n== 5/5  Optional extras")
+    failed = 0
     name = FLAGS.get("--remote")
     if name or (not YES and ask("  Set up remote access (control this computer from a phone / another device)?", "n")):
         if not isinstance(name, str):
             name = ask_remote_name(cfg)
-        report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg)), indent="  ")
+        failed = report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg)), indent="  ")
     say("  Speech-to-text (dictation into any app): see docs/speech-to-text.md")
     offer_handy = P.IS_WINDOWS and not YES and not DRY and not P.find_exe("handy")
     if offer_handy and ask("  Install Handy (offline dictation) with winget now?", "n"):
         with interrupt.question():
             P.call(["winget", "install", "--id", "cjpais.Handy", "-e", "--accept-source-agreements",
                     "--accept-package-agreements"])
+    return failed
 
 
 def remote_workdir(cfg):
@@ -281,8 +288,8 @@ def remote_workdir(cfg):
     return str(Path(wd).expanduser().resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(P.REPO))
 
 
-def next_steps(providers):
-    say("\nDone. Next steps:")
+def next_steps(providers, failed):
+    say(f"\nDone, but {failed} step(s) failed: see [FAIL] / [!!] above. Next steps:" if failed else "\nDone. Next steps:")
     if "codex" in providers:
         say("  * Codex runs a new or changed hook only after you trust it once: run `codex`, type /hooks, trust the router hooks.")
     if "claude" in providers:
@@ -291,7 +298,7 @@ def next_steps(providers):
     if not DRY:
         say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
             "then run `trirouter help`.")
-    if "--no-completion" not in FLAGS:
+    if "--no-completion" not in FLAGS and not DRY:
         say("  * Tab completion is installed: in a new terminal type `trirouter ` and press Tab to complete commands, "
             "flags and values (`trirouter uninstall` removes it).")
     say(f"  * New and retired models are picked up once a day by themselves; `{P.command_hint('models')}` checks "
@@ -366,8 +373,9 @@ def run_daemon(key):
     from . import daemon
     sub = key.split()[1] if " " in key else "status"
     if sub in ("enable", "disable"):
-        getattr(daemon, sub)(apply=not DRY, say=say)
-        return 0
+        said = []
+        getattr(daemon, sub)(apply=not DRY, say=lambda m: (said.append(m), say(m)))
+        return 1 if any(m.startswith("[!!]") for m in said) else 0
     if sub == "start":
         ok = daemon.start()
         say(f"hook daemon: {'running' if ok else 'did not start'} (127.0.0.1:{daemon.configured_port()})"
@@ -463,9 +471,8 @@ def run_route(argv):
     try:
         prompt = (" ".join(words) if words else read_stdin()).strip()
         if not prompt:
-            print(f"route: empty prompt (give it as arguments or on stdin)\n  Run `{prog} help route` for the usage.",
-                  file=sys.stderr)
-            return 2
+            return usage_error(cliparse.UsageError("route: empty prompt (give it as arguments or on stdin)",
+                                                   f"Run `{prog} help route` for the usage."), prog)
         result = route_decision(prompt, flags.get("--provider", "claude"))
         if "--json" in flags:
             print(json.dumps(result))  # ASCII-escaped, safe for any console code page
@@ -489,10 +496,10 @@ def run_setup():
     if not DRY:  # setup also migrates: plaintext keys in older backups of config.json are removed
         for p, _fields in secret.scrub_backups(CONFIG, apply=True):
             say(f"  Removed the plaintext key from {p.name}.")
-    connect(providers, cfg)
-    extras(providers, load_config() if not DRY else cfg)
-    next_steps(providers)
-    return 0
+    failed = connect(providers, cfg)
+    failed += extras(providers, load_config() if not DRY else cfg)
+    next_steps(providers, failed)
+    return 1 if failed else 0
 
 
 def run_remote():
@@ -500,16 +507,21 @@ def run_remote():
         if DRY:
             say("Dry run: would remove the remote-access services (scheduled tasks / launchd / systemd) "
                 "and stop the Antigravity and Codex remote daemons.")
-        else:
-            report(remote.remove())
-        return
+            return 0
+        lines = remote.remove()
+        if not lines:
+            say("Remote access was not set up by trirouter: nothing to remove.")
+        return 1 if report(lines) else 0
     found = P.detect(deep=False)
     providers = [p for p, i in found.items() if i["installed"]]
+    if not providers:
+        say("No AI tool is installed: nothing to reach remotely. Install Claude Code, Codex or Antigravity first.")
+        return 1
     cfg = load_config()
     name = FLAGS.get("--name") if isinstance(FLAGS.get("--name"), str) else (cfg.get("remote_name") or P.hostname())
     start = FLAGS.get("--start-session")
     start = start.strip().lower() in ON_WORDS if isinstance(start, str) else None  # None: the saved choice
-    report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg), start_session=start))
+    return 1 if report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg), start_session=start)) else 0
 
 
 def run_uninstall():

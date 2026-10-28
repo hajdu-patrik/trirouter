@@ -465,15 +465,22 @@ def _agy_status(procs):
 
 
 def remove():
+    """Removes what setup() made; servers are stopped only when trirouter set them up (a remote-control session the
+    user started by hand is left alone)."""
     report = []
+    scripts = [BIN / n for n in ("claude-remote.cmd", "codex-remote.cmd", "remote-watchdog.ps1")]
+    ours = "remote_name" in load_config() or any(s.exists() for s in scripts)
     if P.IS_WINDOWS:
         for task in (TASK_WATCHDOG, TASK_CLAUDE, TASK_CODEX, TASK_ONCE):
             _unregister(task)
-        _ps('Get-CimInstance Win32_Process | ? { ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "(claude|codex)-remote\\.cmd") '
-            '-or ($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") '
-            '-or ($_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control") } '
-            '| % { Stop-Process -Id $_.ProcessId -Force }')
-        report.append(("claude/codex", True, "scheduled tasks removed, servers stopped"))
+        if ours:
+            _ps('Get-CimInstance Win32_Process | ? { ($_.Name -eq "cmd.exe" -and $_.CommandLine -match "(claude|codex)-remote\\.cmd") '
+                '-or ($_.Name -like "claude*.exe" -and $_.CommandLine -match " remote-control ") '
+                '-or ($_.Name -in "codex.exe", "node.exe" -and $_.CommandLine -match "app-server --remote-control") } '
+                '| % { Stop-Process -Id $_.ProcessId -Force }')
+            report.append(("claude/codex", True, "scheduled tasks removed, servers stopped"))
+        for s in scripts:
+            s.unlink(missing_ok=True)
     elif P.IS_MAC and LAUNCHD.exists():
         P.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])  # fails when not loaded
         LAUNCHD.unlink()
@@ -483,13 +490,16 @@ def remove():
         SYSTEMD.unlink()
         P.run(["systemctl", "--user", "daemon-reload"])
         report.append(("claude", True, "systemd user service removed"))
-    if agy := P.find_exe("agy"):
+    if ours and (agy := P.find_exe("agy")):
         if P.IS_WINDOWS:
             _run_once(f"& {_psq(agy)} remote-control stop *> $null; 'ok'", wait_s=60)
         else:
             P.run([agy, "remote-control", "stop"], timeout=60)
         report.append(("antigravity", True, "daemon stopped"))
-    if not P.IS_WINDOWS and (codex := P.find_exe("codex")):
+    if ours and not P.IS_WINDOWS and (codex := P.find_exe("codex")):
         P.run([codex, "remote-control", "stop"], timeout=60)
         report.append(("codex", True, "daemon stopped"))
+    cfg = load_config()
+    if cfg.pop("remote_name", None) is not None:  # doctor reads it as "remote access is set up"
+        secret.write_config(CONFIG, cfg)
     return report

@@ -23,6 +23,7 @@ class Flag:
     kind: str = "str"        # "str" | "int" (>= 0)
     choices: tuple = ()      # allowed values, case-insensitive; empty: anything
     choices_hint: str = ""
+    items: tuple = ()        # the names a comma-separated value is made of (completion only)
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a plaintext key from an older "
          "version is re-saved protected and removed from old backups of config.json."),
      flags=(YES, DRY,
-            Flag("--providers", value="LIST", default="every installed, logged-in tool",
+            Flag("--providers", value="LIST", default="every installed, logged-in tool", items=P.PROVIDER_NAMES,
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
             Flag("--jev-token-stdin", remembered="yes (typesafe_api_key or openrouter_api_key)",
                  doc="Read a TypeSafe token or an OpenRouter key (sk-or-...) from the first line of standard input. "
@@ -206,7 +207,8 @@ _add(key="quarantine purge", summary="Delete expired quarantine entries now",
      description="Permanently deletes the quarantined skills whose retention has run out (folder and metadata). "
                  "With --all it deletes every entry, expired or not, after a confirmation. Only entries directly inside "
                  "~/.trirouter/quarantine are ever deleted; links are never followed.",
-     flags=(Flag("--all", doc="Delete every quarantined skill, not only the expired ones. Asks first."), YES, DRY, QDAYS),
+     flags=(Flag("--all", doc="Delete every quarantined skill, not only the expired ones. Asks first."),
+            Flag("--yes", "-y", doc="Do not ask before --all deletes every entry."), DRY, QDAYS),
      changes="Changes files (deletes for good); preview with --dry-run",
      examples=(("{prog} quarantine purge", "delete the expired entries"),
                ("{prog} quarantine purge --dry-run", "show which ones"),
@@ -226,7 +228,7 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
                  doc="Folder remote Claude sessions start in; it must be a trusted Claude Code folder."),
             Flag("--start-session", value="on|off", default="off", remembered="yes (remote_start_session)",
                  choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
-                 doc="on: Claude's server also pre-creates one session at every logon; off: only the connection."),
+                 doc="Also pre-create one Claude session at every logon (on) or only keep the connection (off)."),
             Flag("--remove", doc="Remove the remote-access services instead of creating them."), DRY),
      changes="Changes files and system services; preview with --dry-run",
      examples=(("{prog} remote --name \"My PC\"", "set up under a name"),

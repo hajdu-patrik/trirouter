@@ -271,7 +271,7 @@ Permanently deletes the quarantined skills whose retention has run out (folder a
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `--all` | - | off | no | Delete every quarantined skill, not only the expired ones. Asks first. |
-| `-y`, `--yes` | - | off | no | Never prompt: every question gets its default answer (skills are moved into the hub, nothing is quarantined or deleted). |
+| `-y`, `--yes` | - | off | no | Do not ask before --all deletes every entry. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--quarantine-days` | `N` | 3 | yes (skillscan.quarantine_days) | Days a quarantined skill is kept before it is deleted for good. 0 = never delete. |
 
@@ -303,7 +303,7 @@ Starts each tool's own remote service at logon (Claude Code Remote Control, Anti
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | saved name or hostname | yes (remote_name) | The machine name shown on your other devices. |
 | `--workdir` | `DIR` | saved folder or the checkout | yes (remote_workdir) | Folder remote Claude sessions start in; it must be a trusted Claude Code folder. |
-| `--start-session` | `on|off` | off | yes (remote_start_session) | on: Claude's server also pre-creates one session at every logon; off: only the connection. |
+| `--start-session` | `on|off` | off | yes (remote_start_session) | Also pre-create one Claude session at every logon (on) or only keep the connection (off). |
 | `--remove` | - | off | no | Remove the remote-access services instead of creating them. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 

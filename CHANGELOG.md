@@ -8,6 +8,24 @@ change, what changed rather than how; dates are ISO 8601.
 ### Fixed
 - The MCP server answers resource and prompt list requests with an empty list instead of an error, so clients that
   ask anyway (Codex) no longer log one.
+- Tab completion offers quarantined skill names after `quarantine restore`, the tools for `--providers` (also after a
+  comma), folders for `--workdir` in zsh and fish, and complete, readable flag descriptions.
+- Fish completion no longer mixes up commands when a later word names another command (`help setup`, a route prompt).
+- PowerShell: calling `TabExpansion2` without a cursor column works again with the completion loaded.
+- `setup --providers` skips a tool that is not installed or not logged in instead of connecting it.
+- `setup`, `remote` and `daemon enable` exit with status 1 when a step failed; `remote` says so when no tool is
+  installed or nothing was set up to remove.
+- A `config.json` that is not valid JSON is kept as `config.json.corrupt` before a command writes a new one.
+- `uninstall` and `remote --remove` stop remote-control processes only when trirouter set up remote access, delete
+  their loop scripts and forget the remote name, so `doctor` no longer reports a removed setup.
+- `--quarantine-days` accepts at most 36500; a larger saved value no longer breaks `quarantine` and `doctor`.
+- Choice values are case-insensitive end to end (`route --provider=CODEX` routes like `codex`).
+- A subcommand may follow flags (`daemon -n enable`), as the conventions say.
+- `quarantine purge --all --yes` documents that it deletes without asking.
+- `setup --dry-run` no longer claims tab completion was installed; `models --main=off` creates no empty
+  `settings.json`; the skill catalog is rewritten only when it changed; `learn` says when it saved nothing.
+- Usage errors of `route` (empty prompt) and `sync --check --pre-commit` go to stderr with the program name, and an
+  unknown command points at `help` instead of the setup command.
 
 ## [3.2.0] – 2026-10-23 · trirouter
 

@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from . import manual
 
 
+MAX_INT = 36500  # days: a larger count overflows datetime arithmetic
+
+
 class UsageError(Exception):
     def __init__(self, message, hint=""):
         super().__init__(message)
@@ -23,16 +26,18 @@ class Invocation:
 def _value_error(f, text, cmd):
     return UsageError(f"{cmd.key}: {f.long}: invalid value {text!r}" if text else f"{cmd.key}: {f.long} needs a value",
                       f"expected {f.choices_hint or ' or '.join(f.choices)}" if f.choices else
-                      ("expected a whole number, 0 or more" if f.kind == "int" else ""))
+                      (f"expected a whole number from 0 to {MAX_INT}" if f.kind == "int" else ""))
 
 
 def _check_value(f, text, cmd):
     if not text:
         raise _value_error(f, "", cmd)
-    if f.kind == "int" and not (text.isascii() and text.isdigit()):
+    if f.kind == "int" and not (text.isascii() and text.isdigit() and int(text) <= MAX_INT):
         raise _value_error(f, text, cmd)
-    if f.choices and text.lower() not in f.choices:
-        raise _value_error(f, text, cmd)
+    if f.choices:
+        if text.lower() not in f.choices:
+            raise _value_error(f, text, cmd)
+        return text.lower()
     return text
 
 
@@ -129,6 +134,16 @@ def _locate_command(args, names):
     return None
 
 
+def _first_word(args, cmd):
+    """The index of the first token that is neither a flag nor the value of one of cmd's subcommands' flags."""
+    values = {f.long for s in manual.SUBCOMMANDS[cmd] for f in manual.all_flags(manual.COMMANDS[f"{cmd} {s}"])
+              if f.value and not f.optional}
+    for i, a in enumerate(args):
+        if not a.startswith("-") and not (i and args[i - 1] in values):
+            return i
+    return None
+
+
 def suggest(word, choices):
     near = difflib.get_close_matches(word, list(choices), n=1, cutoff=0.5)
     return f"did you mean {near[0]}?" if near else ""
@@ -161,16 +176,17 @@ def resolve(argv, prog, install_py=False):
         raise UsageError(manual.REMOVED_COMMANDS[cmd].replace("{prog}", prog))
     if cmd not in manual.COMMANDS or " " in cmd:
         raise UsageError(f"unknown command {cmd!r}", " ".join(
-            x for x in (suggest(cmd, names), f"Run `{prog}` for the command list.") if x))
+            x for x in (suggest(cmd, names), f"Run `{prog} help` for the command list.") if x))
     head = rest[:rest.index("--")] if "--" in rest else rest
     wants_help = any(a in ("-h", "--help") for a in head)
     key, page = cmd, cmd
     subs = manual.SUBCOMMANDS.get(cmd)
     if subs:
-        first = rest[0] if rest and not rest[0].startswith("-") else None
+        at = _first_word(head, cmd)
+        first = None if at is None else head[at]
         if first in subs:
             key = page = f"{cmd} {first}"
-            rest = rest[1:]
+            rest = rest[:at] + rest[at + 1:]
         elif first is not None and not wants_help:
             raise UsageError(f"{cmd}: unknown subcommand {first!r}", " ".join(
                 x for x in (suggest(first, subs), f"Run `{prog} help {cmd}` for the subcommands.") if x))

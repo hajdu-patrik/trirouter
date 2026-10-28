@@ -205,6 +205,8 @@ def build_catalog(catalog_only=None):
 def write_catalog(items=None, catalog_only=None):
     items = build_catalog(catalog_only) if items is None else items
     HUB.mkdir(parents=True, exist_ok=True)
+    if P.read_json(CATALOG, {}, kind=dict).get("skills") == items:
+        return items  # unchanged: keep the file and its timestamp
     P.atomic_write(CATALOG, json.dumps({"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "skills": items},
                                        indent=1, ensure_ascii=False))
     return items

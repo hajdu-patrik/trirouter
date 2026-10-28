@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 from . import platforms as P
@@ -109,7 +110,16 @@ def plaintext_fields(cfg):
 
 
 def write_config(path, cfg):
-    """config.json: keys protected where the system can, atomic and owner-only from the start."""
+    """config.json: keys protected where the system can, atomic and owner-only from the start. A file that is not a
+    JSON object (whose settings the caller could not read) is first kept as config.json.corrupt."""
+    path = Path(path)
+    if path.exists() and P.read_json(path, kind=dict) is None:
+        keep = path.with_name(path.name + ".corrupt")
+        try:
+            P.atomic_write(keep, path.read_bytes(), mode=0o600)
+            print(f"[!!]  {path} was not valid JSON: its old content is kept in {keep.name}", file=sys.stderr)
+        except OSError:
+            pass
     P.atomic_write(path, json.dumps(protect_config(cfg), indent=2), mode=0o600)
 
 

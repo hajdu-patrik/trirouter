@@ -285,7 +285,7 @@ def test_remembered_models_survive_setup_and_leave_with_uninstall(tmp_path, monk
     integrations.install(providers=("claude",), apply=True, launcher=False)
     s = json.loads(paths["claude_settings"].read_text(encoding="utf-8"))
     assert s["model"] == "opus" and "env" not in s and "PreToolUse" in s["hooks"]
-    assert integrations.install(providers=("claude",), apply=True, launcher=False) == 0  # idempotent
+    assert integrations.install(providers=("claude",), apply=True, launcher=False).changes == 0  # idempotent
     integrations.install(providers=("claude",), apply=True, uninstall=True, launcher=False)
     s = json.loads(paths["claude_settings"].read_text(encoding="utf-8"))
     assert "model" not in s and "hooks" not in s
