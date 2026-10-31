@@ -8,7 +8,7 @@ import re
 import sys
 import time
 
-from . import core, platforms as P, queue_state, store
+from . import __version__, core, platforms as P, queue_state, store
 from .secret import redact
 
 LOG_FILE = core.STATE_DIR / "logs" / "routing.jsonl"
@@ -197,17 +197,32 @@ def start_daemon():
         daemon.ensure_running()
 
 
+@guarded("")
+def welcome_line(payload):
+    """What a new session shows the user, or ''. Only a real start: not a resume, /clear or compaction."""
+    if payload.get("source") != "startup" or os.environ.get("ROUTER_WELCOME") == "0" or os.environ.get(NESTED_ENV):
+        return ""
+    label = core.JEV_LABELS.get(core.jev_access(core.user_config())[0]) or "built-in local model"
+    return f"Welcome to trirouter {__version__}: every prompt is routed, decisions by {label}. #norouter skips one."
+
+
 def session_start_output(provider, raw):
     """Starts the hook daemon (http transport) and the daily model check when due, tells the session once what the check
-    changed, starts the quarantine purge. Silent otherwise: a SessionStart hook's stdout becomes model context."""
+    changed, starts the quarantine purge, greets the user. Stdout's context part reaches the model, systemMessage does
+    not, so the greeting costs no tokens."""
+    payload = _json_object(raw, {})
     if provider == "claude":
         start_daemon()
     start_model_discovery()
     if provider == "claude":
-        record_session_model(_json_object(raw, {}), "model")
+        record_session_model(payload, "model")
     note = model_note()
     _purge_quarantine()
-    return render(note, "SessionStart", provider) if note else ""
+    out = json.loads(render(note, "SessionStart", provider)) if note else {}
+    greeting = welcome_line(payload) if provider == "claude" else ""
+    if greeting:
+        out["systemMessage"] = greeting
+    return json.dumps(out) if out else ""
 
 
 @guarded(None)

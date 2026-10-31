@@ -104,31 +104,35 @@ MIGRATE_SOURCES = {"claude": [CLAUDE_SKILLS], "codex": [CODEX_SKILLS, LEGACY_COD
                    "antigravity": [P.AGY_CONFIG / "skills"]}
 
 
-def cmd_migrate():
-    moved = 0
+def migrate_plan():
+    """(folders that can move into the hub, why the other skill folders cannot)."""
+    movable, skipped = [], []
     sources = [src for p in PROVIDERS for src in MIGRATE_SOURCES.get(p, [])]
-    candidates = [d for src in sources if src.is_dir() for d in sorted(src.iterdir())]
-    if not candidates:
-        print("nothing to migrate")
-        return
-    for d in candidates:
+    for d in (d for src in sources if src.is_dir() for d in sorted(src.iterdir())):
         if d.name in APP_MANAGED or d.name.startswith(".") or P.is_link(d) or not d.is_dir():
             continue
         if not catalog.is_skill_dir(d):
-            print(f"[SKIP] {d.name}: no SKILL.md")
-            continue
+            skipped.append(f"{d.name}: no SKILL.md")
+        elif (HUB / d.name).exists():
+            skipped.append(f"{d.name}: already exists in the hub - resolve manually")
+        else:
+            movable.append(d)
+    return movable, skipped
+
+
+def cmd_migrate():
+    movable, skipped = migrate_plan()
+    for reason in skipped:
+        print(f"[SKIP] {reason}")
+    for d in movable:
         dest = HUB / d.name
-        if dest.exists():
-            print(f"[SKIP] {d.name}: already exists in the hub - resolve manually")
-            continue
 
         def move(d=d, dest=dest):
             HUB.mkdir(parents=True, exist_ok=True)
             shutil.move(str(d), str(dest))
             P.link_dir(d, dest)
         act(f"move {d} -> {dest} (+ junction back)", move)
-        moved += 1
-    print(f"migrate: {moved} skill folder(s) {'moved' if APPLY else 'would be moved'}")
+    print(f"migrate: {len(movable)} skill folder(s) {'moved' if APPLY else 'would be moved'}")
 
 
 def cmd_link():
@@ -147,7 +151,8 @@ def _scan_hub_skills():
     third_party = [s for s in hub_skills() if bundled is None or bundled not in (target_of(s) or s).parents]
     return skillscan.gate(third_party, act, APPLY, llm=SCAN.get("llm", False), allow=SCAN.get("allow", ()),
                           choose=CHOOSE if APPLY else (lambda items: None),
-                          accept_flagged=SCAN.get("accept_flagged", False), days=SCAN.get("quarantine_days"))
+                          accept_flagged=SCAN.get("accept_flagged", False), days=SCAN.get("quarantine_days"),
+                          brief=SCAN.get("brief", False))
 
 
 def _catalog_only_skills(patterns):
@@ -391,13 +396,17 @@ def _check_skill_folder(base):
     return problems
 
 
-def cmd_doctor():
+def cmd_doctor(brief=False):
     problems = 0
     for base in (CLAUDE_SKILLS, CODEX_SKILLS, HUB):
         if base.is_dir():
             problems += _check_skill_folder(base)
         else:
             print(f"[WARN] missing: {base}")
+    if brief:
+        if problems:
+            print(f"skill folders: {problems} problem(s)")
+        return
     names = {}
     for s in catalog.build_catalog(catalog_only_setting()):
         names.setdefault(s["name"].split(":")[-1], []).append(s["name"])

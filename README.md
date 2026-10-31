@@ -33,11 +33,13 @@ python install.py             # interactive setup
 
 Setup detects the tools, takes an optional JEV key, connects hooks and the MCP server, installs the `trirouter`
 command with tab completion, moves every tool's skills into the shared `~/.skills` folder (scanned with
-SkillSpector when installed), generates the worker agents and offers remote access. Every change is shown first,
-changed config files keep a `.bak`, re-running is safe.
+SkillSpector when installed), generates the worker agents and offers remote access. Every change is reported,
+changed config files keep a `.bak`, and a re-run asks nothing new and reports only what changed. Without a terminal
+setup needs `--yes`, so a stray run changes nothing.
 
-Open a new terminal afterwards: `trirouter help` lists the commands, `trirouter help <command>` shows a page, and
-**[docs/cli.md](docs/cli.md)** is the full reference. The everyday ones:
+Open a new terminal afterwards: `trirouter` greets you and lists the commands, `trirouter help <command>` shows a
+page, and **[docs/cli.md](docs/cli.md)** is the full reference. New Claude Code sessions show a one-line welcome
+that never reaches the model (`ROUTER_WELCOME=0` turns it off). The everyday commands:
 
 | Command | Purpose |
 | --- | --- |
@@ -117,6 +119,7 @@ answer. `--catalog-only=gke-*` keeps rarely used skills out of every session whi
 | `JEV_TIMEOUT` | `1.8` | seconds for the whole JEV call; on timeout the local classifier decides |
 | `ROUTER_MAX_EXTRA_AGENTS` | `4` | hard cap for parallel agents |
 | `ROUTER_DISTILLED` | on | `0` switches the local distilled model off |
+| `ROUTER_WELCOME` | on | `0` drops the welcome line of new Claude Code sessions |
 | `ROUTER_LOG_PROMPTS` | unset | `1` logs full prompts (default: 200 characters; secrets are redacted everywhere) |
 | `TRIROUTER_HOME` | `~/.trirouter` | the state folder (tests point it at a scratch folder) |
 

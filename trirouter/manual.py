@@ -80,8 +80,9 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "OpenRouter key (without one the built-in local classifier decides); connect hooks and the MCP server; "
          "install the `trirouter` command and its tab completion; move every tool's skills into ~/.skills, scan them "
          "with SkillSpector when it is installed and link them into every tool; generate the worker agents; optionally "
-         "set up remote access. Every change is shown first, a changed config file keeps a .bak, re-running is safe; "
-         "`python install.py` with no arguments does the same.\n\n"
+         "set up remote access. Every change is reported, a changed config file keeps a .bak, re-running is safe and "
+         "reports only what changed; `python install.py` with no arguments does the same. Without a terminal it "
+         "needs --yes or --jev-token-stdin, so a stray run changes nothing.\n\n"
          "The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a plaintext key from an older "
          "version is re-saved protected and removed from old backups of config.json."),
      flags=(YES, DRY,
@@ -107,7 +108,8 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
                ("{prog} setup --yes --providers=claude,codex", "unattended, only these two tools"),
                ("cat key.txt | {prog} setup --jev-token-stdin", "add a TypeSafe token or OpenRouter key from a file and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
-     exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found.",
+     exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found, a step failed, or no terminal "
+                 "and no --yes.",
      see_also=("models", "skills", "remote", "doctor", "uninstall"))
 
 

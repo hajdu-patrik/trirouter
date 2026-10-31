@@ -12,7 +12,7 @@ Module map, the traps the code does not show, and what was verified about the th
   and `store.py` keep its per-session state; `daemon.py` serves the same `handle()` over http for Claude, `hotreload.py`
   reloads the package under it and under `mcp_server.py` (tools in `mcp_tools.py`).
 - `cli.py` runs the commands; `manual.py` is their only definition (parser, help pages, completion, `docs/cli.md`);
-  `cliparse.py` validates; `interrupt.py` turns Ctrl+C / Ctrl+D into exit 130.
+  `cliparse.py` validates; `interrupt.py` turns Ctrl+C / Ctrl+D into exit 130; `banner.py` draws the terminal-only banner.
 - `hub.py` (skills, worker agents), `integrations.py` (hooks, MCP entries, shims, launcher), `skillscan.py` (SkillSpector
   gate and quarantine), `discovery.py` (daily model check), `remote.py`, `completion.py`, `sync.py`, `doctor.py`,
   `secret.py` (key protection, redaction), `platforms.py` (OS abstraction; `platforms.STATE` is the state folder,

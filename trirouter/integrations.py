@@ -42,8 +42,9 @@ def shim(module, command=None, hook=False):
 
 
 class Writer:
-    def __init__(self, apply):
+    def __init__(self, apply, quiet=False):
         self.apply = apply
+        self.quiet = quiet  # report changes only
         self.changes = 0
         self.failed = 0
 
@@ -51,15 +52,27 @@ class Writer:
         path = Path(path)
         old = path.read_text(encoding="utf-8") if path.exists() else None
         if old == content:
-            print(f"[OK]  {label}: up to date")
+            self.up_to_date(label)
             return
         self.changes += 1
         print(("[DO]  " if self.apply else "[DRY] ") + f"{label}: {'update' if old is not None else 'create'} {path}")
         if self.apply:
             P.write_backed_up(path, content)
 
+    def up_to_date(self, label):
+        if not self.quiet:
+            print(f"[OK]  {label}: up to date")
+
     def write_json(self, path, cfg, label):
-        self.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", label)
+        """Same data in another format is no change: the Claude desktop app saves its file in its own style."""
+        try:
+            same = json.loads(Path(path).read_text(encoding="utf-8-sig")) == cfg
+        except (OSError, ValueError):
+            same = False
+        if same:
+            self.up_to_date(label)
+        else:
+            self.write(path, json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", label)
 
 
 def fwd(p):
@@ -357,10 +370,10 @@ def install_shims(w):
     w.write(SHIM_ROUTE, shim("trirouter", "route"), "route shim")
 
 
-def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None):
+def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None, quiet=False):
     """The Writer: .changes files changed (or would change), .failed could not be. claude_models: (main, subagent)
     Claude model defaults to keep in settings.json; None re-applies the ones remembered in config.json."""
-    w = Writer(apply)
+    w = Writer(apply, quiet)
     if not uninstall:
         install_shims(w)
     if launcher:
@@ -546,7 +559,7 @@ def install_launcher(w):
     ~/.local/bin: shell profiles are never edited, the line to add is printed)."""
     plan = launcher_plan()
     if not plan:
-        print(f"[OK]  {LAUNCHER_LABEL}: up to date")
+        w.up_to_date(LAUNCHER_LABEL)
     _run_plan(w, plan)
     if P.IS_WINDOWS:
         if plan and w.apply:

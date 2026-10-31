@@ -1,12 +1,12 @@
-"""trirouter command line (`trirouter <command>`, `python install.py`, `python -m trirouter`; the last two run setup
+"""trirouter command line (`trirouter <command>`, `python -m trirouter <command>`, `python install.py`, which runs setup
 without a command). Commands and help texts live in manual.py, flag validation in cliparse.py."""
 import json
 import os
 import sys
 from pathlib import Path
 
-from . import (__version__, catalog, cliparse, completion, core, discovery, doctor, hooks, hub, integrations, interrupt,
-               manual, platforms as P, remote, secret, skillscan, sync)
+from . import (__version__, banner, catalog, cliparse, completion, core, discovery, doctor, hooks, hub, integrations,
+               interrupt, manual, platforms as P, remote, secret, skillscan, sync)
 
 CONFIG = P.STATE / "config.json"
 ALL = P.PROVIDER_NAMES
@@ -120,9 +120,14 @@ def store_jev_key(cfg, key):
     cfg["openrouter_api_key" if key.startswith("sk-or-") else "typesafe_api_key"] = key
 
 
+def jev_short_label(cfg):
+    return core.JEV_LABELS.get(core.jev_access(cfg)[0]) or "built-in local model"
+
+
 def jev_backend_label(cfg):
-    return core.JEV_LABELS.get(core.jev_access(cfg)[0]) or \
-        "built-in local model (add JEV later: pipe a TypeSafe token or OpenRouter key into `trirouter setup --jev-token-stdin`)"
+    label = jev_short_label(cfg)
+    return label if core.jev_access(cfg)[0] else \
+        f"{label} (add JEV later: pipe a TypeSafe token or OpenRouter key into `trirouter setup --jev-token-stdin`)"
 
 
 def configure_jev(cfg):
@@ -231,27 +236,37 @@ def select_numbers(count):
 
 
 def connect(providers, cfg):
-    """Setup steps 3 and 4; the number of files that could not be written."""
+    """Setup steps 3 and 4: (files that could not be written, files changed)."""
     say("\n== 3/5  Hooks + MCP server")
-    failed = integrations.install(providers, apply=not DRY).failed
-    setup_completion()
+    w = integrations.install(providers, apply=not DRY, quiet=True)
+    changes = w.changes + setup_completion()
+    if not changes and not w.failed:
+        say("  Already connected: nothing to change.")
     say("\n== 4/5  Shared skill folder (~/.skills) and worker agents")
     hub.PROVIDERS = tuple(providers)
     hub.APPLY = not DRY
     scan_settings(cfg, persist=not DRY)
+    hub.SCAN["brief"] = True
     if "--no-migrate" not in FLAGS:
-        hub.APPLY = False
+        migrate_skills()
+    link_hub(brief=True)
+    return w.failed, changes
+
+
+def migrate_skills():
+    """Preview, one question, move; silent when no tool has a skill outside the hub."""
+    movable, skipped = hub.migrate_plan()
+    hub.APPLY = False
+    if movable or skipped:
         say("  Skills that would move into ~/.skills (each replaced by a link, so every tool keeps it):")
         hub.cmd_migrate()
-        hub.APPLY = not DRY and ask("  Move them now?", "y")
-        if hub.APPLY:
-            hub.cmd_migrate()
-        hub.APPLY = not DRY
-    link_hub()
-    return failed
+    hub.APPLY = not DRY and bool(movable) and ask("  Move them now?", "y")
+    if hub.APPLY:
+        hub.cmd_migrate()
+    hub.APPLY = not DRY
 
 
-def link_hub():
+def link_hub(brief=False):
     """Setup step 4 and `skills`: link the scanned hub, purge the expired quarantine, regenerate the agents and
     rebuild the catalog (when applying), then report the skill folders."""
     hub.cmd_link()
@@ -259,7 +274,7 @@ def link_hub():
     hub.cmd_agents()
     if hub.APPLY:
         hub.cmd_catalog()
-    hub.cmd_doctor()
+    hub.cmd_doctor(brief)
 
 
 def ask_remote_name(cfg):
@@ -269,17 +284,20 @@ def ask_remote_name(cfg):
     return ask_line(f"  Name shown on your other devices [{default}]: ").strip() or default
 
 
-def extras(providers, cfg):
-    """Setup step 5; the number of steps that failed."""
+def extras(providers, cfg, changed):
+    """Setup step 5, whose questions only a run that connected something asks; the number of steps that failed."""
     say("\n== 5/5  Optional extras")
     failed = 0
     name = FLAGS.get("--remote")
-    if name or (not YES and ask("  Set up remote access (control this computer from a phone / another device)?", "n")):
+    offer_remote = changed and not YES and not cfg.get("remote_name")
+    if name or (offer_remote and ask("  Set up remote access (control this computer from a phone / another device)?", "n")):
         if not isinstance(name, str):
             name = ask_remote_name(cfg)
         failed = report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg)), indent="  ")
+    elif not offer_remote:
+        say(f"  Remote access: `{P.command_hint('remote')}`")
     say("  Speech-to-text (dictation into any app): see docs/speech-to-text.md")
-    offer_handy = P.IS_WINDOWS and not YES and not DRY and not P.find_exe("handy")
+    offer_handy = changed and P.IS_WINDOWS and not YES and not DRY and not P.find_exe("handy")
     if offer_handy and ask("  Install Handy (offline dictation) with winget now?", "n"):
         with interrupt.question():
             P.call(["winget", "install", "--id", "cjpais.Handy", "-e", "--accept-source-agreements",
@@ -292,8 +310,14 @@ def remote_workdir(cfg):
     return str(Path(wd).expanduser().resolve()) if isinstance(wd, str) else (cfg.get("remote_workdir") or str(P.REPO))
 
 
-def next_steps(providers, failed):
-    say(f"\nDone, but {failed} step(s) failed: see [FAIL] / [!!] above. Next steps:" if failed else "\nDone. Next steps:")
+def next_steps(providers, failed, changed):
+    """The one-time steps follow a run that changed something; after any other a line says all is well."""
+    done = f"\nDone, but {failed} step(s) failed: see [FAIL] / [!!] above." if failed else "\nDone."
+    if not changed:
+        say(f"{done} Connected: {', '.join(providers)}. Decisions: {jev_short_label(load_config())}.")
+        say(f"  Health check any time: {P.command_hint('doctor')}")
+        return
+    say(f"{done} Next steps:")
     if "codex" in providers:
         say("  * Codex runs a new or changed hook only after you trust it once: run `codex`, type /hooks, trust the router hooks.")
     if "claude" in providers:
@@ -411,15 +435,19 @@ def run_learn():
 
 
 def setup_completion():
-    """Setup step: tab completion for the current shell (and PowerShell on Windows). With --no-completion the
-    profiles are left alone and only scripts installed earlier are refreshed, so they match the commands."""
+    """Setup step: tab completion for the current shell (and PowerShell on Windows); the number of files changed. With
+    --no-completion the profiles are left alone and only scripts installed earlier are refreshed to match the commands."""
     if "--no-completion" in FLAGS:
         say("  Tab completion: not installed (--no-completion)")
-        completion.refresh(apply=not DRY, say=lambda m: say("  " + m))
-        return
-    shells = completion.setup_shells()
-    say(f"  Tab completion ({', '.join(shells)}):")
-    completion.install(shells, apply=not DRY, say=lambda m: say("  " + m))
+        return len(completion.refresh(apply=not DRY, say=lambda m: say("  " + m)))
+    shells, lines = completion.setup_shells(), []
+    changes = completion.install(shells, apply=not DRY, say=lines.append)
+    shown = [line for line in lines if not line.startswith("[OK]")]
+    if shown:
+        say(f"  Tab completion ({', '.join(shells)}):")
+    for line in shown:
+        say("  " + line)
+    return changes
 
 
 def run_skills():
@@ -488,7 +516,23 @@ def run_route(argv):
     return 0
 
 
+def welcome():
+    """The banner; a status line that says whether setup has run. Nothing outside a terminal."""
+    if integrations.SHIM_HOOK.exists():
+        status = f"Active, decisions by: {jev_short_label(load_config())}"
+    else:
+        status = "Not set up yet: run `python install.py`"
+    text = banner.render(status)
+    if text:
+        say(text)
+
+
 def run_setup():
+    if not (YES or DRY or interactive() or "--jev-token-stdin" in FLAGS):
+        say("setup rewrites your tools' config files, so it runs only from a terminal or with --yes: nothing changed.\n"
+            f"Preview: {P.command_hint('setup --dry-run')}")
+        return 1
+    welcome()
     say("trirouter setup" + (" (dry run - nothing will be changed)" if DRY else ""))
     providers = detect_and_login(chosen_providers())
     if not providers:
@@ -500,9 +544,9 @@ def run_setup():
     if not DRY:  # setup also migrates: plaintext keys in older backups of config.json are removed
         for p, _fields in secret.scrub_backups(CONFIG, apply=True):
             say(f"  Removed the plaintext key from {p.name}.")
-    failed = connect(providers, cfg)
-    failed += extras(providers, load_config() if not DRY else cfg)
-    next_steps(providers, failed)
+    failed, changes = connect(providers, cfg)
+    failed += extras(providers, load_config() if not DRY else cfg, changes > 0)
+    next_steps(providers, failed, changes > 0)
     return 1 if failed else 0
 
 
@@ -627,9 +671,11 @@ def _main(argv):
     if argv[:1] == ["route"]:  # before parsing: the prompt text is free-form
         return run_route(argv[1:])
     try:
-        inv = cliparse.resolve(argv, prog, install_py=prog != "trirouter")
+        inv = cliparse.resolve(argv, prog, install_py=prog == "python install.py")
     except cliparse.UsageError as exc:
         sys.exit(usage_error(exc, prog))
+    if not argv and inv.kind == "overview":
+        welcome()
     if inv.kind in ("help", "overview"):
         return show_help(inv)
     if inv.kind == "version":

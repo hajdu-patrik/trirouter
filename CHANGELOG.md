@@ -5,7 +5,20 @@ change, what changed rather than how; dates are ISO 8601.
 
 ## [Unreleased]
 
+### Added
+- `trirouter` and `setup` open with a banner and a status line on a real terminal; pipes and scripts stay plain.
+- New Claude Code sessions show a one-line welcome that stays out of the model's context (`ROUTER_WELCOME=0` turns it off).
+
+### Changed
+- A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions, and the
+  CAUTION skills are counted (`trirouter skills` names them).
+- `setup` asks to move skills only when there is one to move.
+- `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
+
 ### Fixed
+- `setup` without a terminal and without `--yes` changes nothing; before, a stray run rewrote config files.
+- The same JSON saved in another format (the Claude desktop app's own style) no longer counts as a change, so setup
+  stops warning about the running app for nothing.
 - The MCP server answers resource and prompt list requests with an empty list instead of an error, so clients that
   ask anyway (Codex) no longer log one.
 - Tab completion offers quarantined skill names after `quarantine restore`, the tools for `--providers` (also after a

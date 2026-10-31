@@ -395,9 +395,10 @@ def _summary():
 
 
 def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, accept_flagged=False,
-         days=None):
+         days=None, brief=False):
     """Scan the given hub skills; returns the names that must not be linked. `choose(items)` is asked once,
-    after all verdicts, which flagged skills to quarantine: a set of names, or None when nobody can be asked."""
+    after all verdicts, which flagged skills to quarantine: a set of names, or None when nobody can be asked.
+    `brief` counts the CAUTION skills instead of naming them."""
     allow = set(allow)
     if not skills:
         return set()
@@ -443,9 +444,11 @@ def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, acc
         for (s, r), outcome in zip(flagged, _resolve_flagged(flagged, act, choose, cache, days)):
             groups.setdefault(outcome, []).append(f"{s.name} ({r.get('score')})")
     for outcome, text in _summary() + (("unknown", "unknown verdict, linked"),):
-        if groups.get(outcome):
+        if brief and outcome == CAUTION and groups.get(outcome):
+            print(f"[WARN] skillscan: {len(groups[outcome])} {text} (`{P.command_hint('skills')}` names them)")
+        elif groups.get(outcome):
             print(f"[WARN] skillscan: {len(groups[outcome])} {text}: {', '.join(groups[outcome])}")
-    if groups.get(CAUTION) or groups.get("unasked"):
+    if (groups.get(CAUTION) and not brief) or groups.get("unasked"):
         print(f"  Review one: {EXE} scan \"{skills[0].parent / '<name>'}\"")
     blocked = {label.split(" (")[0] for label in groups.get("quarantined", [])}
     if blocked:

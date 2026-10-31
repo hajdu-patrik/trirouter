@@ -15,6 +15,7 @@ REPO = PKG.parent
 HOME = Path.home()
 IS_WINDOWS = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
+ENABLE_VT_OUTPUT = 0x0004  # Windows console mode flag: interpret ANSI escape sequences
 
 
 def state_dir():
@@ -132,6 +133,22 @@ def is_terminal(stream):
         import msvcrt
         mode = ctypes.c_ulong()
         return bool(ctypes.windll.kernel32.GetConsoleMode(msvcrt.get_osfhandle(stream.fileno()), ctypes.byref(mode)))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def enable_ansi(stream):
+    """True when the terminal `stream` shows ANSI colors; a Windows console has to be switched to them first."""
+    if not IS_WINDOWS:
+        return True
+    try:
+        import ctypes
+        import msvcrt
+        kernel = ctypes.windll.kernel32
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        mode = ctypes.c_ulong()
+        return bool(kernel.GetConsoleMode(handle, ctypes.byref(mode))
+                    and kernel.SetConsoleMode(handle, mode.value | ENABLE_VT_OUTPUT))
     except (OSError, ValueError, AttributeError):
         return False
 

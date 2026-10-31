@@ -79,7 +79,7 @@ Detect the AI tools, connect hooks and MCP, link and scan skills.
 trirouter setup [-y] [-n] [--providers=LIST] [--jev-token-stdin] [--remote[=NAME]] [options]
 ```
 
-Interactive setup: detect Claude Code, Codex and Antigravity; take an optional JEV / TypeSafe token or OpenRouter key (without one the built-in local classifier decides); connect hooks and the MCP server; install the `trirouter` command and its tab completion; move every tool's skills into ~/.skills, scan them with SkillSpector when it is installed and link them into every tool; generate the worker agents; optionally set up remote access. Every change is shown first, a changed config file keeps a .bak, re-running is safe; `python install.py` with no arguments does the same.
+Interactive setup: detect Claude Code, Codex and Antigravity; take an optional JEV / TypeSafe token or OpenRouter key (without one the built-in local classifier decides); connect hooks and the MCP server; install the `trirouter` command and its tab completion; move every tool's skills into ~/.skills, scan them with SkillSpector when it is installed and link them into every tool; generate the worker agents; optionally set up remote access. Every change is reported, a changed config file keeps a .bak, re-running is safe and reports only what changed; `python install.py` with no arguments does the same. Without a terminal it needs --yes or --jev-token-stdin, so a stray run changes nothing.
 
 The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a plaintext key from an older version is re-saved protected and removed from old backups of config.json.
 
@@ -111,7 +111,7 @@ cat key.txt | trirouter setup --jev-token-stdin    # add a TypeSafe token or Ope
 trirouter setup --yes --remote="My PC"    # also set up remote access
 ```
 
-**Exit status:** 0 on success. 2 on a usage error. 1 when no logged-in tool was found.
+**Exit status:** 0 on success. 2 on a usage error. 1 when no logged-in tool was found, a step failed, or no terminal and no --yes.
 
 **See also:** [models](#models), [skills](#skills), [remote](#remote), [doctor](#doctor), [uninstall](#uninstall)
 
