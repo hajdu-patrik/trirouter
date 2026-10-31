@@ -10,8 +10,8 @@ change, what changed rather than how; dates are ISO 8601.
 - New Claude Code sessions show a one-line welcome that stays out of the model's context (`ROUTER_WELCOME=0` turns it off).
 
 ### Changed
-- A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions, and the
-  CAUTION skills are counted (`trirouter skills` names them).
+- A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a
+  missing JEV key, and the CAUTION skills are counted (`trirouter skills` names them).
 - `setup` asks to move skills only when there is one to move.
 - `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
 

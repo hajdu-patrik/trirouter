@@ -40,7 +40,9 @@ Module map, the traps the code does not show, and what was verified about the th
 ## Verified facts about the tools
 
 - Claude Code (2.1.289): `claude --help` lists `--effort low|medium|high|xhigh|max` and `--model` aliases; `haiku` works
-  too, but versions before 2.1.301 resolve it to Haiku 4.5.
+  too, but versions before 2.1.301 resolve it to Haiku 4.5. A SessionStart hook's `systemMessage` shows in the terminal
+  as `SessionStart:startup says: ...` and stays out of the context; the desktop app records it as `hook_system_message`.
+  That app saves `claude_desktop_config.json` in its own format, without a final newline.
 - Codex (0.156.1): ChatGPT-plan logins reject gpt-6-astra, gpt-6-sol and gpt-5.6-sol, and gpt-5.5 answers 404;
   `codex debug models` lists the CLI's whole catalog, not what an account may use. A new hook runs only after it is
   trusted once (`codex` -> `/hooks`). Roles are `[agents.<model_>-<effort>]` in `config.toml` (`.` becomes `_`).

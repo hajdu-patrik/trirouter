@@ -34,8 +34,8 @@ python install.py             # interactive setup
 Setup detects the tools, takes an optional JEV key, connects hooks and the MCP server, installs the `trirouter`
 command with tab completion, moves every tool's skills into the shared `~/.skills` folder (scanned with
 SkillSpector when installed), generates the worker agents and offers remote access. Every change is reported,
-changed config files keep a `.bak`, and a re-run asks nothing new and reports only what changed. Without a terminal
-setup needs `--yes`, so a stray run changes nothing.
+changed config files keep a `.bak`, and a re-run reports only what changed and asks again only for a missing JEV key.
+Without a terminal setup needs `--yes`, so a stray run changes nothing.
 
 Open a new terminal afterwards: `trirouter` greets you and lists the commands, `trirouter help <command>` shows a
 page, and **[docs/cli.md](docs/cli.md)** is the full reference. New Claude Code sessions show a one-line welcome
