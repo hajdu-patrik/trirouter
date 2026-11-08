@@ -253,7 +253,9 @@ LOCAL_TASK_RE = {
             r"docker|\.py\b|\.js\b|\.ts\b|implementa|debug|compile|backend|frontend|\brepo|\bpush\b|branch|pull request|"
             r"vegpont|fastapi|django|flask|node_modules|fuggoseg|\bdependenc|npm\b|\bpip\b|\bhook|\bconfig|\bcli\b|"
             r"\bbuild\b|\bregex|\bjson\b|\byaml\b|\bhtml\b|\bcss\b|\bbash\b|powershell|\bfix\b|javits|"
-            r"pushol|architekt|microservice|mikroszolgaltatas|valida|konfigurac|felulir|\boverwrite\b",
+            r"pushol|architekt|microservice|mikroszolgaltatas|valida|konfigurac|felulir|\boverwrite\b|"
+            r"\bhib(a|at|ak|akat|aja|ajat|as)\b|\bjavis|\bgomb|hover|\bui\b|animaci|szerver|"
+            r"\blog(ok|okat|ot|ban)\b|lekerdez|traceback|nem mukodik|nem megy\b",
     "math": r"\bmatek|matematik|\bmath\b|oldd meg|\bsolve\b|egyenlet|\bequation\b|bizonyits|\bproof|\bprove\b|integral|deriv|"
             r"matrix|sajatertek|eigenvalue|valoszinuseg|probability|szamold ki|\bcalculate\b|hatarertek|\blimit\b|"
             r"\bprim\b|primszam|\bprime\b|lemma|negyzete|gyoke|square root|szazalek|percent|"
@@ -268,16 +270,17 @@ LOCAL_TASK_RE = {
                 r"\bthis (week|month|year)\b|\bezen a heten\b|\bidei\b|\bcost\b|how much (does|is|do|can)|\bright now\b|"
                 r"milyen ido lesz",
     "qa": r"^(mi|mik|ki|kik|mikor|hol|miert|hogyan|hany|melyik|mennyi|what|who|when|where|why|how|is|are|does|do)\b|"
-          r"magyarazd|mit jelent|mi az a|\bexplain|what (does|is)|what's the difference|kulonbseg|difference between",
+          r"magyarazd|mit jelent|mi az a|\bexplain|what (does|is)|what's the difference|kulonbseg|difference between|"
+          r"szerinted|jobb mint|better than|hogy(an)? tudom|\bshould i\b|how (do|can) i\b",
     "general": r"\birj\b|keszits|tervezd|szervezd|rendezd|\blista|e-?mail|\blevel|mappa|fajl|jegyzokonyv|"
                r"\bwrite\b|\bcreate\b|\bplan\b|\borganize\b|\blist\b|\bfolder\b|\bfile\b|\bdocument\b|\bletter\b|"
                r"\bnote\b|\bemail\b|\bdraft\b|\btranslate\b|forditsd|\bprezentac|\bpresentation\b|\btablazat|spreadsheet|"
                r"kuldj|uzenet|\bsend\b|\bmessage\b|\bslack\b|csatorna",
 }
-# Extra weight: "what is a/an X" (indefinite article) is a defining question and outranks one
-# incidental tech keyword. "what is THE latest ..." is research, so the pattern stays this narrow.
+# Extra weight: "what is a/an X" and "the difference between X and Y" are defining questions and outrank the tech
+# words they name. "what is THE latest ..." is research, so the pattern stays this narrow.
 LOCAL_TASK_STRONG_RE = {
-    "qa": r"mi az a|what is (a|an)\b",
+    "qa": r"mi az a|what is (a|an)\b|mi a kulonbseg|difference between",
 }
 # Tie-break order.
 LOCAL_PRIORITY = ["test", "math", "study", "research", "code", "qa", "general"]
@@ -286,7 +289,8 @@ LOCAL_HARD_RE = re.compile(r"(egesz|teljes|osszes) (kodbazis|repo|projekt|rendsz
                  r"tobb (fajl|modul)|bizonyits|\bentire\b|\bwhole\b|\barchitecture\b|\bcomplex\b|\bdetailed\b|"
                  r"microservice|\bmigrate\b|\bmigration\b|optimi[sz]e|\d{2,}\s*pages?|multiple (files|modules)|"
                  r"\bprove\b|\bproof\b|from scratch|nulladrol|semmibol|end-to-end|\be2e\b|security audit|biztonsagi audit")
-LOCAL_LONG_RE = re.compile(r"\d{2,}\s*oldal|(egesz|teljes|osszes) (kodbazis|repo|projekt|konyv|fajl)|"
+# "osszes fajl" is "all files" (a folder), not one long text: only "egesz"/"teljes" (whole) measure length.
+LOCAL_LONG_RE = re.compile(r"\d{2,}\s*oldal|(egesz|teljes) (kodbazis|repo|projekt|konyv|fajl)|"
                            r"\d{2,}\s*pages?|(entire|whole|full) (codebase|repo|project|book|file)")
 
 

@@ -73,9 +73,25 @@ def test_destructive_false_positives(text):
     ("Oldd meg: 2x + 3 = 11", "math"), ("Solve the equation 2x + 3 = 11", "math"),
     ("Foglald össze az egyetemi jegyzetemet", "study"), ("Summarize my lecture notes for the exam", "study"),
     ("Mi a legfrissebb hír a Fed kamatdöntéséről?", "research"), ("What is the latest news on the Fed rate decision?", "research"),
+    ("javisd ki a hibat a bejelentkezo oldalon", "code"), ("a gombokon legyen kontrasztosabb hover animacio", "code"),
+    ("inditsd ujra a szervert es nezd meg a logokat", "code"), ("ez miert nem mukodik?", "code"),
+    ("szerinted .hu vagy .com domaint vegyek?", "qa"), ("should i use postgres or mongo?", "qa"),
+    ("mi a kulonbseg a git merge es a rebase kozott?", "qa"),
 ])
 def test_local_task(text, task):
     assert core.local_answers(text)["task"]["choice"] == task
+
+
+def test_all_files_of_a_folder_is_not_long_context():
+    assert core.local_answers("Töröld a logs mappa összes fájlját.")["long_context"]["noul"] < 0.5
+    assert core.local_answers("Olvasd át a teljes kódbázist")["long_context"]["noul"] > 0.5
+
+
+def test_missing_transcript_is_no_error(monkeypatch, tmp_path):
+    logged = []
+    monkeypatch.setattr(run_hook, "log", logged.append)
+    assert run_hook._transcript_family({"transcript_path": str(tmp_path / "new-session.jsonl")}) is None
+    assert logged == []
 
 
 def test_oauth_code_is_not_math():

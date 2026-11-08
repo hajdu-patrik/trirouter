@@ -16,6 +16,11 @@ change, what changed rather than how; dates are ISO 8601.
 - `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
 
 ### Fixed
+- The local classifier recognises accent-less, everyday Hungarian coding and opinion prompts ("javisd ki a hibat",
+  "szerinted", "should i") instead of filing them as general requests.
+- "All files of a folder" no longer counts as a long text, so a simple folder task stays in the session instead of
+  going to Antigravity.
+- A new session's first prompt no longer logs a missing-transcript error.
 - `setup` without a terminal and without `--yes` changes nothing; before, a stray run rewrote config files.
 - The same JSON saved in another format (the Claude desktop app's own style) no longer counts as a change, so setup
   stops warning about the running app for nothing.

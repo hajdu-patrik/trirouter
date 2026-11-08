@@ -69,7 +69,10 @@ TRANSCRIPT_TAIL_BYTES = 256 * 1024
 
 
 def _transcript_tail(path):
-    """The lines of the transcript's last TRANSCRIPT_TAIL_BYTES, newest first (the first one is usually cut)."""
+    """The lines of the transcript's last TRANSCRIPT_TAIL_BYTES, newest first (the first one is usually cut). A
+    session's first prompt arrives before its transcript exists: no lines, not an error."""
+    if not os.path.isfile(path):
+        return []
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
         f.seek(max(0, f.tell() - TRANSCRIPT_TAIL_BYTES))
