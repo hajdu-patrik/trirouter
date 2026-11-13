@@ -8,6 +8,7 @@ change, what changed rather than how; dates are ISO 8601.
 ### Added
 - `trirouter` and `setup` open with a banner and a status line on a real terminal; pipes and scripts stay plain.
 - New Claude Code sessions show a one-line welcome that stays out of the model's context (`ROUTER_WELCOME=0` turns it off).
+- Tab completion in cmd.exe: when Clink starts with cmd.exe, `setup` installs a Clink script next to the other shells'.
 
 ### Changed
 - A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a

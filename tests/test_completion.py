@@ -75,6 +75,7 @@ def os_sim(monkeypatch, tmp_path):
         monkeypatch.setattr(P, "IS_MAC", name == "mac")
         monkeypatch.setattr(P, "HOME", tmp_path / "home")
         monkeypatch.setattr(P, "find_exe", lambda exe: f"/usr/bin/{exe}" if pwsh and exe == "pwsh" else None)
+        monkeypatch.setattr(C, "_cmd_autorun", lambda: "")  # no Clink unless a test says so
         for var in ("SHELL", "ZDOTDIR", "XDG_CONFIG_HOME"):
             monkeypatch.delenv(var, raising=False)
     return set_os
@@ -94,6 +95,37 @@ def test_setup_picks_the_shells_per_os(os_sim, osname, shell_env, pwsh, expected
     env = {"SHELL": shell_env} if shell_env else {}
     assert C.setup_shells(env) == expected
     assert C.detect_shell(env) == expected[0]
+
+
+@pytest.mark.parametrize("autorun, expected", [
+    ('"C:\\Program Files (x86)\\clink\\clink.bat" inject --autorun --profile ~\\clink', ("home", "clink")),
+    ('"C:\\clink\\clink.bat" inject --autorun --profile "C:\\cfg\\my clink"', ("abs", "C:\\cfg\\my clink")),
+    ('"C:\\clink\\clink.bat" inject --autorun', ("local", "clink")),
+    ("", None),
+    ("doskey /macrofile=x", None),
+])
+def test_clink_profile_comes_from_cmd_autorun(os_sim, monkeypatch, tmp_path, autorun, expected):
+    os_sim("windows")
+    monkeypatch.setattr(C, "_cmd_autorun", lambda: autorun)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    got = C.clink_profile()
+    if expected is None:
+        assert got is None and "clink" not in C.setup_shells({})
+        return
+    where, name = expected
+    want = {"home": tmp_path / "home" / name, "local": tmp_path / "local" / name}.get(where, name)
+    assert str(got) == str(want)
+    assert C.setup_shells({}) == ["powershell", "clink"]
+    assert C.script_path("clink") == got / "trirouter.lua"
+    assert C.profile_block("clink") is None and C.profiles("clink") == []
+
+
+def test_clink_script_links_subcommands_values_and_the_quarantine_folders():
+    text = C.clink_script()
+    assert 'clink.argmatcher("trirouter", "trirouter.cmd")' in text
+    assert '"quarantine" .. k_quarantine' in text and '"restore" .. k_quarantine_restore' in text
+    assert '"--auto=" .. p():addarg({"on", "off"})' in text
+    assert "quarantined,\n" in text and text.count(":nofiles()") >= len(manual.COMMANDS)
 
 
 def test_profiles_per_os(os_sim, monkeypatch, tmp_path):
