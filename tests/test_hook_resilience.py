@@ -182,8 +182,12 @@ def test_a_log_can_be_read_while_another_process_appends(tmp_path):
 def test_a_huge_prompt_is_classified_on_its_ends_and_checked_whole():
     big = "hello world " * 100_000 + " then git push --force origin main"
     t0 = time.perf_counter()
+    core.DESTRUCTIVE_RE.search(big.lower())  # one pass over the text, at this moment's CPU speed
+    one_pass = time.perf_counter() - t0
+    t0 = time.perf_counter()
     d, text, hit, _ = core.route(big, "claude")
-    assert time.perf_counter() - t0 < 3.0 and hit and "SAFETY" in text
+    # relative, not absolute: Windows throttles a long background test run to efficiency speed
+    assert time.perf_counter() - t0 < 8 * one_pass + 1.0 and hit and "SAFETY" in text
     assert core.clip("a" * 50_000).count("a") == 2 * core.CLASSIFY_MAX_CHARS and core.clip("short") == "short"
 
 

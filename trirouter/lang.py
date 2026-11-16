@@ -39,6 +39,8 @@ def detect(text):
 def fold(text):
     """Lowercase without accents ("Írj függvényt" -> "irj fuggvenyt"): the keyword patterns are written that way.
     Memoised: one prompt is folded by a dozen checks."""
+    if (text or "").isascii():  # nothing to strip: a huge pasted log costs one lower()
+        return (text or "").lower()
     t = unicodedata.normalize("NFKD", (text or "").lower())
     return "".join(c for c in t if not unicodedata.combining(c))
 

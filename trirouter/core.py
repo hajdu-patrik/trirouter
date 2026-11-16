@@ -1,5 +1,6 @@
 """Provider-independent router core: (prompt, provider) -> decision -> instruction text. Config is read from this
 package, never from the current project: the hook runs inside arbitrary other projects."""
+import functools
 import json
 import os
 import re
@@ -225,7 +226,9 @@ DESTRUCTIVE_RE = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=16)
 def is_destructive(prompt):
+    """Memoised: route() and the local classifier both scan the whole prompt."""
     return bool(DESTRUCTIVE_RE.search(lang.fold(prompt)))
 
 

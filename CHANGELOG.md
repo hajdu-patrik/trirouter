@@ -21,6 +21,7 @@ change, what changed rather than how; dates are ISO 8601.
   `--openrouter-key` (use `--jev-token-stdin`); each now says what replaces it.
 
 ### Changed
+- A huge pasted prompt is routed faster: plain-ASCII text skips the accent folding and the safety check runs once.
 - A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a
   missing JEV key, and the CAUTION skills are counted (`trirouter skills` names them).
 - `setup` asks to move skills only when there is one to move.
