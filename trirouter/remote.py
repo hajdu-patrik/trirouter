@@ -8,7 +8,7 @@ import re
 import time
 from pathlib import Path
 
-from . import platforms as P, secret
+from . import core, platforms as P, secret
 
 STATE = P.STATE
 BIN = STATE / "bin"
@@ -432,7 +432,7 @@ def status():
     lines = _server_status(tasks, procs)
     if TASK_CODEX in tasks:
         lines += _codex_status()
-    if P.find_exe("agy"):
+    if P.find_exe("agy") and "antigravity" not in core.disconnected():
         lines.append(_agy_status(procs))
     lines.append(("watchdog", TASK_WATCHDOG in tasks, f"task {TASK_WATCHDOG}: {tasks.get(TASK_WATCHDOG, 'missing')}"))
     return lines
@@ -484,39 +484,43 @@ def _agy_status(procs):
             f"daemon {'running' if serve else 'NOT running'}, autostart {_autostart_state(entry)}")
 
 
-def remove():
-    """Removes what setup() made; servers are stopped only when trirouter set them up (a remote-control session the
-    user started by hand is left alone)."""
+def remove(providers=None):
+    """Removes what setup() made, for `providers` only (None: all, with the watchdog and the saved name); servers are
+    stopped only when trirouter set them up (a remote-control session the user started by hand is left alone)."""
+    every = providers is None
+    providers = P.PROVIDER_NAMES if every else providers
     report = []
-    scripts = [BIN / n for n in ("claude-remote.cmd", "codex-remote.cmd", "remote-watchdog.ps1")]
-    ours = "remote_name" in load_config() or any(s.exists() for s in scripts)
+    loops = [(p, task, BIN / f"{p}-remote.cmd") for p, task in (("claude", TASK_CLAUDE), ("codex", TASK_CODEX))
+             if p in providers]
+    watchdog = BIN / "remote-watchdog.ps1"
+    ours = "remote_name" in load_config() or any(s.exists() for s in [watchdog] + [s for _, _, s in loops])
     if P.IS_WINDOWS:
-        for task in (TASK_WATCHDOG, TASK_CLAUDE, TASK_CODEX, TASK_ONCE):
+        for task in [t for _, t, _ in loops] + ([TASK_WATCHDOG, TASK_ONCE] if every else []):
             _unregister(task)
-        if ours:
-            _ps("; ".join(_stop_loop(s.name, _script_tail(s)) for s in scripts[:2]))
-            report.append(("claude/codex", True, "scheduled tasks removed, servers stopped"))
-        for s in scripts:
+        if ours and loops:
+            _ps("; ".join(_stop_loop(s.name, _script_tail(s)) for _, _, s in loops))
+            report.append(("/".join(p for p, _, _ in loops), True, "scheduled tasks removed, servers stopped"))
+        for s in [s for _, _, s in loops] + ([watchdog] if every else []):
             s.unlink(missing_ok=True)
-    elif P.IS_MAC and LAUNCHD.exists():
+    elif "claude" in providers and P.IS_MAC and LAUNCHD.exists():
         P.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"])  # fails when not loaded
         LAUNCHD.unlink()
         report.append(("claude", True, "launchd agent removed"))
-    elif SYSTEMD.exists():
+    elif "claude" in providers and SYSTEMD.exists():
         P.run(["systemctl", "--user", "disable", "--now", SYSTEMD.name])
         SYSTEMD.unlink()
         P.run(["systemctl", "--user", "daemon-reload"])
         report.append(("claude", True, "systemd user service removed"))
-    if ours and (agy := P.find_exe("agy")):
+    if ours and "antigravity" in providers and (agy := P.find_exe("agy")):
         if P.IS_WINDOWS:
             _run_once(f"& {_psq(agy)} remote-control stop *> $null; 'ok'", wait_s=60)
         else:
             P.run([agy, "remote-control", "stop"], timeout=60)
         report.append(("antigravity", True, "daemon stopped"))
-    if ours and not P.IS_WINDOWS and (codex := P.find_exe("codex")):
+    if ours and "codex" in providers and not P.IS_WINDOWS and (codex := P.find_exe("codex")):
         P.run([codex, "remote-control", "stop"], timeout=60)
         report.append(("codex", True, "daemon stopped"))
     cfg = load_config()
-    if cfg.pop("remote_name", None) is not None:  # doctor reads it as "remote access is set up"
+    if every and cfg.pop("remote_name", None) is not None:  # doctor reads it as "remote access is set up"
         secret.write_config(CONFIG, cfg)
     return report

@@ -78,24 +78,24 @@ def print_report(found):
         say(f"{info['label']:<26}{'yes' if info['installed'] else 'no':<11}{li:<11}{info['version'] or ''}")
 
 
-def chosen_providers():
+def chosen_providers(command="setup"):
     """--providers=LIST, or None for every installed, logged-in tool; an unknown name is a usage error."""
     value = FLAGS.get("--providers")
     if not isinstance(value, str):
         return None
     names = [p.strip().lower() for p in value.split(",") if p.strip()]
     if not names or any(p not in ALL for p in names):
-        raise cliparse.UsageError(f"setup: --providers must name only {', '.join(ALL)}")
+        raise cliparse.UsageError(f"{command}: --providers must name only {', '.join(ALL)}")
     return names
 
 
-def detect_and_login(chosen):
+def detect_and_login(chosen, skip=()):
     say("== 1/5  Detecting AI tools (this can take a minute: Antigravity is asked for its model list)")
     found = P.detect()
     print_report(found)
     for p, info in found.items():
         spec = P.PROVIDERS[p]
-        if chosen is not None and p not in chosen:
+        if p in skip or (chosen is not None and p not in chosen):
             continue
         if not info["installed"]:
             say(f"\n  {spec['label']} is not installed - optional. Install: {spec['install']}")
@@ -105,7 +105,7 @@ def detect_and_login(chosen):
             if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
                 break
             info.update(P.detect_one(p))
-    ready = [p for p, i in found.items() if (chosen is None or p in chosen) and i["installed"]
+    ready = [p for p, i in found.items() if (chosen is None or p in chosen) and p not in skip and i["installed"]
              and i["logged_in"] is not False]
     if DRY and chosen is not None and ready != chosen:  # a preview of named tools works without them (CI)
         say(f"\n  Dry run: previewing {', '.join(p for p in chosen if p not in ready)} as well; "
@@ -534,7 +534,12 @@ def run_setup():
         return 1
     welcome()
     say("trirouter setup" + (" (dry run - nothing will be changed)" if DRY else ""))
-    providers = detect_and_login(chosen_providers())
+    chosen = chosen_providers()
+    off = core.disconnected(load_config())
+    if chosen is None and off:
+        say(f"Left alone, disconnected by `uninstall --providers`: {', '.join(off)} "
+            f"(`{P.command_hint('setup --providers=' + ','.join(off))}` connects them again).")
+    providers = detect_and_login(chosen, skip=off if chosen is None else ())
     if not providers:
         say("\nNo logged-in tool found. Install and log in to at least one of them, then run this again.")
         return 1
@@ -545,6 +550,10 @@ def run_setup():
         for p, _fields in secret.scrub_backups(CONFIG, apply=True):
             say(f"  Removed the plaintext key from {p.name}.")
     failed, changes = connect(providers, cfg)
+    if not DRY and set(off) & set(providers):
+        cfg = load_config()
+        cfg["disconnected"] = [p for p in off if p not in providers]
+        save_config(cfg)
     failed += extras(providers, load_config() if not DRY else cfg, changes > 0)
     next_steps(providers, failed, changes > 0)
     return 1 if failed else 0
@@ -561,11 +570,11 @@ def run_remote():
             say("Remote access was not set up by trirouter: nothing to remove.")
         return 1 if report(lines) else 0
     found = P.detect(deep=False)
-    providers = [p for p, i in found.items() if i["installed"]]
+    cfg = load_config()
+    providers = [p for p, i in found.items() if i["installed"] and p not in core.disconnected(cfg)]
     if not providers:
         say("No AI tool is installed: nothing to reach remotely. Install Claude Code, Codex or Antigravity first.")
         return 1
-    cfg = load_config()
     name = FLAGS.get("--name") if isinstance(FLAGS.get("--name"), str) else (cfg.get("remote_name") or P.hostname())
     start = FLAGS.get("--start-session")
     start = start.strip().lower() in ON_WORDS if isinstance(start, str) else None  # None: the saved choice
@@ -573,6 +582,9 @@ def run_remote():
 
 
 def run_uninstall():
+    chosen = chosen_providers("uninstall")
+    if chosen is not None:
+        return disconnect(chosen)
     integrations.install(ALL, apply=not DRY, uninstall=True)
     completion.remove(apply=not DRY, say=say)
     if DRY:
@@ -580,7 +592,26 @@ def run_uninstall():
         say("Dry run: nothing was removed.")
         return
     report(remote.remove())
+    cfg = load_config()
+    if cfg.pop("disconnected", None) is not None:  # nothing is connected any more: a new setup starts afresh
+        save_config(cfg)
     say("Hooks, MCP entries and remote access removed. Your skills stay in ~/.skills (and linked).")
+
+
+def disconnect(names):
+    """`uninstall --providers`: only these tools' hooks, MCP entries and remote services; setup remembers them."""
+    w = integrations.install(names, apply=not DRY, uninstall=True, launcher=False)
+    if DRY:
+        say(f"[DRY] remote access of {', '.join(names)}: would remove the services and stop the daemons")
+        say("Dry run: nothing was removed.")
+        return 1 if w.failed else 0
+    report(remote.remove(names))
+    cfg = load_config()
+    cfg["disconnected"] = core.disconnected({"disconnected": core.disconnected(cfg) + names})
+    save_config(cfg)
+    say(f"Disconnected: {', '.join(names)}. setup, remote and the daily model check leave them alone until "
+        f"`{P.command_hint('setup --providers=' + ','.join(names))}` connects them again.")
+    return 1 if w.failed else 0
 
 
 def run_quarantine(key):

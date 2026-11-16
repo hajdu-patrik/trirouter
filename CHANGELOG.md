@@ -9,6 +9,8 @@ change, what changed rather than how; dates are ISO 8601.
 - `trirouter` and `setup` open with a banner and a status line on a real terminal; pipes and scripts stay plain.
 - New Claude Code sessions show a one-line welcome that stays out of the model's context (`ROUTER_WELCOME=0` turns it off).
 - Tab completion in cmd.exe: when Clink starts with cmd.exe, `setup` installs a Clink script next to the other shells'.
+- `uninstall --providers=LIST` disconnects only the named tools; `setup`, `remote`, `doctor` and the daily model
+  check leave them alone until `setup --providers=...` connects them again.
 
 ### Changed
 - A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a
@@ -17,6 +19,7 @@ change, what changed rather than how; dates are ISO 8601.
 - `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
 
 ### Fixed
+- `models` says why a model could not be checked (for example a reached usage limit) instead of only "could not check".
 - The local classifier recognises accent-less, everyday Hungarian coding and opinion prompts ("javisd ki a hibat",
   "szerinted", "should i") instead of filing them as general requests.
 - "All files of a folder" no longer counts as a long text, so a simple folder task stays in the session instead of

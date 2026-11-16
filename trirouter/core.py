@@ -382,6 +382,14 @@ def user_config():
     return platforms.read_json(STATE_DIR / "config.json", {}, kind=dict)
 
 
+def disconnected(cfg=None):
+    """config.json disconnected: the tools `uninstall --providers` took off, which setup, remote and the daily model
+    check leave alone until `setup --providers` names them again."""
+    cfg = user_config() if cfg is None else cfg
+    names = cfg.get("disconnected") if isinstance(cfg, dict) else None
+    return [p for p in platforms.PROVIDER_NAMES if isinstance(names, list) and p in names]
+
+
 def hook_transport(cfg=None):
     """config.json hooks.transport: "http" (the hook daemon) or "command" (the default)."""
     cfg = user_config() if cfg is None else cfg

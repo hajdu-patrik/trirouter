@@ -25,6 +25,7 @@ LOG_MAX = 64 * 1024          # model_discovery.log is cut to its newer half beyo
 REJECT_MARKERS = ("not supported", "does not exist", "model_not_found", "not_found_error", "no such model",
                   "unknown model", "invalid model", "may not exist", "issue with the selected model",
                   '"status":404', "status 404", "404 not found")
+LIMIT_MARKERS = ("usage limit", "rate limit", "quota", "too many requests", "status 429", '"status":429')
 
 
 class Unchecked(Exception):
@@ -274,11 +275,26 @@ def verdict(code, out):
     return True if code == 0 else None
 
 
+def failure_reason(code, out):
+    """Why a probe could not tell (verdict None), short enough for one line."""
+    if code is None:
+        return "timed out"
+    text = (out or "").lower()
+    return "usage limit reached" if any(m in text for m in LIMIT_MARKERS) else _last_line(out or "")
+
+
+_why = {}  # model id -> failure_reason() of its last undecided probe
+
+
 def _try_model(model_id, argv):
     """verdict() of the probe call `argv` (it carries model_id); False, without any call, for an unsafe id."""
     if not core.MODEL_ID_RE.fullmatch(model_id):
         return False
-    return verdict(*P.run(argv, timeout=PROBE_TIMEOUT_S, env=child_env()))
+    code, out = P.run(argv, timeout=PROBE_TIMEOUT_S, env=child_env())
+    ok = verdict(code, out)
+    if ok is None:
+        _why[model_id] = failure_reason(code, out)
+    return ok
 
 
 def probe_codex(exe, model_id):
@@ -333,7 +349,9 @@ def _is_listed(provider, model_id, cat_model, listing):
     return False
 
 
-def _word(ok):
+def _word(ok, model_id=""):
+    if ok is None and _why.get(model_id):
+        return f"could not check ({_why[model_id]})"
     return {True: "available", False: "not available", None: "could not check"}[ok]
 
 
@@ -364,7 +382,7 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
             say(f"  {model_id:<28} new, hidden in the model picker: recorded, not selected")
             continue
         ok = probe(exe, model_id)
-        say(f"  {model_id:<28} new, {_word(ok)}")
+        say(f"  {model_id:<28} new, {_word(ok, model_id)}")
         if ok is None:
             res["pending"].append(model_id)
             continue
@@ -380,7 +398,7 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
             if isinstance(entry, dict) and entry.get("hidden"):
                 continue
             ok = probe(exe, model_id)
-            say(f"  {model_id:<28} {_word(ok)}")
+            say(f"  {model_id:<28} {_word(ok, model_id)}")
             if ok is None:
                 res["pending"].append(model_id)
             else:
@@ -389,7 +407,7 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
                     res["restored" if ok else "removed"].append(model_id)
         elif listed and isinstance(entry, dict) and entry.get("listed") is False:  # offered again
             ok = probe(exe, model_id)
-            say(f"  {model_id:<28} offered again, {_word(ok)}")
+            say(f"  {model_id:<28} offered again, {_word(ok, model_id)}")
             if ok is None:
                 res["pending"].append(model_id)
             else:
@@ -440,7 +458,8 @@ def run(mode="discover", apply=False, say=print, providers=ALL):
         return {"results": results, "changed": False, "local": None}
     new_local = copy.deepcopy(local)
     results = []
-    for provider in providers:
+    off = core.disconnected()
+    for provider in (p for p in providers if p not in off):
         exe = P.find_exe(EXE[provider])
         if not exe:
             results.append(unchecked(provider, f"`{EXE[provider]}` is not installed"))

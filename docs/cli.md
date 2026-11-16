@@ -552,12 +552,16 @@ Remove hooks, MCP entries, remote access and the trirouter command.
 
 ```
 trirouter uninstall [-n]
+trirouter uninstall --providers=LIST [-n]
 ```
 
 Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access services, the `trirouter` launcher with its PATH entry and the tab completion in your shell profiles. Your skills stay in ~/.skills (and linked).
 
+With --providers only the named tools are disconnected (their hooks, MCP entries and remote service); the rest keeps working. setup, remote and the daily model check leave a disconnected tool alone until `trirouter setup --providers=...` names it again.
+
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
+| `--providers` | `LIST` | every tool | yes (disconnected) | Comma-separated tools to disconnect: claude, codex, antigravity. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 
 **Changes:** Changes files; preview with --dry-run.
@@ -565,6 +569,7 @@ Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravi
 ```bash
 trirouter uninstall --dry-run    # show what would be removed
 trirouter uninstall    # remove it
+trirouter uninstall --providers=codex,antigravity    # keep only Claude Code connected
 ```
 
 **See also:** [setup](#setup), [remote](#remote)

@@ -15,6 +15,14 @@ def line(ok, label, detail=""):
     print(f"[{'OK' if ok else '!!'}]  {label:<34} {detail}")
 
 
+def tool_line(provider, ok, label, detail=""):
+    """line(), except for a tool `uninstall --providers` took off on purpose."""
+    if provider in core.disconnected():
+        line(True, label, f"disconnected - {P.command_hint('setup --providers=' + provider)} connects it again")
+    else:
+        line(ok, label, detail)
+
+
 def jload(p):
     return P.read_json(p, encoding="utf-8-sig", kind=dict)
 
@@ -83,8 +91,9 @@ def report_hooks():
     missing = [e for e in CLAUDE_EVENTS if not has_hook(cs, e)]
     line(not missing, "Claude prompt/stop/session hooks",
          f"missing {', '.join(missing)} - re-run: {P.command_hint('setup --yes')}" if missing else "")
-    line(has_hook(cx, "UserPromptSubmit") and has_hook(cx, "Stop"), "Codex UserPromptSubmit + Stop", "(trust once: codex -> /hooks)")
-    line("PreInvocation" in agy and "Stop" in agy, "Antigravity PreInvocation + Stop")
+    tool_line("codex", has_hook(cx, "UserPromptSubmit") and has_hook(cx, "Stop"), "Codex UserPromptSubmit + Stop",
+              "(trust once: codex -> /hooks)")
+    tool_line("antigravity", "PreInvocation" in agy and "Stop" in agy, "Antigravity PreInvocation + Stop")
     report_transport()
     return cs
 
@@ -114,8 +123,8 @@ def report_mcp():
     line(ok, "Claude desktop (Chat/Cowork)", "" if ok else "missing - the app rewrites its config from memory: "
          f"close the Claude app, run {P.command_hint('setup --yes')}, reopen it")
     cfg_toml = P.PATHS["codex_config"].read_text(encoding="utf-8") if P.PATHS["codex_config"].exists() else ""
-    line(f"[mcp_servers.{integrations.MCP_NAME}]" in cfg_toml, "Codex")
-    line(bool(mcp_entry(jload(P.PATHS["agy_mcp"]))), "Antigravity")
+    tool_line("codex", f"[mcp_servers.{integrations.MCP_NAME}]" in cfg_toml, "Codex")
+    tool_line("antigravity", bool(mcp_entry(jload(P.PATHS["agy_mcp"]))), "Antigravity")
     return cfg_toml
 def count_in(folder, test):
     return sum(1 for p in folder.iterdir() if test(p)) if folder.is_dir() else 0

@@ -84,7 +84,7 @@ def test_setup_without_a_terminal_or_yes_changes_nothing(monkeypatch, capsys):
 
 def test_a_piped_key_still_runs_setup_without_a_terminal(monkeypatch):
     seen = []
-    monkeypatch.setattr(cli, "detect_and_login", lambda chosen: seen.append(chosen) or [])
+    monkeypatch.setattr(cli, "detect_and_login", lambda chosen, skip=(): seen.append(chosen) or [])
     monkeypatch.setattr(cli, "read_stdin", lambda: "key\n")
     assert cli.main(["setup", "--jev-token-stdin"]) == 1 and seen == [None]
 

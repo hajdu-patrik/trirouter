@@ -354,12 +354,19 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      see_also=("doctor",))
 
 _add(key="uninstall", summary="Remove hooks, MCP entries, remote access and the trirouter command",
-     synopsis=("{prog} uninstall [-n]",),
+     synopsis=("{prog} uninstall [-n]", "{prog} uninstall --providers=LIST [-n]"),
      description="Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access "
                  "services, the `trirouter` launcher with its PATH entry and the tab completion in your shell "
-                 "profiles. Your skills stay in ~/.skills (and linked).",
-     flags=(DRY,), changes="Changes files; preview with --dry-run",
-     examples=(("{prog} uninstall --dry-run", "show what would be removed"), ("{prog} uninstall", "remove it")),
+                 "profiles. Your skills stay in ~/.skills (and linked).\n\n"
+                 "With --providers only the named tools are disconnected (their hooks, MCP entries and remote "
+                 "service); the rest keeps working. setup, remote and the daily model check leave a disconnected "
+                 "tool alone until `{prog} setup --providers=...` names it again.",
+     flags=(Flag("--providers", value="LIST", default="every tool", items=P.PROVIDER_NAMES,
+                 remembered="yes (disconnected)",
+                 doc="Comma-separated tools to disconnect: claude, codex, antigravity."),
+            DRY), changes="Changes files; preview with --dry-run",
+     examples=(("{prog} uninstall --dry-run", "show what would be removed"), ("{prog} uninstall", "remove it"),
+               ("{prog} uninstall --providers=codex,antigravity", "keep only Claude Code connected")),
      see_also=("setup", "remote"))
 
 _add(key="help", summary="Show the manual of a command",
