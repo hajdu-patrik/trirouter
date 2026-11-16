@@ -159,11 +159,14 @@ def http_hook_tokens(cfg):
 
 
 def has_router_hooks(path):
-    """The config file holds at least one router hook (command or http)."""
+    """The config file holds at least one router hook (command or http), in Claude / Codex or Antigravity form."""
     try:
-        return any(_router_hooks(load(path)))
+        cfg = load(path)
     except BadConfig:
         return False
+    agy = (h for spec in cfg.values() if isinstance(spec, dict) for event, hooks in spec.items()
+           if event in AGY_EVENTS and isinstance(hooks, list) for h in hooks if isinstance(h, dict) and is_router_hook(h))
+    return any(_router_hooks(cfg)) or any(agy)
 
 
 def _strip_router(groups):

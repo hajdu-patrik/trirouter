@@ -163,3 +163,12 @@ def test_an_undecided_probe_says_why(monkeypatch):
     assert D._word(None, "gpt-y") == "could not check"
     assert D.failure_reason(None, "TimeoutExpired") == "timed out"
     assert D.failure_reason(1, "starting\nnetwork unreachable") == "network unreachable"
+
+
+def test_router_hooks_are_found_in_antigravity_form_too(tmp_path):
+    path = tmp_path / "hooks.json"
+    w = integrations.Writer(True, quiet=True)
+    integrations.antigravity_hooks(path, w)
+    assert integrations.has_router_hooks(path)
+    integrations.antigravity_hooks(path, w, uninstall=True)
+    assert not integrations.has_router_hooks(path)
