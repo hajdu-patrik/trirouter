@@ -72,7 +72,7 @@ def test_version_flag(capsys, flag):
 def test_overview_lists_exactly_the_commands_and_the_version_flag(capsys):
     _, out, _ = run(capsys)
     rows = [line.split()[0] for line in out.split("Commands:\n")[1].split("\n\n")[0].splitlines()]
-    assert rows == ["setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
+    assert rows == ["setup", "providers", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help"]
     assert "-V, --version" in out and "-h, --help" in out
 
 
@@ -116,8 +116,8 @@ def test_a_flag_of_another_command_is_not_applicable(capsys):
 
 
 def test_value_flag_without_value_and_boolean_with_value_are_errors(capsys):
-    assert "needs a value" in run(capsys, "setup", "--jev-token")[2]
-    assert "needs a value" in run(capsys, "setup", "--jev-token", "--yes")[2]
+    assert "needs a value" in run(capsys, "setup", "--only")[2]
+    assert "needs a value" in run(capsys, "setup", "--skip", "--yes")[2]
     assert run(capsys, "setup", "--yes=1")[0] == 2
     assert "does not take a value" in run(capsys, "skills", "--apply=yes")[2]
     assert "invalid value" in run(capsys, "skills", "--quarantine-days=abc")[2]
@@ -143,7 +143,7 @@ def test_each_command_accepts_exactly_its_flags():
             continue
         for f in c.flags:
             arg = [f.long + ("=1" if f.kind == "int" else ("=" + f.choices[0]) if f.choices else "=x")] if f.value else [f.long]
-            cmd = key.split()
+            cmd = key.split() + list(c.positional_choices[:1])
             assert cliparse.resolve(cmd + arg, "trirouter", False).flags[f.long]
     with pytest.raises(cliparse.UsageError):
         cliparse.resolve(["quarantine", "list", "--all"], "trirouter", False)
@@ -174,10 +174,44 @@ def test_jev_token_stdin_stores_the_first_line_like_a_command_line_key(monkeypat
     assert configured({"--jev-token-stdin": True}, "  sk-or-v1-abc \r\n")[0] == {"openrouter_api_key": "sk-or-v1-abc"}
     cfg, out = configured({"--jev-token-stdin": True})
     assert cfg == {} and "no key on standard input" in out
-    for flag, key, field in (("--jev-token", "ts-cli", "typesafe_api_key"),
-                             ("--openrouter-key", "sk-or-cli", "openrouter_api_key")):
-        cfg, out = configured({flag: key}, "ts-stdin\n")
-        assert cfg == {field: key} and out.count("process listings") == 1  # the command line wins, with one note
+
+
+def test_removed_setup_flags_name_their_replacement(capsys):
+    for flag, hint in (("--jev-token=x", "--jev-token-stdin"), ("--openrouter-key=x", "--jev-token-stdin"),
+                       ("--no-migrate", "--skip=migrate"), ("--no-completion", "--skip=completion")):
+        code, _, err = run(capsys, "setup", flag)
+        assert code == 2 and "was removed" in err and hint in err
+    code, _, err = run(capsys, "uninstall", "--providers=codex")
+    assert code == 2 and "providers disable" in err
+
+
+def test_setup_steps_come_from_only_and_skip(capsys, monkeypatch):
+    for name in ("FLAGS", "POSITIONAL", "YES", "DRY", "STEPS"):
+        monkeypatch.setattr(cli, name, getattr(cli, name))  # restored afterwards
+
+    def steps(*argv):
+        cli.configure(cliparse.resolve(["setup", *argv], "trirouter", False))
+        return cli.STEPS
+
+    assert steps() == set(manual.STEPS)
+    assert steps("--only=hooks,MCP") == {"hooks", "mcp"}
+    assert steps("--skip=remote,dictation") == set(manual.STEPS) - {"remote", "dictation"}
+    assert steps("--only=hooks,mcp", "--skip=mcp") == {"hooks"}
+    code, _, err = run(capsys, "setup", "--skip=remot")
+    assert code == 2 and "--skip must name only" in err and "did you mean remote?" in err
+
+
+def test_providers_subcommands_take_tool_names():
+    assert cliparse.resolve(["providers"], "trirouter", False).key == "providers status"
+    inv = cliparse.resolve(["providers", "disable", "Codex", "antigravity", "codex", "-n"], "trirouter", False)
+    assert inv.key == "providers disable" and inv.positional == ["codex", "antigravity"] and inv.flags == {"--dry-run": True}
+    with pytest.raises(cliparse.UsageError, match="name at least one"):
+        cliparse.resolve(["providers", "enable"], "trirouter", False)
+    with pytest.raises(cliparse.UsageError, match="unknown name 'cdex'") as exc:
+        cliparse.resolve(["providers", "enable", "cdex"], "trirouter", False)
+    assert "did you mean codex?" in exc.value.hint
+    with pytest.raises(cliparse.UsageError, match="unexpected argument"):
+        cliparse.resolve(["providers", "status", "codex"], "trirouter", False)
 
 
 def test_quarantine_subcommands():
@@ -200,8 +234,8 @@ def test_unknown_command_suggests(capsys):
 def test_install_py_keeps_its_old_forms():
     """`python install.py` (no TRIROUTER_PROG): setup by default, flags before the command."""
     assert cliparse.resolve([], "python install.py", True).key == "setup"
-    inv = cliparse.resolve(["--yes", "--providers=claude", "--no-migrate"], "python install.py", True)
-    assert inv.key == "setup" and set(inv.flags) == {"--yes", "--providers", "--no-migrate"}
+    inv = cliparse.resolve(["--yes", "--providers=claude", "--skip=migrate"], "python install.py", True)
+    assert inv.key == "setup" and set(inv.flags) == {"--yes", "--providers", "--skip"}
     assert cliparse.resolve(["--dry-run", "skills"], "python install.py", True).key == "skills"
     assert cliparse.resolve(["--name", "My PC", "remote"], "python install.py", True).flags == {"--name": "My PC"}
     assert cliparse.resolve(["models", "--discover"], "python install.py", True).flags == {"--discover": True}

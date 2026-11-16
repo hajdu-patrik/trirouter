@@ -238,13 +238,14 @@ def test_setup_installs_completion_unless_told_not_to(home, monkeypatch, capsys)
     h, _ = home
     monkeypatch.setattr(cli, "DRY", False)
     monkeypatch.setattr(cli, "FLAGS", {})
+    monkeypatch.setattr(cli, "STEPS", set(cli.manual.STEPS))
     monkeypatch.setenv("SHELL", "/bin/bash")
     cli.setup_completion()
     assert C.BEGIN in (h / ".bashrc").read_text(encoding="utf-8")
     C.remove(apply=True, say=quiet)
-    monkeypatch.setattr(cli, "FLAGS", {"--no-completion": True})
+    monkeypatch.setattr(cli, "STEPS", set(cli.manual.STEPS) - {"completion"})
     cli.setup_completion()
-    assert C.BEGIN not in (h / ".bashrc").read_text(encoding="utf-8") and "--no-completion" in capsys.readouterr().out
+    assert C.BEGIN not in (h / ".bashrc").read_text(encoding="utf-8")
 
 
 
@@ -283,7 +284,7 @@ t trirouter quarantine restore ""
     assert lines[1] == "models"
     assert lines[2] == "--discover --auto= --main= --subagent-model= --dry-run --help"
     assert lines[3] == "on off" and lines[4] == lines[5] == "list restore purge"
-    assert lines[6] == "setup models skills quarantine remote sync daemon learn doctor route uninstall help"
+    assert lines[6] == "setup providers models skills quarantine remote sync daemon learn doctor route uninstall help"
     assert lines[7] == "--version -V --help -h" and lines[8] == "--version"
     assert lines[9] == "claude,claude claude,codex" and lines[10] == "some-skill"
 

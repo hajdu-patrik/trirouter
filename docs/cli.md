@@ -10,6 +10,10 @@
 * [Conventions](#conventions)
 * [Common tasks](#common-tasks)
 * [setup](#setup) -- Detect the AI tools, connect hooks and MCP, link and scan skills
+* [providers](#providers) -- Show, switch off or switch on the router in Claude Code, Codex or Antigravity
+  * [providers status](#providers-status)
+  * [providers disable](#providers-disable)
+  * [providers enable](#providers-enable)
 * [models](#models) -- Find new models, drop retired ones, test which ones your accounts can use
 * [skills](#skills) -- Scan and re-link skills, regenerate worker agents, rebuild the catalog
 * [quarantine](#quarantine) -- List, restore or purge skills the scan moved to quarantine
@@ -61,6 +65,8 @@ If you move the checkout, run `python install.py` from its new place once. `pyth
 | I want to | Command |
 | --- | --- |
 | See what setup would do | `trirouter setup --dry-run` |
+| Run only some setup steps, or all but some | `trirouter setup --only=hooks,mcp`<br>`trirouter setup --skip=remote,dictation` |
+| Switch the router off / on in one tool | `trirouter providers disable codex`<br>`trirouter providers enable codex` |
 | Check that everything works | `trirouter doctor` |
 | Re-scan skills after adding some to `~/.skills` | `trirouter skills --apply` |
 | See, restore or purge quarantined skills | `trirouter quarantine`<br>`trirouter quarantine restore <name>` |
@@ -76,10 +82,12 @@ If you move the checkout, run `python install.py` from its new place once. `pyth
 Detect the AI tools, connect hooks and MCP, link and scan skills.
 
 ```
-trirouter setup [-y] [-n] [--providers=LIST] [--jev-token-stdin] [--remote[=NAME]] [options]
+trirouter setup [-y] [-n] [--providers=LIST] [--only=STEP,...] [--skip=STEP,...] [--jev-token-stdin] [--remote[=NAME]] [options]
 ```
 
 Interactive setup: detect Claude Code, Codex and Antigravity; take an optional JEV / TypeSafe token or OpenRouter key (without one the built-in local classifier decides); connect hooks and the MCP server; install the `trirouter` command and its tab completion; move every tool's skills into ~/.skills, scan them with SkillSpector when it is installed and link them into every tool; generate the worker agents; optionally set up remote access. Every change is reported, a changed config file keeps a .bak, re-running is safe and reports only what changed; `python install.py` with no arguments does the same. Without a terminal it needs --yes or --jev-token-stdin, so a stray run changes nothing.
+
+Every step can be chosen: --only runs just the named steps, --skip leaves the named ones out. The steps: jev (ask for / store the JEV key); hooks (the router hooks of each tool); mcp (the trirouter MCP server entries); launcher (the `trirouter` command and its PATH entry); completion (tab completion in the shell profiles); migrate (move other tools' skills into ~/.skills); skills (scan and link the hub skills, purge the quarantine, rebuild the catalog); agents (generate the worker agents); remote (offer / set up remote access); dictation (offer the Handy dictation app (Windows)). A single tool is switched off and on with `trirouter providers disable|enable NAME`.
 
 The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a plaintext key from an older version is re-saved protected and removed from old backups of config.json.
 
@@ -88,13 +96,11 @@ The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a pl
 | `-y`, `--yes` | - | off | no | Never prompt: every question gets its default answer (skills are moved into the hub, nothing is quarantined or deleted). |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 | `--providers` | `LIST` | every installed, logged-in tool | no | Comma-separated tools to connect: claude, codex, antigravity. |
+| `--only` | `STEP,...` | every step | no | Run only these steps (comma-separated): jev, hooks, mcp, launcher, completion, migrate, skills, agents, remote, dictation. |
+| `--skip` | `STEP,...` | none | no | Leave these steps out (comma-separated); applied after --only. |
 | `--jev-token-stdin` | - | off | yes (typesafe_api_key or openrouter_api_key) | Read a TypeSafe token or an OpenRouter key (sk-or-...) from the first line of standard input. TYPESAFE_API_KEY / JEV_OPENROUTER_API_KEY win over the saved key. |
-| `--jev-token` | `TOKEN` | none | yes (typesafe_api_key or openrouter_api_key) | Deprecated (visible in process listings and shell history): use --jev-token-stdin or the environment. |
-| `--openrouter-key` | `KEY` | none | yes (openrouter_api_key) | Deprecated (visible in process listings and shell history): use --jev-token-stdin or the environment. Same as --jev-token=sk-or-... |
 | `--remote` | `NAME` (optional) | ask | yes (remote_name) | Also set up remote access, under NAME (default: the saved name or the hostname). |
 | `--workdir` | `DIR` | the checkout | yes (remote_workdir) | Folder remote Claude sessions start in. Only used together with remote access. |
-| `--no-migrate` | - | off | no | Do not move the skills of other tools into ~/.skills. |
-| `--no-completion` | - | off | no | Do not install tab completion into your shell profile. |
 | `--allow-skill` | `NAME,...` | none | yes (skillscan.allow) | Never ask about these skills and restore them from quarantine. Names are added to the saved list. |
 | `--scan-llm` | `on|off` | off | yes (skillscan.llm) | Add SkillSpector's LLM analysis; skill content then leaves the machine through its provider. |
 | `--accept-flagged` | - | off | no (this run only) | Keep every skill rated DO_NOT_INSTALL without asking (like answering "none"); asked again when a skill changes. |
@@ -107,13 +113,107 @@ The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a pl
 trirouter setup    # interactive setup (python install.py alone does the same)
 trirouter setup --dry-run    # show every change, write nothing
 trirouter setup --yes --providers=claude,codex    # unattended, only these two tools
+trirouter setup --only=hooks,mcp    # only (re)connect the hooks and the MCP server
+trirouter setup --skip=completion,migrate,remote    # everything but these steps
 cat key.txt | trirouter setup --jev-token-stdin    # add a TypeSafe token or OpenRouter key from a file and keep the rest
 trirouter setup --yes --remote="My PC"    # also set up remote access
 ```
 
 **Exit status:** 0 on success. 2 on a usage error. 1 when no logged-in tool was found, a step failed, or no terminal and no --yes.
 
-**See also:** [models](#models), [skills](#skills), [remote](#remote), [doctor](#doctor), [uninstall](#uninstall)
+**See also:** [providers](#providers), [models](#models), [skills](#skills), [remote](#remote), [doctor](#doctor), [uninstall](#uninstall)
+
+## providers
+
+Show, switch off or switch on the router in Claude Code, Codex or Antigravity.
+
+```
+trirouter providers [status]
+trirouter providers disable NAME... [-n]
+trirouter providers enable NAME... [-n]
+```
+
+setup connects every installed, logged-in tool. `providers disable` takes single tools off (their hooks, MCP entries and remote service) and remembers it: setup, remote and the daily model check leave them alone. `providers enable` connects them again. Subcommands: status (default), disable, enable.
+
+**Changes:** Changes nothing by itself; see the subcommands.
+
+```bash
+trirouter providers    # which tools are connected
+trirouter providers disable codex    # switch the router off in Codex
+trirouter providers enable codex    # and on again
+```
+
+**See also:** [providers status](#providers-status), [providers disable](#providers-disable), [providers enable](#providers-enable), [setup](#setup)
+
+### providers status
+
+Show which tools are installed, connected or switched off.
+
+```
+trirouter providers [status]
+```
+
+One line per tool: installed or not, whether its config holds the router hooks, and whether it was switched off with `providers disable`.
+
+**Changes:** Changes nothing.
+
+```bash
+trirouter providers status    # the table
+```
+
+**See also:** [providers disable](#providers-disable), [providers enable](#providers-enable)
+
+### providers disable
+
+Switch the router off in the named tools.
+
+```
+trirouter providers disable NAME... [-n]
+```
+
+Removes the named tools' router hooks, MCP entries and remote service; the `trirouter` command, the skills and the other tools stay. Remembered in config.json (disconnected) until `providers enable` or `setup --providers=...` names the tool again.
+
+Arguments: NAME... claude, codex or antigravity.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+
+**Changes:** Changes files; preview with --dry-run.
+
+```bash
+trirouter providers disable codex antigravity    # keep only Claude Code connected
+trirouter providers disable codex -n    # preview
+```
+
+**See also:** [providers enable](#providers-enable), [providers status](#providers-status)
+
+### providers enable
+
+Switch the router on in the named tools.
+
+```
+trirouter providers enable NAME... [-n]
+```
+
+Connects the named tools' hooks and MCP entries, links the skills, generates their worker agents and, when remote access is set up, starts their remote service; the tools leave the switched-off list. A tool that is not installed is skipped with the command that installs it.
+
+Arguments: NAME... claude, codex or antigravity.
+
+| Flag | Value | Default | Remembered | Description |
+| --- | --- | --- | --- | --- |
+| `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
+
+**Changes:** Changes files; preview with --dry-run.
+
+```bash
+trirouter providers enable codex    # connect Codex again
+trirouter providers enable claude codex antigravity -n    # preview all three
+```
+
+**Exit status:** 0 on success. 2 on a usage error. 1 when a tool is not installed or a file could not be written.
+
+**See also:** [providers disable](#providers-disable), [providers status](#providers-status), [setup](#setup)
 
 ## models
 
@@ -552,16 +652,12 @@ Remove hooks, MCP entries, remote access and the trirouter command.
 
 ```
 trirouter uninstall [-n]
-trirouter uninstall --providers=LIST [-n]
 ```
 
-Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access services, the `trirouter` launcher with its PATH entry and the tab completion in your shell profiles. Your skills stay in ~/.skills (and linked).
-
-With --providers only the named tools are disconnected (their hooks, MCP entries and remote service); the rest keeps working. setup, remote and the daily model check leave a disconnected tool alone until `trirouter setup --providers=...` names it again.
+Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access services, the `trirouter` launcher with its PATH entry and the tab completion in your shell profiles. Your skills stay in ~/.skills (and linked). To switch off single tools use `trirouter providers disable NAME`.
 
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
-| `--providers` | `LIST` | every tool | yes (disconnected) | Comma-separated tools to disconnect: claude, codex, antigravity. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
 
 **Changes:** Changes files; preview with --dry-run.
@@ -569,10 +665,9 @@ With --providers only the named tools are disconnected (their hooks, MCP entries
 ```bash
 trirouter uninstall --dry-run    # show what would be removed
 trirouter uninstall    # remove it
-trirouter uninstall --providers=codex,antigravity    # keep only Claude Code connected
 ```
 
-**See also:** [setup](#setup), [remote](#remote)
+**See also:** [providers](#providers), [setup](#setup), [remote](#remote)
 
 ## help
 
@@ -584,7 +679,7 @@ trirouter help [COMMAND [SUBCOMMAND]]
 
 Prints the man-page-like help of a command. `trirouter <command> --help` does the same; docs/cli.md holds every page (regenerated by `trirouter sync`).
 
-Arguments: COMMAND a command name; SUBCOMMAND for quarantine and daemon.
+Arguments: COMMAND a command name; SUBCOMMAND for providers, quarantine and daemon.
 
 **Changes:** Changes nothing.
 

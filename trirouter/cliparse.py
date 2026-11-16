@@ -200,11 +200,22 @@ def resolve(argv, prog, install_py=False):
     flags, pos = parse_flags(manual.COMMANDS[key], rest, prog, names)
     if flags.pop("--help", None):  # -h inside a combined short flag (-nh)
         return Invocation("help", page)
-    if pos and key != "quarantine restore":
+    command = manual.COMMANDS[key]
+    if pos and not command.positional:
         raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
     if key == "quarantine restore" and not pos:
         raise UsageError("quarantine restore: give the name of at least one quarantined skill",
                          f"Run `{prog} quarantine` to list them.")
+    if command.positional_choices:
+        if not pos:
+            raise UsageError(f"{key}: name at least one of {', '.join(command.positional_choices)}",
+                             f"Run `{prog} help {key}` for the usage.")
+        pos = [p.lower() for p in pos]
+        bad = next((p for p in pos if p not in command.positional_choices), None)
+        if bad:
+            raise UsageError(f"{key}: unknown name {bad!r}", " ".join(x for x in (
+                suggest(bad, command.positional_choices), f"expected {', '.join(command.positional_choices)}") if x))
+        pos = list(dict.fromkeys(pos))
     return Invocation("run", key, flags, pos)
 
 

@@ -13,6 +13,7 @@ ALL = P.PROVIDER_NAMES
 ON_WORDS = ("on", "1", "true", "yes")
 
 FLAGS, POSITIONAL, YES, DRY = {}, [], False, False
+STEPS = set(manual.STEPS)  # the setup steps this run takes (--only / --skip)
 
 
 def program_name():
@@ -27,10 +28,25 @@ def program_name():
 
 def configure(inv):
     """Publishes a parsed invocation to the module-level state the commands read."""
-    global FLAGS, POSITIONAL, YES, DRY
+    global FLAGS, POSITIONAL, YES, DRY, STEPS
     FLAGS, POSITIONAL = inv.flags, inv.positional
     YES = "--yes" in FLAGS
     DRY = "--dry-run" in FLAGS
+    only = name_list("--only", manual.STEPS, inv.key)
+    STEPS = set(only or manual.STEPS) - set(name_list("--skip", manual.STEPS, inv.key) or ())
+
+
+def name_list(flag, allowed, command):
+    """A comma-separated flag's names, or None when it is not given; an unknown name is a usage error."""
+    value = FLAGS.get(flag)
+    if not isinstance(value, str):
+        return None
+    names = list(dict.fromkeys(p.strip().lower() for p in value.split(",") if p.strip()))
+    bad = [p for p in names if p not in allowed]
+    if not names or bad:
+        raise cliparse.UsageError(f"{command}: {flag} must name only {', '.join(allowed)}",
+                                  cliparse.suggest(bad[0], allowed) if bad else "")
+    return names
 
 
 def say(msg=""):
@@ -78,17 +94,6 @@ def print_report(found):
         say(f"{info['label']:<26}{'yes' if info['installed'] else 'no':<11}{li:<11}{info['version'] or ''}")
 
 
-def chosen_providers(command="setup"):
-    """--providers=LIST, or None for every installed, logged-in tool; an unknown name is a usage error."""
-    value = FLAGS.get("--providers")
-    if not isinstance(value, str):
-        return None
-    names = [p.strip().lower() for p in value.split(",") if p.strip()]
-    if not names or any(p not in ALL for p in names):
-        raise cliparse.UsageError(f"{command}: --providers must name only {', '.join(ALL)}")
-    return names
-
-
 def detect_and_login(chosen, skip=()):
     say("== 1/5  Detecting AI tools (this can take a minute: Antigravity is asked for its model list)")
     found = P.detect()
@@ -132,10 +137,8 @@ def jev_backend_label(cfg):
 
 def configure_jev(cfg):
     say("\n== 2/5  JEV / TypeSafe (the routing decision engine)")
-    token = FLAGS.get("--openrouter-key") or FLAGS.get("--jev-token")
-    if token:
-        say("  Note: a key on the command line shows in process listings and shell history; prefer --jev-token-stdin.")
-    elif "--jev-token-stdin" in FLAGS:
+    token = None
+    if "--jev-token-stdin" in FLAGS:
         token = read_stdin().partition("\n")[0].strip()
         if not token:
             say("  --jev-token-stdin: no key on standard input.")
@@ -235,21 +238,32 @@ def select_numbers(count):
             return picked
 
 
+def skipped(*steps):
+    """Says so when none of these setup steps runs this time."""
+    if STEPS.isdisjoint(steps):
+        say(f"  Skipped (--only / --skip): {', '.join(steps)}")
+        return True
+    return False
+
+
 def connect(providers, cfg):
     """Setup steps 3 and 4: (files that could not be written, files changed)."""
-    say("\n== 3/5  Hooks + MCP server")
-    w = integrations.install(providers, apply=not DRY, quiet=True)
+    say("\n== 3/5  Hooks + MCP server + the trirouter command")
+    w = integrations.install(providers, apply=not DRY, quiet=True, launcher="launcher" in STEPS,
+                             hooks="hooks" in STEPS, mcp="mcp" in STEPS)
     changes = w.changes + setup_completion()
-    if not changes and not w.failed:
+    if not skipped("hooks", "mcp", "launcher", "completion") and not changes and not w.failed:
         say("  Already connected: nothing to change.")
     say("\n== 4/5  Shared skill folder (~/.skills) and worker agents")
+    if skipped("migrate", "skills", "agents"):
+        return w.failed, changes
     hub.PROVIDERS = tuple(providers)
     hub.APPLY = not DRY
     scan_settings(cfg, persist=not DRY)
     hub.SCAN["brief"] = True
-    if "--no-migrate" not in FLAGS:
+    if "migrate" in STEPS:
         migrate_skills()
-    link_hub(brief=True)
+    link_hub(brief=True, skills="skills" in STEPS, agents="agents" in STEPS)
     return w.failed, changes
 
 
@@ -266,13 +280,15 @@ def migrate_skills():
     hub.APPLY = not DRY
 
 
-def link_hub(brief=False):
+def link_hub(brief=False, skills=True, agents=True):
     """Setup step 4 and `skills`: link the scanned hub, purge the expired quarantine, regenerate the agents and
     rebuild the catalog (when applying), then report the skill folders."""
-    hub.cmd_link()
-    skillscan.purge_expired(apply=hub.APPLY, days=hub.SCAN.get("quarantine_days"))
-    hub.cmd_agents()
-    if hub.APPLY:
+    if skills:
+        hub.cmd_link()
+        skillscan.purge_expired(apply=hub.APPLY, days=hub.SCAN.get("quarantine_days"))
+    if agents:
+        hub.cmd_agents()
+    if skills and hub.APPLY:
         hub.cmd_catalog()
     hub.cmd_doctor(brief)
 
@@ -288,14 +304,18 @@ def extras(providers, cfg, changed):
     """Setup step 5, whose questions only a run that connected something asks; the number of steps that failed."""
     say("\n== 5/5  Optional extras")
     failed = 0
-    name = FLAGS.get("--remote")
-    offer_remote = changed and not YES and not cfg.get("remote_name")
+    if skipped("remote", "dictation"):
+        return failed
+    name = FLAGS.get("--remote") if "remote" in STEPS else None
+    offer_remote = "remote" in STEPS and changed and not YES and not cfg.get("remote_name")
     if name or (offer_remote and ask("  Set up remote access (control this computer from a phone / another device)?", "n")):
         if not isinstance(name, str):
             name = ask_remote_name(cfg)
         failed = report(remote.setup(name, providers, apply=not DRY, workdir=remote_workdir(cfg)), indent="  ")
-    elif not offer_remote:
+    elif not offer_remote and "remote" in STEPS:
         say(f"  Remote access: `{P.command_hint('remote')}`")
+    if "dictation" not in STEPS:
+        return failed
     say("  Speech-to-text (dictation into any app): see docs/speech-to-text.md")
     offer_handy = changed and P.IS_WINDOWS and not YES and not DRY and not P.find_exe("handy")
     if offer_handy and ask("  Install Handy (offline dictation) with winget now?", "n"):
@@ -323,10 +343,10 @@ def next_steps(providers, failed, changed):
     if "claude" in providers:
         say("  * Claude desktop Chat/Cowork: restart the app, then add to Settings > Profile > Personal preferences:")
         say('      "Before answering any new request, call the trirouter route_prompt tool with my message and follow its instructions."')
-    if not DRY:
+    if not DRY and "launcher" in STEPS:
         say("  * The `trirouter` command is installed: reopen your terminal (a new PATH is only seen by new terminals), "
             "then run `trirouter help`.")
-    if "--no-completion" not in FLAGS and not DRY:
+    if "completion" in STEPS and not DRY:
         say("  * Tab completion is installed: in a new terminal type `trirouter ` and press Tab to complete commands, "
             "flags and values (`trirouter uninstall` removes it).")
     say(f"  * New and retired models are picked up once a day by themselves; `{P.command_hint('models')}` checks "
@@ -435,10 +455,9 @@ def run_learn():
 
 
 def setup_completion():
-    """Setup step: tab completion for the current shell (and PowerShell on Windows); the number of files changed. With
-    --no-completion the profiles are left alone and only scripts installed earlier are refreshed to match the commands."""
-    if "--no-completion" in FLAGS:
-        say("  Tab completion: not installed (--no-completion)")
+    """Setup step: tab completion for the current shell (and PowerShell on Windows); the number of files changed. Without
+    the step the profiles are left alone and only scripts installed earlier are refreshed to match the commands."""
+    if "completion" not in STEPS:
         return len(completion.refresh(apply=not DRY, say=lambda m: say("  " + m)))
     shells, lines = completion.setup_shells(), []
     changes = completion.install(shells, apply=not DRY, say=lines.append)
@@ -534,18 +553,22 @@ def run_setup():
         return 1
     welcome()
     say("trirouter setup" + (" (dry run - nothing will be changed)" if DRY else ""))
-    chosen = chosen_providers()
+    chosen = name_list("--providers", ALL, "setup")
     off = core.disconnected(load_config())
     if chosen is None and off:
-        say(f"Left alone, disconnected by `uninstall --providers`: {', '.join(off)} "
-            f"(`{P.command_hint('setup --providers=' + ','.join(off))}` connects them again).")
+        say(f"Left alone, switched off by `providers disable`: {', '.join(off)} "
+            f"(`{P.command_hint('providers enable ' + ' '.join(off))}` connects them again).")
     providers = detect_and_login(chosen, skip=off if chosen is None else ())
     if not providers:
         say("\nNo logged-in tool found. Install and log in to at least one of them, then run this again.")
         return 1
     cfg = load_config()
-    configure_jev(cfg)
-    save_config(cfg)
+    if "jev" in STEPS:
+        configure_jev(cfg)
+        save_config(cfg)
+    else:
+        say("\n== 2/5  JEV / TypeSafe (the routing decision engine)")
+        skipped("jev")
     if not DRY:  # setup also migrates: plaintext keys in older backups of config.json are removed
         for p, _fields in secret.scrub_backups(CONFIG, apply=True):
             say(f"  Removed the plaintext key from {p.name}.")
@@ -582,9 +605,6 @@ def run_remote():
 
 
 def run_uninstall():
-    chosen = chosen_providers("uninstall")
-    if chosen is not None:
-        return disconnect(chosen)
     integrations.install(ALL, apply=not DRY, uninstall=True)
     completion.remove(apply=not DRY, say=say)
     if DRY:
@@ -598,8 +618,58 @@ def run_uninstall():
     say("Hooks, MCP entries and remote access removed. Your skills stay in ~/.skills (and linked).")
 
 
+def run_providers(key):
+    if key == "providers disable":
+        return disconnect(POSITIONAL)
+    if key == "providers enable":
+        return reconnect(POSITIONAL)
+    found, off = P.detect(deep=False), core.disconnected(load_config())
+    say(f"{'TOOL':<14}{'INSTALLED':<11}{'HOOKS':<11}STATE")
+    for p in ALL:
+        hooked = integrations.has_router_hooks(integrations.HOOK_FILES[p]())
+        state = "switched off" if p in off else ("connected" if hooked else "not connected")
+        say(f"{p:<14}{'yes' if found[p]['installed'] else 'no':<11}{'yes' if hooked else 'no':<11}{state}")
+    say(f"\nSwitch one off / on: {P.command_hint('providers disable <name>')} / "
+        f"{P.command_hint('providers enable <name>')}")
+    return 0
+
+
+def reconnect(names):
+    """`providers enable`: hooks, MCP entries, skill links, worker agents and (when set up) remote access."""
+    found, cfg = P.detect(deep=False), load_config()
+    missing = [p for p in names if not found[p]["installed"]]
+    for p in missing:
+        say(f"[!!]  {P.PROVIDERS[p]['label']} is not installed: {P.PROVIDERS[p]['install']}")
+    ready = list(names) if DRY else [p for p in names if p not in missing]
+    if not ready:
+        return 1
+    w = integrations.install(ready, apply=not DRY, launcher=False)
+    off = [p for p in core.disconnected(cfg) if p not in ready]
+    hub.PROVIDERS = tuple(p for p, i in found.items() if (i["installed"] or p in ready) and p not in off)
+    hub.APPLY = not DRY
+    scan_settings(cfg, persist=False)
+    hub.SCAN["brief"] = True
+    hub.cmd_link()
+    hub.cmd_agents()
+    failed = w.failed
+    if cfg.get("remote_name"):
+        failed += report(remote.setup(cfg["remote_name"], ready, apply=not DRY, workdir=remote_workdir(cfg)))
+    if DRY:
+        say("Dry run: nothing was changed.")
+        return 1 if failed or missing else 0
+    cfg = load_config()
+    cfg["disconnected"] = off
+    if not off:
+        cfg.pop("disconnected")
+    save_config(cfg)
+    say(f"Connected: {', '.join(ready)}.")
+    if "codex" in ready:
+        say("Codex runs a new hook only after you trust it once: run `codex`, type /hooks, trust the router hooks.")
+    return 1 if failed or missing else 0
+
+
 def disconnect(names):
-    """`uninstall --providers`: only these tools' hooks, MCP entries and remote services; setup remembers them."""
+    """`providers disable`: only these tools' hooks, MCP entries and remote services; setup remembers them."""
     w = integrations.install(names, apply=not DRY, uninstall=True, launcher=False)
     if DRY:
         say(f"[DRY] remote access of {', '.join(names)}: would remove the services and stop the daemons")
@@ -609,8 +679,8 @@ def disconnect(names):
     cfg = load_config()
     cfg["disconnected"] = core.disconnected({"disconnected": core.disconnected(cfg) + names})
     save_config(cfg)
-    say(f"Disconnected: {', '.join(names)}. setup, remote and the daily model check leave them alone until "
-        f"`{P.command_hint('setup --providers=' + ','.join(names))}` connects them again.")
+    say(f"Switched off: {', '.join(names)}. setup, remote and the daily model check leave them alone until "
+        f"`{P.command_hint('providers enable ' + ' '.join(names))}` connects them again.")
     return 1 if w.failed else 0
 
 
@@ -712,7 +782,10 @@ def _main(argv):
     if inv.kind == "version":
         say(f"trirouter {__version__}")
         return 0
-    configure(inv)
+    try:
+        configure(inv)
+    except cliparse.UsageError as exc:
+        return usage_error(exc, prog)
     commands = {"setup": run_setup, "doctor": doctor.main, "skills": run_skills, "models": run_models,
                 "remote": run_remote, "uninstall": run_uninstall, "learn": run_learn,
                 "sync": lambda: sync.main(FLAGS, say)}
@@ -721,6 +794,8 @@ def _main(argv):
             return run_quarantine(inv.key)
         if inv.key.startswith("daemon"):
             return run_daemon(inv.key)
+        if inv.key.startswith("providers"):
+            return run_providers(inv.key)
         return commands[inv.key]() or 0
     except cliparse.UsageError as exc:
         return usage_error(exc, prog)

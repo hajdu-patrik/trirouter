@@ -370,7 +370,12 @@ def install_shims(w):
     w.write(SHIM_ROUTE, shim("trirouter", "route"), "route shim")
 
 
-def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None, quiet=False):
+HOOK_FILES = {"claude": lambda: P.PATHS["claude_settings"], "codex": lambda: P.PATHS["codex_hooks"],
+              "antigravity": lambda: P.PATHS["agy_hooks"]}
+
+
+def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_models=None, quiet=False,
+            hooks=True, mcp=True):
     """The Writer: .changes files changed (or would change), .failed could not be. claude_models: (main, subagent)
     Claude model defaults to keep in settings.json; None re-applies the ones remembered in config.json."""
     w = Writer(apply, quiet)
@@ -378,21 +383,19 @@ def install(providers=ALL, apply=False, uninstall=False, launcher=True, claude_m
         install_shims(w)
     if launcher:
         (uninstall_launcher if uninstall else install_launcher)(w)
-    if claude_models is None and "claude" in providers:
+    if claude_models is None and hooks and "claude" in providers:
         try:
             claude_models = remembered_claude_models()
         except Exception:  # noqa: BLE001 - an unreadable catalog or config never stops the setup
             claude_models = (None, None)
-    steps = []
-    if "claude" in providers:
-        steps += [lambda: claude_codex_hooks(P.PATHS["claude_settings"], "claude", w, uninstall, claude_models),
-                  lambda: claude_desktop_mcp(w, uninstall)]
-    if "codex" in providers:
-        steps += [lambda: claude_codex_hooks(P.PATHS["codex_hooks"], "codex", w, uninstall),
-                  lambda: codex_mcp(P.PATHS["codex_config"], w, uninstall)]
-    if "antigravity" in providers:
-        steps += [lambda: antigravity_hooks(P.PATHS["agy_hooks"], w, uninstall),
-                  lambda: json_mcp(P.PATHS["agy_mcp"], "antigravity MCP", w, uninstall)]
+    hook_steps = {"claude": lambda: claude_codex_hooks(P.PATHS["claude_settings"], "claude", w, uninstall, claude_models),
+                  "codex": lambda: claude_codex_hooks(P.PATHS["codex_hooks"], "codex", w, uninstall),
+                  "antigravity": lambda: antigravity_hooks(P.PATHS["agy_hooks"], w, uninstall)}
+    mcp_steps = {"claude": lambda: claude_desktop_mcp(w, uninstall),
+                 "codex": lambda: codex_mcp(P.PATHS["codex_config"], w, uninstall),
+                 "antigravity": lambda: json_mcp(P.PATHS["agy_mcp"], "antigravity MCP", w, uninstall)}
+    steps = [step for p in ALL if p in providers
+             for step in ((hook_steps[p],) if hooks else ()) + ((mcp_steps[p],) if mcp else ())]
     for step in steps:
         try:
             step()

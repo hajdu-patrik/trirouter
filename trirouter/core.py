@@ -383,8 +383,8 @@ def user_config():
 
 
 def disconnected(cfg=None):
-    """config.json disconnected: the tools `uninstall --providers` took off, which setup, remote and the daily model
-    check leave alone until `setup --providers` names them again."""
+    """config.json disconnected: the tools `providers disable` switched off, which setup, remote and the daily model
+    check leave alone until `providers enable` names them again."""
     cfg = user_config() if cfg is None else cfg
     names = cfg.get("disconnected") if isinstance(cfg, dict) else None
     return [p for p in platforms.PROVIDER_NAMES if isinstance(names, list) and p in names]

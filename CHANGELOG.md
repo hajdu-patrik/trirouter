@@ -9,8 +9,16 @@ change, what changed rather than how; dates are ISO 8601.
 - `trirouter` and `setup` open with a banner and a status line on a real terminal; pipes and scripts stay plain.
 - New Claude Code sessions show a one-line welcome that stays out of the model's context (`ROUTER_WELCOME=0` turns it off).
 - Tab completion in cmd.exe: when Clink starts with cmd.exe, `setup` installs a Clink script next to the other shells'.
-- `uninstall --providers=LIST` disconnects only the named tools; `setup`, `remote`, `doctor` and the daily model
-  check leave them alone until `setup --providers=...` connects them again.
+- `providers disable NAME...` switches the router off in single tools and `providers enable NAME...` on again;
+  `providers` shows which tools are installed, connected or switched off. `setup`, `remote`, `doctor` and the daily
+  model check leave a switched-off tool alone.
+- `setup --only=STEP,...` / `--skip=STEP,...` choose its steps (jev, hooks, mcp, launcher, completion, migrate,
+  skills, agents, remote, dictation).
+- Tab completion offers the tool names after `providers enable` / `providers disable`.
+
+### Removed
+- `setup --no-migrate` and `--no-completion` (use `--skip=migrate` / `--skip=completion`), `setup --jev-token` and
+  `--openrouter-key` (use `--jev-token-stdin`); each now says what replaces it.
 
 ### Changed
 - A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a

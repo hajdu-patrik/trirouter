@@ -16,9 +16,9 @@ def line(ok, label, detail=""):
 
 
 def tool_line(provider, ok, label, detail=""):
-    """line(), except for a tool `uninstall --providers` took off on purpose."""
+    """line(), except for a tool `providers disable` switched off on purpose."""
     if provider in core.disconnected():
-        line(True, label, f"disconnected - {P.command_hint('setup --providers=' + provider)} connects it again")
+        line(True, label, f"switched off - {P.command_hint('providers enable ' + provider)} connects it again")
     else:
         line(ok, label, detail)
 

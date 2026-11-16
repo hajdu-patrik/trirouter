@@ -1,4 +1,4 @@
-"""`uninstall --providers`: only the named tools are taken off and remembered; setup, remote, doctor and the model
+"""`providers disable / enable`: only the named tools are taken off and remembered; setup, remote, doctor and the model
 check leave them alone until setup names them again. Every system call is faked."""
 import json
 import types
@@ -38,21 +38,21 @@ def calls(monkeypatch):
     return seen
 
 
-def test_uninstall_providers_takes_off_only_those_tools_and_remembers_them(config, calls):
+def test_providers_disable_takes_off_only_those_tools_and_remembers_them(config, calls):
     config.write_text(json.dumps({"remote_name": "Box"}), encoding="utf-8")
-    invoke(["uninstall", "--providers=codex,antigravity"])
-    assert cli.run_uninstall() == 0
+    invoke(["providers", "disable", "codex", "antigravity"])
+    assert cli.run_providers("providers disable") == 0
     assert calls["install"] == [(["codex", "antigravity"], True, True, False)]  # the launcher stays
     assert calls["remove"] == [["codex", "antigravity"]]
     assert saved(config) == {"remote_name": "Box", "disconnected": ["codex", "antigravity"]}
-    invoke(["uninstall", "--providers=codex"])  # again: no duplicate
-    cli.run_uninstall()
+    invoke(["providers", "disable", "codex"])  # again: no duplicate
+    cli.run_providers("providers disable")
     assert saved(config)["disconnected"] == ["codex", "antigravity"]
 
 
-def test_uninstall_providers_dry_run_changes_nothing(config, calls):
-    invoke(["uninstall", "--providers=codex", "--dry-run"])
-    assert cli.run_uninstall() == 0
+def test_providers_disable_dry_run_changes_nothing(config, calls):
+    invoke(["providers", "disable", "codex", "--dry-run"])
+    assert cli.run_providers("providers disable") == 0
     assert calls["install"] == [(["codex"], False, True, False)] and calls["remove"] == []
     assert not config.exists()
 
@@ -86,6 +86,29 @@ def test_setup_leaves_a_disconnected_tool_alone_until_named_again(config, monkey
     invoke(["setup", "--yes", "--providers=codex"])
     cli.run_setup()
     assert connected[-1] == ["codex"] and saved(config)["disconnected"] == ["antigravity"]
+
+
+def test_providers_enable_connects_again_and_forgets_the_switch(config, calls, monkeypatch):
+    tools(monkeypatch)
+    done = []
+    monkeypatch.setattr(cli.hub, "cmd_link", lambda: done.append("link"))
+    monkeypatch.setattr(cli.hub, "cmd_agents", lambda: done.append(cli.hub.PROVIDERS))
+    monkeypatch.setattr(remote, "setup", lambda name, providers, **k: done.append(("remote", providers)) or [])
+    config.write_text(json.dumps({"remote_name": "Box", "disconnected": ["codex", "antigravity"]}), encoding="utf-8")
+    invoke(["providers", "enable", "codex"])
+    assert cli.run_providers("providers enable") == 0
+    assert calls["install"] == [(["codex"], True, False, False)]
+    assert done == ["link", ("claude", "codex"), ("remote", ["codex"])]
+    assert saved(config) == {"remote_name": "Box", "disconnected": ["antigravity"]}
+    invoke(["providers", "enable", "antigravity"])
+    cli.run_providers("providers enable")
+    assert "disconnected" not in saved(config)
+
+
+def test_providers_enable_skips_a_tool_that_is_not_installed(config, calls, monkeypatch):
+    monkeypatch.setattr(P, "detect", lambda deep=True: {p: {"installed": p == "claude"} for p in P.PROVIDER_NAMES})
+    invoke(["providers", "enable", "codex"])
+    assert cli.run_providers("providers enable") == 1 and calls["install"] == []
 
 
 def test_remote_setup_skips_a_disconnected_tool(config, monkeypatch):
@@ -128,7 +151,7 @@ def test_doctor_shows_a_disconnected_tool_as_intended(config, capsys):
     doctor.tool_line("codex", False, "Codex")
     doctor.tool_line("antigravity", False, "Antigravity")
     out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("[OK]") and "disconnected" in out[0] and "--providers=codex" in out[0]
+    assert out[0].startswith("[OK]") and "switched off" in out[0] and "providers enable codex" in out[0]
     assert out[1].startswith("[!!]")
 
 

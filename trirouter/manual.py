@@ -38,6 +38,7 @@ class Command:
     see_also: tuple
     exit_status: str = ""
     positional: str = ""     # what the non-flag arguments are (documentation only)
+    positional_choices: tuple = ()  # the values a positional argument may take (validation and completion)
 
 
 HELP_FLAG = Flag("--help", "-h", doc="Show this help page and exit.", default="-", remembered="no")
@@ -60,7 +61,14 @@ CATALOG_ONLY = Flag("--catalog-only", value="PATTERN,...", default="none", remem
                         "into every session; the router still names them. Replaces the saved list; `none` clears it.")
 QDAYS = Flag("--quarantine-days", value="N", default="3", remembered="yes (skillscan.quarantine_days)", kind="int",
              doc="Days a quarantined skill is kept before it is deleted for good. 0 = never delete.")
-KEY_ARG_DEPRECATED = "Deprecated (visible in process listings and shell history): use --jev-token-stdin or the environment."
+# setup's steps, in the order they run; --only / --skip pick from them
+STEP_DOCS = {"jev": "ask for / store the JEV key", "hooks": "the router hooks of each tool",
+             "mcp": "the trirouter MCP server entries", "launcher": "the `trirouter` command and its PATH entry",
+             "completion": "tab completion in the shell profiles", "migrate": "move other tools' skills into ~/.skills",
+             "skills": "scan and link the hub skills, purge the quarantine, rebuild the catalog",
+             "agents": "generate the worker agents", "remote": "offer / set up remote access",
+             "dictation": "offer the Handy dictation app (Windows)"}
+STEPS = tuple(STEP_DOCS)
 
 COMMANDS = {}
 
@@ -74,7 +82,8 @@ EXIT_STD = ("0 on success. 2 on a usage error (unknown or misused option, missin
             "1 when the command ran but failed.")
 
 _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and scan skills",
-     synopsis=("{prog} setup [-y] [-n] [--providers=LIST] [--jev-token-stdin] [--remote[=NAME]] [options]",),
+     synopsis=("{prog} setup [-y] [-n] [--providers=LIST] [--only=STEP,...] [--skip=STEP,...] [--jev-token-stdin] "
+               "[--remote[=NAME]] [options]",),
      description=(
          "Interactive setup: detect Claude Code, Codex and Antigravity; take an optional JEV / TypeSafe token or "
          "OpenRouter key (without one the built-in local classifier decides); connect hooks and the MCP server; "
@@ -83,34 +92,79 @@ _add(key="setup", summary="Detect the AI tools, connect hooks and MCP, link and 
          "set up remote access. Every change is reported, a changed config file keeps a .bak, re-running is safe and "
          "reports only what changed; `python install.py` with no arguments does the same. Without a terminal it "
          "needs --yes or --jev-token-stdin, so a stray run changes nothing.\n\n"
+         "Every step can be chosen: --only runs just the named steps, --skip leaves the named ones out. The steps: "
+         + "; ".join(f"{k} ({v})" for k, v in STEP_DOCS.items()) + ". A single tool is switched off and on with "
+         "`{prog} providers disable|enable NAME`.\n\n"
          "The JEV key is stored protected (Windows DPAPI; owner-only file elsewhere); a plaintext key from an older "
          "version is re-saved protected and removed from old backups of config.json."),
      flags=(YES, DRY,
             Flag("--providers", value="LIST", default="every installed, logged-in tool", items=P.PROVIDER_NAMES,
                  doc="Comma-separated tools to connect: claude, codex, antigravity."),
+            Flag("--only", value="STEP,...", default="every step", items=STEPS,
+                 doc="Run only these steps (comma-separated): " + ", ".join(STEPS) + "."),
+            Flag("--skip", value="STEP,...", default="none", items=STEPS,
+                 doc="Leave these steps out (comma-separated); applied after --only."),
             Flag("--jev-token-stdin", remembered="yes (typesafe_api_key or openrouter_api_key)",
                  doc="Read a TypeSafe token or an OpenRouter key (sk-or-...) from the first line of standard input. "
                      "TYPESAFE_API_KEY / JEV_OPENROUTER_API_KEY win over the saved key."),
-            Flag("--jev-token", value="TOKEN", default="none", remembered="yes (typesafe_api_key or openrouter_api_key)",
-                 doc=KEY_ARG_DEPRECATED),
-            Flag("--openrouter-key", value="KEY", default="none", remembered="yes (openrouter_api_key)",
-                 doc=KEY_ARG_DEPRECATED + " Same as --jev-token=sk-or-..."),
             Flag("--remote", value="NAME", optional=True, default="ask", remembered="yes (remote_name)",
                  doc="Also set up remote access, under NAME (default: the saved name or the hostname)."),
             Flag("--workdir", value="DIR", default="the checkout", remembered="yes (remote_workdir)",
                  doc="Folder remote Claude sessions start in. Only used together with remote access."),
-            Flag("--no-migrate", doc="Do not move the skills of other tools into ~/.skills."),
-            Flag("--no-completion", doc="Do not install tab completion into your shell profile."),
             ALLOW, SCAN_LLM, ACCEPT, QDAYS, CATALOG_ONLY),
      changes="Changes files; preview with --dry-run",
      examples=(("{prog} setup", "interactive setup (python install.py alone does the same)"),
                ("{prog} setup --dry-run", "show every change, write nothing"),
                ("{prog} setup --yes --providers=claude,codex", "unattended, only these two tools"),
+               ("{prog} setup --only=hooks,mcp", "only (re)connect the hooks and the MCP server"),
+               ("{prog} setup --skip=completion,migrate,remote", "everything but these steps"),
                ("cat key.txt | {prog} setup --jev-token-stdin", "add a TypeSafe token or OpenRouter key from a file and keep the rest"),
                ("{prog} setup --yes --remote=\"My PC\"", "also set up remote access")),
      exit_status="0 on success. 2 on a usage error. 1 when no logged-in tool was found, a step failed, or no terminal "
                  "and no --yes.",
-     see_also=("models", "skills", "remote", "doctor", "uninstall"))
+     see_also=("providers", "models", "skills", "remote", "doctor", "uninstall"))
+
+_add(key="providers", summary="Show, switch off or switch on the router in Claude Code, Codex or Antigravity",
+     synopsis=("{prog} providers [status]", "{prog} providers disable NAME... [-n]", "{prog} providers enable NAME... [-n]"),
+     description=(
+         "setup connects every installed, logged-in tool. `providers disable` takes single tools off (their hooks, "
+         "MCP entries and remote service) and remembers it: setup, remote and the daily model check leave them alone. "
+         "`providers enable` connects them again. Subcommands: status (default), disable, enable."),
+     flags=(), changes="Changes nothing by itself; see the subcommands",
+     examples=(("{prog} providers", "which tools are connected"),
+               ("{prog} providers disable codex", "switch the router off in Codex"),
+               ("{prog} providers enable codex", "and on again")),
+     see_also=("providers status", "providers disable", "providers enable", "setup"))
+
+_add(key="providers status", summary="Show which tools are installed, connected or switched off",
+     synopsis=("{prog} providers [status]",),
+     description="One line per tool: installed or not, whether its config holds the router hooks, and whether it was "
+                 "switched off with `providers disable`.",
+     flags=(), changes="Changes nothing", examples=(("{prog} providers status", "the table"),),
+     see_also=("providers disable", "providers enable"))
+
+_add(key="providers disable", summary="Switch the router off in the named tools",
+     synopsis=("{prog} providers disable NAME... [-n]",),
+     description="Removes the named tools' router hooks, MCP entries and remote service; the `trirouter` command, the "
+                 "skills and the other tools stay. Remembered in config.json (disconnected) until `providers enable` "
+                 "or `setup --providers=...` names the tool again.",
+     flags=(DRY,), positional="NAME... claude, codex or antigravity", positional_choices=P.PROVIDER_NAMES,
+     changes="Changes files; preview with --dry-run",
+     examples=(("{prog} providers disable codex antigravity", "keep only Claude Code connected"),
+               ("{prog} providers disable codex -n", "preview")),
+     see_also=("providers enable", "providers status"))
+
+_add(key="providers enable", summary="Switch the router on in the named tools",
+     synopsis=("{prog} providers enable NAME... [-n]",),
+     description="Connects the named tools' hooks and MCP entries, links the skills, generates their worker agents and, "
+                 "when remote access is set up, starts their remote service; the tools leave the switched-off list. "
+                 "A tool that is not installed is skipped with the command that installs it.",
+     flags=(DRY,), positional="NAME... claude, codex or antigravity", positional_choices=P.PROVIDER_NAMES,
+     changes="Changes files; preview with --dry-run",
+     examples=(("{prog} providers enable codex", "connect Codex again"),
+               ("{prog} providers enable claude codex antigravity -n", "preview all three")),
+     exit_status="0 on success. 2 on a usage error. 1 when a tool is not installed or a file could not be written.",
+     see_also=("providers disable", "providers status", "setup"))
 
 
 _add(key="models", summary="Find new models, drop retired ones, test which ones your accounts can use",
@@ -354,49 +408,52 @@ _add(key="route", summary="The routing decision for one prompt or sub-task",
      see_also=("doctor",))
 
 _add(key="uninstall", summary="Remove hooks, MCP entries, remote access and the trirouter command",
-     synopsis=("{prog} uninstall [-n]", "{prog} uninstall --providers=LIST [-n]"),
+     synopsis=("{prog} uninstall [-n]",),
      description="Removes the router's hooks and MCP entries from Claude Code, Codex and Antigravity, the remote-access "
                  "services, the `trirouter` launcher with its PATH entry and the tab completion in your shell "
-                 "profiles. Your skills stay in ~/.skills (and linked).\n\n"
-                 "With --providers only the named tools are disconnected (their hooks, MCP entries and remote "
-                 "service); the rest keeps working. setup, remote and the daily model check leave a disconnected "
-                 "tool alone until `{prog} setup --providers=...` names it again.",
-     flags=(Flag("--providers", value="LIST", default="every tool", items=P.PROVIDER_NAMES,
-                 remembered="yes (disconnected)",
-                 doc="Comma-separated tools to disconnect: claude, codex, antigravity."),
-            DRY), changes="Changes files; preview with --dry-run",
-     examples=(("{prog} uninstall --dry-run", "show what would be removed"), ("{prog} uninstall", "remove it"),
-               ("{prog} uninstall --providers=codex,antigravity", "keep only Claude Code connected")),
-     see_also=("setup", "remote"))
+                 "profiles. Your skills stay in ~/.skills (and linked). To switch off single tools use "
+                 "`{prog} providers disable NAME`.",
+     flags=(DRY,), changes="Changes files; preview with --dry-run",
+     examples=(("{prog} uninstall --dry-run", "show what would be removed"), ("{prog} uninstall", "remove it")),
+     see_also=("providers", "setup", "remote"))
 
 _add(key="help", summary="Show the manual of a command",
      synopsis=("{prog} help [COMMAND [SUBCOMMAND]]",),
      description="Prints the man-page-like help of a command. `{prog} <command> --help` does the same; docs/cli.md "
                  "holds every page (regenerated by `{prog} sync`).",
-     flags=(), positional="COMMAND a command name; SUBCOMMAND for quarantine and daemon",
+     flags=(), positional="COMMAND a command name; SUBCOMMAND for providers, quarantine and daemon",
      changes="Changes nothing",
      examples=(("{prog} help", "the command list"), ("{prog} help skills", "the skills page"),
                ("{prog} help quarantine purge", "a subcommand")),
      see_also=("doctor",))
 
-ORDER = ("setup", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help")
+ORDER = ("setup", "providers", "models", "skills", "quarantine", "remote", "sync", "daemon", "learn", "doctor", "route", "uninstall", "help")
 
 # Flags of the bare program (no command): (long, short, help text)
 TOP_FLAGS = (("--version", "-V", "Print the version and exit."), ("--help", "-h", "Show the command list and exit."))
 # Commands and flags that no longer exist: what to say, with {prog} for the program name
 REMOVED_COMMANDS = {
     "detect": "detect was removed: use `{prog} doctor` (it shows whether each tool is installed, its version and whether it is logged in)",
-    "completion": "completion was removed: `{prog} setup` installs tab completion (skip it with --no-completion) and "
+    "completion": "completion was removed: `{prog} setup` installs tab completion (skip it with --skip=completion) and "
                   "`{prog} uninstall` removes it",
     "version": "version was removed: use `{prog} --version`",
     "keys": "keys was removed: `{prog} setup` stores the key protected and scrubs old backups; `{prog} doctor` reports "
             "the state",
 }
 REMOVED_FLAGS = {("models", "--probe"): "--probe was removed: plain `{prog} models` already does the full check",
+                 ("setup", "--no-migrate"): "--no-migrate was removed: use --skip=migrate",
+                 ("setup", "--no-completion"): "--no-completion was removed: use --skip=completion",
+                 ("setup", "--jev-token"): "--jev-token was removed (the key showed in process listings): "
+                                           "pipe it into --jev-token-stdin",
+                 ("setup", "--openrouter-key"): "--openrouter-key was removed (the key showed in process listings): "
+                                                "pipe it into --jev-token-stdin",
+                 ("uninstall", "--providers"): "--providers moved: `{prog} providers disable NAME...` switches off "
+                                               "single tools",
                  ("help", "--markdown"): "--markdown was removed: `{prog} sync` regenerates docs/cli.md",
                  ("sync", "--dry-run"): "--dry-run was removed: use --check"}
-SUBCOMMANDS = {"quarantine": ("list", "restore", "purge"), "daemon": ("status", "enable", "disable", "start", "stop")}
-DEFAULT_SUBCOMMAND = {"quarantine": "list", "daemon": "status"}
+SUBCOMMANDS = {"providers": ("status", "disable", "enable"), "quarantine": ("list", "restore", "purge"),
+               "daemon": ("status", "enable", "disable", "start", "stop")}
+DEFAULT_SUBCOMMAND = {"providers": "status", "quarantine": "list", "daemon": "status"}
 
 GETTING_STARTED = """\
 1. From the checkout (the `trirouter` command does not exist yet):
@@ -424,6 +481,8 @@ CONVENTIONS = """\
 
 TASKS = (
     ("See what setup would do", "trirouter setup --dry-run"),
+    ("Run only some setup steps, or all but some", "trirouter setup --only=hooks,mcp\ntrirouter setup --skip=remote,dictation"),
+    ("Switch the router off / on in one tool", "trirouter providers disable codex\ntrirouter providers enable codex"),
     ("Check that everything works", "trirouter doctor"),
     ("Re-scan skills after adding some to `~/.skills`", "trirouter skills --apply"),
     ("See, restore or purge quarantined skills", "trirouter quarantine\ntrirouter quarantine restore <name>"),
