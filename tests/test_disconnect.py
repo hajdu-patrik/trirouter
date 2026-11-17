@@ -137,6 +137,7 @@ def test_remove_one_tool_keeps_the_others_the_watchdog_and_the_name(config, monk
     assert sorted(p.name for p in tmp_path.iterdir()) == ["claude-remote.cmd", "remote-watchdog.ps1"]
     assert remote.remove(["antigravity"]) == [("antigravity", True, "daemon stopped")]
     assert gone == [remote.TASK_CODEX] and len(once) == 1
+    assert "remote-control stop" in once[0][0] and "Stop-Process" in once[0][0]  # a headless daemon is ended too
     assert saved(config) == {"remote_name": "Box"}
 
 

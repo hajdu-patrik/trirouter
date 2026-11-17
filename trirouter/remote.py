@@ -137,10 +137,12 @@ def _psq(value):
 _PS_WRAP_AGY = (f"$k = {_psq(RUN_KEY)}; $v = (Get-ItemProperty $k -ErrorAction SilentlyContinue).{AGY_RUN_VALUE}; "
                 f"if ($v -and $v -notlike '*--headless*') {{ $v = '\"' + $conhost + '\" --headless ' + $v; "
                 f"Set-ItemProperty $k {AGY_RUN_VALUE} $v }}")
+# `agy remote-control stop` misses a daemon started headless through conhost (watchdog, setup): it is ended by name
+_PS_STOP_AGY = ("Get-CimInstance Win32_Process -Filter \"Name='agy.exe'\" | "
+                "? { $_.CommandLine -match 'remote-control serve' } | % { Stop-Process -Id $_.ProcessId -Force }")
 # Restart from the wrapped entry: a daemon without a console makes Windows open a terminal window
 # for every console program it runs (hooks, MCP).
-_PS_RESTART_AGY = ("Get-CimInstance Win32_Process -Filter \"Name='agy.exe'\" | "
-                   "? { $_.CommandLine -match 'remote-control serve' } | % { Stop-Process -Id $_.ProcessId -Force }; "
+_PS_RESTART_AGY = (_PS_STOP_AGY + "; "
                    "Start-Process -FilePath $conhost -ArgumentList ('--headless ' + ($v -replace '^\"[^\"]+\" --headless ', ''))")
 
 
@@ -513,7 +515,7 @@ def remove(providers=None):
         report.append(("claude", True, "systemd user service removed"))
     if ours and "antigravity" in providers and (agy := P.find_exe("agy")):
         if P.IS_WINDOWS:
-            _run_once(f"& {_psq(agy)} remote-control stop *> $null; 'ok'", wait_s=60)
+            _run_once(f"& {_psq(agy)} remote-control stop *> $null; {_PS_STOP_AGY}; 'ok'", wait_s=60)
         else:
             P.run([agy, "remote-control", "stop"], timeout=60)
         report.append(("antigravity", True, "daemon stopped"))

@@ -28,6 +28,8 @@ change, what changed rather than how; dates are ISO 8601.
 - `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
 
 ### Fixed
+- Switching Antigravity off on Windows also ends its daemon when it was started hidden, not only through its own stop.
+- CI: the installer dry run uses `--skip=migrate`, and a full install, hook call and uninstall run end to end on Linux and macOS.
 - `models` says why a model could not be checked (for example a reached usage limit) instead of only "could not check".
 - The local classifier recognises accent-less, everyday Hungarian coding and opinion prompts ("javisd ki a hibat",
   "szerinted", "should i") instead of filing them as general requests.

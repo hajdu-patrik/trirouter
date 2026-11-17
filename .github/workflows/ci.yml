@@ -31,7 +31,10 @@ jobs:
       - name: Routing evaluation (Hungarian + English)
         run: python eval/eval_router.py
       - name: Installer dry run
-        run: python install.py --dry-run --yes --providers=claude,codex,antigravity --no-migrate
+        run: python install.py --dry-run --yes --providers=claude,codex,antigravity --skip=migrate
+      - name: End-to-end install in a scratch HOME (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: python tests/smoke_install.py
       - name: Package entry points
         run: |
           python -m trirouter --help
