@@ -34,6 +34,16 @@ state belongs in `~/.trirouter/`, never in the repo. Module notes and traps: `tr
   constraint). No decision history: that is the commit message and `CHANGELOG.md`.
 - Less code beats clever code: remove what nothing calls, share a helper only when it reads at least as well.
   pyflakes stays silent. The `coding-principles` skill and agent in `.claude/` run a clean-code pass.
+- One function, one job: a function that parses, decides and reports is split into named steps. Cyclomatic complexity
+  stays below 21 per function (`radon cc trirouter -n D` prints nothing); a refactor never changes behaviour or output.
+- Plain functions and data tables, no class hierarchies or patterns for their own sake: a class only where state and
+  behaviour belong together.
+- One definition per fact: `config.json` is read only through `platforms.read_config`, paths and processes only
+  through `platforms.py`, commands and flags only through `manual.py`.
+- Every change ships with its test, and a bug fix with the test that would have caught it. New code in a weakly
+  covered module (`doctor`, `remote`, `platforms`) raises that module's coverage, never lowers it.
+- Hashes that protect nothing say so (`usedforsecurity=False`); CI actions are pinned to a commit of their latest
+  release.
 
 ## Git
 
