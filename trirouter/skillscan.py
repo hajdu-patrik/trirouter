@@ -267,35 +267,41 @@ def _delete_entry(entry):
         side.unlink()
 
 
+def _purge_entry(r, apply, say):
+    """Deletes one quarantine entry (a dry run only reports it); False when it could not be deleted."""
+    try:
+        if apply:
+            _delete_entry(r["entry"])
+        say(("[DO]  " if apply else "[DRY] ") + f"skillscan: purge {r['name']} (quarantined {r['quarantined_at']:%Y-%m-%d})")
+    except OSError as exc:
+        say(f"[WARN] skillscan: could not purge {r['name']}: {exc}")
+        return False
+    return True
+
+
+def _drop_orphan_metadata():
+    """Deletes the quarantine's .json files whose skill folder is gone."""
+    if QUARANTINE.is_dir():
+        for f in QUARANTINE.glob("*.json"):
+            if f.is_file() and not f.is_symlink() and not (QUARANTINE / f.stem).exists():
+                f.unlink()
+
+
 def purge_expired(apply, now=None, days=None, say=print, everything=False):
     """Deletes quarantine entries older than the retention (all of them with `everything`); returns the
     names purged (or that a dry run would purge). `say=None` is silent (the hook). Never raises."""
-    now = now or utcnow()
+    now, say = now or utcnow(), say or (lambda _line: None)
     purged = []
     try:
         days = configured_days() if days is None else days
         if not days and not everything:
             return purged
-        for r in entries(apply, days):
-            if not everything and not (r["purge_at"] and r["purge_at"] <= now):
-                continue
-            try:
-                if apply:
-                    _delete_entry(r["entry"])
-                if say:
-                    say(("[DO]  " if apply else "[DRY] ") + f"skillscan: purge {r['name']} "
-                        f"(quarantined {r['quarantined_at']:%Y-%m-%d})")
-                purged.append(r["name"])
-            except OSError as exc:
-                if say:
-                    say(f"[WARN] skillscan: could not purge {r['name']}: {exc}")
-        if apply and QUARANTINE.is_dir():  # metadata whose folder is gone
-            for f in QUARANTINE.glob("*.json"):
-                if f.is_file() and not f.is_symlink() and not (QUARANTINE / f.stem).exists():
-                    f.unlink()
+        due = [r for r in entries(apply, days) if everything or (r["purge_at"] and r["purge_at"] <= now)]
+        purged += [r["name"] for r in due if _purge_entry(r, apply, say)]
+        if apply:
+            _drop_orphan_metadata()
     except Exception as exc:  # noqa: BLE001 - housekeeping must never break its caller
-        if say:
-            say(f"[WARN] skillscan: purge failed: {type(exc).__name__}")
+        say(f"[WARN] skillscan: purge failed: {type(exc).__name__}")
     return purged
 
 
@@ -394,6 +400,52 @@ def _summary():
             ("failed", "scan failed, linked unscanned until they change"))
 
 
+def _usable_scanner(count):
+    """(executable, version) of a SkillSpector that starts; (None, None) after warning that `count` skills go unscanned."""
+    exe = find_scanner()
+    if not exe:
+        print(f"[WARN] skillscan: SkillSpector not found - {count} skill(s) linked unscanned. Install: {INSTALL_HINT}")
+        return None, None
+    version = scanner_version(exe)
+    if isinstance(version, StartError):
+        hint = f" {UV_TOOL_HINT}" if "trampoline" in version.lower() else ""
+        print(f"[WARN] skillscan: SkillSpector does not start ({version}) - {count} skill(s) linked unscanned.{hint}")
+        return None, None
+    return exe, version
+
+
+def _outcome(name, r, allow, accept_flagged, cache):
+    """(group, label) of one verdict: (None, None) for a safe skill, "flagged" for a blocked one still to decide."""
+    rec, label = r.get("recommendation"), f"{name} ({r.get('score')})"
+    if "error" in r:
+        return "failed", f"{name} ({r['error']})"
+    if rec == SAFE:
+        return None, None
+    if rec == CAUTION:
+        return CAUTION, label
+    if rec != BLOCK:
+        return "unknown", f"{name} ({rec!r})"
+    if name in allow:
+        return "allowed", label
+    if r.get("accepted"):
+        return "kept earlier", label
+    if accept_flagged:
+        cache.get(name, {})["accepted"] = True
+        return "accepted", label
+    return "flagged", label
+
+
+def _print_groups(groups, brief, hub):
+    """One warning line per outcome group; `brief` counts the CAUTION skills instead of naming them."""
+    for outcome, text in _summary() + (("unknown", "unknown verdict, linked"),):
+        if brief and outcome == CAUTION and groups.get(outcome):
+            print(f"[WARN] skillscan: {len(groups[outcome])} {text} (`{P.command_hint('skills')}` names them)")
+        elif groups.get(outcome):
+            print(f"[WARN] skillscan: {len(groups[outcome])} {text}: {', '.join(groups[outcome])}")
+    if (groups.get(CAUTION) and not brief) or groups.get("unasked"):
+        print(f"  Review one: {EXE} scan \"{hub / '<name>'}\"")
+
+
 def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, accept_flagged=False,
          days=None, brief=False):
     """Scans the hub skills; returns the names that must not be linked. `choose(items)` picks, once and after all verdicts,
@@ -401,54 +453,23 @@ def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, acc
     allow = set(allow)
     if not skills:
         return set()
-    exe = find_scanner()
+    exe, version = _usable_scanner(len(skills))
     if not exe:
-        print(f"[WARN] skillscan: SkillSpector not found - {len(skills)} skill(s) linked unscanned. Install: {INSTALL_HINT}")
-        return set()
-    version = scanner_version(exe)
-    if isinstance(version, StartError):
-        hint = f" {UV_TOOL_HINT}" if "trampoline" in version.lower() else ""
-        print(f"[WARN] skillscan: SkillSpector does not start ({version}) - {len(skills)} skill(s) linked "
-              f"unscanned.{hint}")
         return set()
     cache = load_cache()
     print(f"skillscan: SkillSpector {version}, {'static + LLM' if llm else 'static'} analysis of {len(skills)} skill(s)")
     results, groups, flagged = verdicts(skills, exe, version, llm, cache), {}, []
     days = configured_days() if days is None else days
     for s in skills:
-        r = results[s.name]
-        rec, score = r.get("recommendation"), r.get("score")
-        if "error" in r:
-            outcome, label = "failed", f"{s.name} ({r['error']})"
-        elif rec == BLOCK:
-            label = f"{s.name} ({score})"
-            if s.name in allow:
-                outcome = "allowed"
-            elif r.get("accepted"):
-                outcome = "kept earlier"
-            elif accept_flagged:
-                cache.get(s.name, {})["accepted"] = True
-                outcome = "accepted"
-            else:
-                flagged.append((s, r))
-                continue
-        elif rec == CAUTION:
-            outcome, label = CAUTION, f"{s.name} ({score})"
-        elif rec == SAFE:
-            continue
-        else:
-            outcome, label = "unknown", f"{s.name} ({rec!r})"
-        groups.setdefault(outcome, []).append(label)
+        outcome, label = _outcome(s.name, results[s.name], allow, accept_flagged, cache)
+        if outcome == "flagged":
+            flagged.append((s, results[s.name]))
+        elif outcome:
+            groups.setdefault(outcome, []).append(label)
     if flagged:
         for (s, r), outcome in zip(flagged, _resolve_flagged(flagged, act, choose, cache, days)):
             groups.setdefault(outcome, []).append(f"{s.name} ({r.get('score')})")
-    for outcome, text in _summary() + (("unknown", "unknown verdict, linked"),):
-        if brief and outcome == CAUTION and groups.get(outcome):
-            print(f"[WARN] skillscan: {len(groups[outcome])} {text} (`{P.command_hint('skills')}` names them)")
-        elif groups.get(outcome):
-            print(f"[WARN] skillscan: {len(groups[outcome])} {text}: {', '.join(groups[outcome])}")
-    if (groups.get(CAUTION) and not brief) or groups.get("unasked"):
-        print(f"  Review one: {EXE} scan \"{skills[0].parent / '<name>'}\"")
+    _print_groups(groups, brief, skills[0].parent)
     blocked = {label.split(" (")[0] for label in groups.get("quarantined", [])}
     if blocked:
         print(f"skillscan: {len(blocked)} skill(s) quarantined: {', '.join(sorted(blocked))}; "
