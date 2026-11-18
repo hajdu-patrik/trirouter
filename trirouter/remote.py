@@ -33,7 +33,7 @@ SYSTEMD = P.HOME / ".config" / "systemd" / "user" / "trirouter-claude-remote.ser
 
 
 def load_config():
-    return P.read_json(CONFIG, {})
+    return P.read_config(CONFIG)
 
 
 def save_name(name, workdir=None, start_session=None):

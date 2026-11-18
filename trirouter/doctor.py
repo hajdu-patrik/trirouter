@@ -168,7 +168,7 @@ def report_command():
 
 def report_config():
     print("\n== Configuration (~/.trirouter/config.json)")
-    cfg = jload(STATE / "config.json") or {}
+    cfg = P.read_config(STATE / "config.json")
     line(True, "Decision backend", core.JEV_LABELS.get(core.jev_access(cfg)[0])
          or f"built-in local model ({P.command_hint('setup --jev-token-stdin')})")
     report_keys(cfg)
@@ -326,7 +326,7 @@ def report_activity():
         total = sum(c.values())
         line(True, "Delegation compliance", f"{c['followed']}/{total} turns used the advised worker, "
              f"{c['elsewhere']} another agent, {c['in_session']} answered in-session" if total else "no advised worker yet")
-    report_guard(jload(STATE / "config.json"))
+    report_guard(P.read_config(STATE / "config.json"))
 
 
 def main():

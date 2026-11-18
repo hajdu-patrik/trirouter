@@ -236,7 +236,7 @@ def true_tier(sample, table, default):
 
 
 def _fold_of(key, k):
-    return int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % k
+    return int(hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:8], 16) % k
 
 
 def training_set(user, base, held=()):
@@ -328,7 +328,7 @@ def log_fingerprint(path):
         with open(path, "rb") as fh:
             head = fh.read(4096)
             size = os.fstat(fh.fileno()).st_size
-        return size, hashlib.sha1(head).hexdigest()[:16]
+        return size, hashlib.sha1(head, usedforsecurity=False).hexdigest()[:16]
     except OSError:
         return 0, ""
 

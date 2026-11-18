@@ -355,6 +355,48 @@ def _word(ok, model_id=""):
     return {True: "available", False: "not available", None: "could not check"}[ok]
 
 
+def _check_new(provider, exe, listing, known, loc, res, today, banned, say):
+    """Models the list names and the router does not know: a hidden one is only recorded, the others are probed."""
+    for model_id, info in listing.items():
+        if model_id in known or model_id in loc:
+            continue
+        if info.get("hidden"):
+            loc[model_id] = new_entry(provider, model_id, info, False, today, banned)
+            res["hidden"].append(model_id)
+            say(f"  {model_id:<28} new, hidden in the model picker: recorded, not selected")
+            continue
+        ok = PROBES[provider](exe, model_id)
+        say(f"  {model_id:<28} new, {_word(ok, model_id)}")
+        if ok is None:
+            res["pending"].append(model_id)
+            continue
+        loc[model_id] = new_entry(provider, model_id, info, ok, today, banned)
+        res["added" if ok else "found_unavailable"].append(model_id)
+
+
+def _check_known(provider, exe, model_id, cat, loc, listed, full, res, today, say):
+    """One model the router knows: probed on a full check or when offered again, retired when no longer offered."""
+    entry = loc.get(model_id)
+    was = _selectable(cat, entry)
+    hidden = isinstance(entry, dict) and entry.get("hidden")
+    again = listed and isinstance(entry, dict) and entry.get("listed") is False
+    if (full and not hidden) or (not full and again):
+        ok = PROBES[provider](exe, model_id)
+        say(f"  {model_id:<28} {'' if full else 'offered again, '}{_word(ok, model_id)}")
+        if ok is None:
+            res["pending"].append(model_id)
+            return
+        _set(loc, model_id, selectable=ok, listed=listed, today=today)
+        if ok and (not full or not was):
+            res["restored"].append(model_id)
+        elif full and was and not ok:
+            res["removed"].append(model_id)
+    elif not full and not listed and was and provider != "claude":  # Claude's help names examples only: never retired
+        _set(loc, model_id, selectable=False, listed=False, today=today)
+        res["removed"].append(model_id)
+        say(f"  {model_id:<28} no longer offered: removed from the selection")
+
+
 def check_provider(provider, exe, catalog, local, mode, today, say):
     """Updates local[provider] in place; returns the result. Raises Unchecked when nothing could be learnt."""
     res = unchecked(provider, status="checked")
@@ -369,55 +411,13 @@ def check_provider(provider, exe, catalog, local, mode, today, say):
     selected = [i for i in ids if _selectable(known.get(i), loc.get(i))]
     if selected and not any(_is_listed(provider, i, known.get(i), listing) for i in selected):
         raise Unchecked("the list names none of the models in use; not trusted")
-    probe = PROBES[provider]
+    _check_new(provider, exe, listing, known, loc, res, today, banned, say)
     full = mode == "probe" and provider == "codex"
-    retires = provider != "claude"  # Claude's help names examples only, so an alias it leaves out is not retired
-
-    for model_id, info in listing.items():  # new models
-        if model_id in known or model_id in loc:
-            continue
-        if info.get("hidden"):
-            loc[model_id] = new_entry(provider, model_id, info, False, today, banned)
-            res["hidden"].append(model_id)
-            say(f"  {model_id:<28} new, hidden in the model picker: recorded, not selected")
-            continue
-        ok = probe(exe, model_id)
-        say(f"  {model_id:<28} new, {_word(ok, model_id)}")
-        if ok is None:
-            res["pending"].append(model_id)
-            continue
-        loc[model_id] = new_entry(provider, model_id, info, ok, today, banned)
-        res["added" if ok else "found_unavailable"].append(model_id)
-
-    for model_id in ids:  # models the router already knows
-        cat, entry = known.get(model_id), loc.get(model_id)
-        if cat is not None and not cat.get("routable", True):
-            continue
-        was, listed = _selectable(cat, entry), _is_listed(provider, model_id, cat, listing)
-        if full:
-            if isinstance(entry, dict) and entry.get("hidden"):
-                continue
-            ok = probe(exe, model_id)
-            say(f"  {model_id:<28} {_word(ok, model_id)}")
-            if ok is None:
-                res["pending"].append(model_id)
-            else:
-                _set(loc, model_id, selectable=ok, listed=listed, today=today)
-                if was != ok:
-                    res["restored" if ok else "removed"].append(model_id)
-        elif listed and isinstance(entry, dict) and entry.get("listed") is False:  # offered again
-            ok = probe(exe, model_id)
-            say(f"  {model_id:<28} offered again, {_word(ok, model_id)}")
-            if ok is None:
-                res["pending"].append(model_id)
-            else:
-                _set(loc, model_id, selectable=ok, listed=True, today=today)
-                if ok:
-                    res["restored"].append(model_id)
-        elif not listed and was and retires:  # no longer offered
-            _set(loc, model_id, selectable=False, listed=False, today=today)
-            res["removed"].append(model_id)
-            say(f"  {model_id:<28} no longer offered: removed from the selection")
+    for model_id in ids:
+        cat = known.get(model_id)
+        if cat is None or cat.get("routable", True):
+            _check_known(provider, exe, model_id, cat, loc, _is_listed(provider, model_id, cat, listing), full, res,
+                         today, say)
     if not loc:
         local.pop(provider, None)
     return res

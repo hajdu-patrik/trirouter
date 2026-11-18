@@ -221,6 +221,12 @@ def read_json(path, default=None, encoding="utf-8", kind=None):
     return data if kind is None or isinstance(data, kind) else default
 
 
+def read_config(path=None):
+    """The user's config.json (the state folder's, or `path`) as a dict: {} when it is missing, broken or not an
+    object. A UTF-8 BOM (an editor may add one) is accepted. Never raises."""
+    return read_json(path or state_dir() / "config.json", {}, encoding="utf-8-sig", kind=dict)
+
+
 def atomic_write(path, text, mode=None, newline=None, encoding="utf-8"):
     """Writes `text` (str or bytes) through a temporary file in the same folder and os.replace, so an interrupt never
     leaves a half-written file. `mode` is applied before the swap; a symlink target is written through."""

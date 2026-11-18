@@ -21,6 +21,8 @@ change, what changed rather than how; dates are ISO 8601.
   `--openrouter-key` (use `--jev-token-stdin`); each now says what replaces it.
 
 ### Changed
+- `config.json` is read the same way everywhere: a file saved with a byte-order mark or holding something other
+  than an object no longer breaks a command or silently drops the settings.
 - A huge pasted prompt is routed faster: plain-ASCII text skips the accent folding and the safety check runs once.
 - A `setup` re-run reports only what changed: no up-to-date lines, no one-time steps, no repeated questions except a
   missing JEV key, and the CAUTION skills are counted (`trirouter skills` names them).
@@ -28,6 +30,7 @@ change, what changed rather than how; dates are ISO 8601.
 - `python -m trirouter` without a command shows the overview; only `python install.py` starts setup.
 
 ### Fixed
+- README lists `providers` and `uninstall` among the everyday commands.
 - Switching Antigravity off on Windows also ends its daemon when it was started hidden, not only through its own stop.
 - CI: the installer dry run uses `--skip=migrate`, and a full install, hook call and uninstall run end to end on Linux and macOS.
 - `models` says why a model could not be checked (for example a reached usage limit) instead of only "could not check".

@@ -162,9 +162,8 @@ def parse_patterns(value):
 def catalog_only_patterns():
     """config.json -> skills.catalog_only; hub linking and the catalog both read it. Never raises: hooks call it."""
     try:
-        cfg = json.loads((P.state_dir() / "config.json").read_text(encoding="utf-8"))
-        return parse_patterns(cfg["skills"]["catalog_only"])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return parse_patterns(P.read_config()["skills"]["catalog_only"])
+    except (KeyError, TypeError, AttributeError):
         return []
 
 

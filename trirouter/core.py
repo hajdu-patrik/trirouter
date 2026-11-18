@@ -382,7 +382,7 @@ def load_json(name, default):
 
 
 def user_config():
-    return platforms.read_json(STATE_DIR / "config.json", {}, kind=dict)
+    return platforms.read_config(STATE_DIR / "config.json")
 
 
 def disconnected(cfg=None):
@@ -967,38 +967,50 @@ def apply_family_cap(result, cc, cap, why):
         result["model"] = cap
 
 
-def decide(answers, routes, skills_by_name=None, prompt=""):
-    """'primary' is a tier name; render() turns it into a concrete agent/model/text. `prompt` (the user's own
-    words) feeds the code-work bump and the short-chat rule."""
-    task = answers["task"]
-    diff = answers["difficulty"]
+def _difficulty_level(answers, prompt):
+    """The difficulty as a level; an unsure score or real code work is never treated as trivial."""
+    task, diff = answers["task"], answers["difficulty"]
     level = max(0, min(int(round(float(diff.get("score", 1)))), len(DIFFICULTY) - 1))
     if float(diff.get("confidence", 0)) < MIN_CONF:
         level = max(level, 1)
     if prompt and task.get("choice") in ("code", "test") and CODE_WORK_RE.search(prompt):
         level = max(level, 1)
+    return level
 
-    notes = []
+
+def _target_tier(answers, routes, level):
+    """(the route table's target for the task, notes): the default when the task is unsure, the long-context tier."""
+    task, notes = answers["task"], []
     if float(task.get("confidence", 0)) < MIN_CONF:
         target = routes.get("default", "main")
         notes.append("routing uncertain")
     else:
         target = tier_of(routes, task["choice"], level, verify=True)
-
     if float(answers["long_context"]["noul"]) >= LONG_CTX_T and task["choice"] in ("study", "qa", "general", "research"):
         target = routes.get("long_context_target", "deep")
     if float(answers["needs_web"]["noul"]) >= LONG_CTX_T:
         notes.append("needs current information: use web search")
+    return target, notes
 
-    primary, _, verify = target.partition("+verify:")
-    primary, verify = apply_cloud(primary, verify, routes)
 
-    skill = None
+def _chosen_skill(answers):
+    """The skill JEV picked, when it is sure of the pick and of that skill's own yes/no question."""
     s = answers.get("skill")
     if s and s.get("choice") not in (None, "none") and float(s.get("confidence", 0)) >= MIN_CONF:
         if float(answers.get(safe_key(s["choice"]), {}).get("noul", 0)) >= 0.5:
-            skill = s["choice"]
+            return s["choice"]
+    return None
 
+
+def decide(answers, routes, skills_by_name=None, prompt=""):
+    """'primary' is a tier name; render() turns it into a concrete agent/model/text. `prompt` (the user's own
+    words) feeds the code-work bump and the short-chat rule."""
+    task = answers["task"]
+    level = _difficulty_level(answers, prompt)
+    target, notes = _target_tier(answers, routes, level)
+    primary, _, verify = target.partition("+verify:")
+    primary, verify = apply_cloud(primary, verify, routes)
+    skill = _chosen_skill(answers)
     result = {
         "task": task["choice"], "task_conf": round(float(task.get("confidence", 0)), 2), "level": level,
         "primary": primary, "verify": verify, "skill": skill,
@@ -1299,8 +1311,16 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     d = decide(answers, routes, by_name, prompt=own)
     if inline_reason:
         force_inline(d, inline_reason)
+    _record_origin(d, answers, None if inline_reason else fast, lang_code, candidates)
+    jev_hit = d["destructive_p"] is not None and d["destructive_p"] >= DESTRUCTIVE_T and not is_drafting(own)
+    hit = regex_hit or jev_hit
+    return d, render(d, hit, targets, provider, lang_code, models, session_model), hit, error
+
+
+def _record_origin(d, answers, fast, lang_code, candidates):
+    """Adds to the decision how it was made: backend, fast path, cache hit, language, skill candidates, JEV model."""
     d["backend"] = answers.get("_backend", "local")
-    if fast and not inline_reason:
+    if fast:
         d["fast_path"] = fast
     if answers.get("_cached"):
         d["cached"] = True
@@ -1308,9 +1328,6 @@ def route(prompt, provider, backend=None, session_model=None, previous=None):
     d["skill_candidates"] = [s["name"] for _, s in candidates[:5]]
     if answers.get("_jev_model"):
         d["jev_model"] = answers["_jev_model"]
-    jev_hit = d["destructive_p"] is not None and d["destructive_p"] >= DESTRUCTIVE_T and not is_drafting(own)
-    hit = regex_hit or jev_hit
-    return d, render(d, hit, targets, provider, lang_code, models, session_model), hit, error
 
 
 def tier_of(routes, task, level, verify=False):

@@ -162,10 +162,10 @@ def configured_days(cfg=None, default=DEFAULT_DAYS):
     """`skillscan.quarantine_days` of config.json (or of a parsed `cfg`); never raises."""
     try:
         if cfg is None:
-            cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+            cfg = P.read_config(CONFIG)
         days = cfg["skillscan"]["quarantine_days"]
         return min(days, MAX_INT) if isinstance(days, int) and not isinstance(days, bool) and days >= 0 else default
-    except (OSError, ValueError, KeyError, TypeError):
+    except (KeyError, TypeError):
         return default
 
 
@@ -396,9 +396,8 @@ def _summary():
 
 def gate(skills, act, apply, llm=False, allow=(), choose=lambda items: None, accept_flagged=False,
          days=None, brief=False):
-    """Scan the given hub skills; returns the names that must not be linked. `choose(items)` is asked once,
-    after all verdicts, which flagged skills to quarantine: a set of names, or None when nobody can be asked.
-    `brief` counts the CAUTION skills instead of naming them."""
+    """Scans the hub skills; returns the names that must not be linked. `choose(items)` picks, once and after all verdicts,
+    the flagged skills to quarantine (a set of names; None: nobody to ask). `brief` counts CAUTION skills, not names."""
     allow = set(allow)
     if not skills:
         return set()

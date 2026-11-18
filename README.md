@@ -48,6 +48,8 @@ that never reaches the model (`ROUTER_WELCOME=0` turns it off). The everyday com
 | `trirouter models` | find new models, drop retired ones; `--main=sonnet` sets Claude Code's session model |
 | `trirouter sync` | after a pull or a change: tab completion, agents, skill catalog, docs |
 | `trirouter route --json "<text>"` | the routing decision for one prompt, from a script |
+| `trirouter providers disable codex` | switch the router off in one tool (`enable` on again, `status` lists them) |
+| `trirouter uninstall` | remove hooks, MCP entries, remote access and the command; skills stay in `~/.skills` |
 
 One-time steps: Codex runs a new hook only after you trust it (`codex` → `/hooks`). For Claude desktop *Chat/Cowork*
 (no hooks there) restart the app and add to *Settings → Profile → Personal preferences*: *"Before answering any new

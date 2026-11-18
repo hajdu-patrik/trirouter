@@ -210,9 +210,8 @@ def welcome_line(payload):
 
 
 def session_start_output(provider, raw):
-    """Starts the hook daemon (http transport) and the daily model check when due, tells the session once what the check
-    changed, starts the quarantine purge, greets the user. Stdout's context part reaches the model, systemMessage does
-    not, so the greeting costs no tokens."""
+    """Starts the hook daemon and the due daily model check, reports once what the check changed, starts the quarantine
+    purge, greets the user. Only stdout's context part reaches the model: the systemMessage greeting costs no tokens."""
     payload = _json_object(raw, {})
     if provider == "claude":
         start_daemon()

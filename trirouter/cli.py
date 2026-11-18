@@ -72,7 +72,7 @@ def ask(question, default="y"):
 
 
 def load_config():
-    return P.read_json(CONFIG, {})
+    return P.read_config(CONFIG)
 
 
 def save_config(cfg):
@@ -94,24 +94,27 @@ def print_report(found):
         say(f"{info['label']:<26}{'yes' if info['installed'] else 'no':<11}{li:<11}{info['version'] or ''}")
 
 
+def wait_for_login(provider, info):
+    """Asks until the tool is logged in or the user skips it; `info` is refreshed in place."""
+    spec = P.PROVIDERS[provider]
+    while info["logged_in"] is False and not YES and interactive():
+        say(f"\n  {spec['label']} is installed but NOT logged in. In another terminal run:\n      {spec['login']}")
+        if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
+            break
+        info.update(P.detect_one(provider))
+
+
 def detect_and_login(chosen, skip=()):
     say("== 1/5  Detecting AI tools (this can take a minute: Antigravity is asked for its model list)")
     found = P.detect()
     print_report(found)
-    for p, info in found.items():
-        spec = P.PROVIDERS[p]
-        if p in skip or (chosen is not None and p not in chosen):
-            continue
-        if not info["installed"]:
-            say(f"\n  {spec['label']} is not installed - optional. Install: {spec['install']}")
-            continue
-        while info["logged_in"] is False and not YES and interactive():
-            say(f"\n  {spec['label']} is installed but NOT logged in. In another terminal run:\n      {spec['login']}")
-            if ask_line("  Press Enter when done (s = skip this tool): ").strip().lower() == "s":
-                break
-            info.update(P.detect_one(p))
-    ready = [p for p, i in found.items() if (chosen is None or p in chosen) and p not in skip and i["installed"]
-             and i["logged_in"] is not False]
+    wanted = [p for p in found if p not in skip and (chosen is None or p in chosen)]
+    for p in wanted:
+        if found[p]["installed"]:
+            wait_for_login(p, found[p])
+        else:
+            say(f"\n  {P.PROVIDERS[p]['label']} is not installed - optional. Install: {P.PROVIDERS[p]['install']}")
+    ready = [p for p in wanted if found[p]["installed"] and found[p]["logged_in"] is not False]
     if DRY and chosen is not None and ready != chosen:  # a preview of named tools works without them (CI)
         say(f"\n  Dry run: previewing {', '.join(p for p in chosen if p not in ready)} as well; "
             "a real run skips a tool that is not installed or not logged in.")
@@ -385,17 +388,26 @@ def set_claude_models(main, sub):
     return 0
 
 
-def run_models():
+def apply_model_settings():
+    """--main / --subagent-model / --auto; the exit status when they were the whole command, None when a check follows."""
     main, sub = (FLAGS.get(f) if isinstance(FLAGS.get(f), str) else None for f in ("--main", "--subagent-model"))
+    auto = FLAGS.get("--auto") if isinstance(FLAGS.get("--auto"), str) else None
+    check_follows = "--discover" in FLAGS
     if main or sub:
         code = set_claude_models(main and main.strip().lower(), sub and sub.strip().lower())
-        if code or ("--discover" not in FLAGS and not isinstance(FLAGS.get("--auto"), str)):
+        if code or not (check_follows or auto):
             return code
-    auto = FLAGS.get("--auto")
-    if isinstance(auto, str):
+    if auto:
         set_model_auto(auto)
-        if "--discover" not in FLAGS:
+        if not check_follows:
             return 0
+    return None
+
+
+def run_models():
+    code = apply_model_settings()
+    if code is not None:
+        return code
     mode = "discover" if "--discover" in FLAGS else "probe"
     say(("Daily model check" if mode == "discover" else "Full model check (every Codex model gets a one-word prompt, "
          "about 10-60 s each)") + (" - dry run, nothing is saved" if DRY else ""))
@@ -637,35 +649,50 @@ def run_providers(key):
 def reconnect(names):
     """`providers enable`: hooks, MCP entries, skill links, worker agents and (when set up) remote access."""
     found, cfg = P.detect(deep=False), load_config()
-    missing = [p for p in names if not found[p]["installed"]]
-    for p in missing:
-        say(f"[!!]  {P.PROVIDERS[p]['label']} is not installed: {P.PROVIDERS[p]['install']}")
-    ready = list(names) if DRY else [p for p in names if p not in missing]
+    ready, missing = connectable(names, found)
     if not ready:
         return 1
-    w = integrations.install(ready, apply=not DRY, launcher=False)
+    failed = integrations.install(ready, apply=not DRY, launcher=False).failed
     off = [p for p in core.disconnected(cfg) if p not in ready]
-    hub.PROVIDERS = tuple(p for p, i in found.items() if (i["installed"] or p in ready) and p not in off)
-    hub.APPLY = not DRY
-    scan_settings(cfg, persist=False)
-    hub.SCAN["brief"] = True
-    hub.cmd_link()
-    hub.cmd_agents()
-    failed = w.failed
+    usable = [p for p in ALL if found[p]["installed"] or p in ready]
+    relink_hub(tuple(p for p in usable if p not in off), cfg)
     if cfg.get("remote_name"):
         failed += report(remote.setup(cfg["remote_name"], ready, apply=not DRY, workdir=remote_workdir(cfg)))
     if DRY:
         say("Dry run: nothing was changed.")
         return 1 if failed or missing else 0
-    cfg = load_config()
-    cfg["disconnected"] = off
-    if not off:
-        cfg.pop("disconnected")
-    save_config(cfg)
+    save_disconnected(off)
     say(f"Connected: {', '.join(ready)}.")
     if "codex" in ready:
         say("Codex runs a new hook only after you trust it once: run `codex`, type /hooks, trust the router hooks.")
     return 1 if failed or missing else 0
+
+
+def connectable(names, found):
+    """(the tools to connect, the named ones that are not installed and were reported); a dry run previews them all."""
+    missing = [p for p in names if not found[p]["installed"]]
+    for p in missing:
+        say(f"[!!]  {P.PROVIDERS[p]['label']} is not installed: {P.PROVIDERS[p]['install']}")
+    return (list(names) if DRY else [p for p in names if p not in missing]), missing
+
+
+def save_disconnected(names):
+    """Stores the switched-off tools in config.json; the key goes when none is left."""
+    cfg = load_config()
+    cfg.pop("disconnected", None)
+    if names:
+        cfg["disconnected"] = names
+    save_config(cfg)
+
+
+def relink_hub(providers, cfg):
+    """Skill links and worker agents for exactly these tools, with the saved scan settings."""
+    hub.PROVIDERS = providers
+    hub.APPLY = not DRY
+    scan_settings(cfg, persist=False)
+    hub.SCAN["brief"] = True
+    hub.cmd_link()
+    hub.cmd_agents()
 
 
 def disconnect(names):
@@ -676,9 +703,7 @@ def disconnect(names):
         say("Dry run: nothing was removed.")
         return 1 if w.failed else 0
     report(remote.remove(names))
-    cfg = load_config()
-    cfg["disconnected"] = core.disconnected({"disconnected": core.disconnected(cfg) + names})
-    save_config(cfg)
+    save_disconnected(core.disconnected({"disconnected": core.disconnected(load_config()) + names}))
     say(f"Switched off: {', '.join(names)}. setup, remote and the daily model check leave them alone until "
         f"`{P.command_hint('providers enable ' + ' '.join(names))}` connects them again.")
     return 1 if w.failed else 0

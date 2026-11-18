@@ -58,6 +58,39 @@ def _unknown(name, cmd, prog):
     return UsageError(msg, "\n".join(hints))
 
 
+def _long_flag(cmd, args, i, by_long, prog, command_names):
+    """(value, extra tokens used) of the long flag at args[i]: True for a switch or an optional value left out."""
+    name, eq, val = args[i].partition("=")
+    f = by_long.get(name)
+    if f is None:
+        raise _unknown(name, cmd, prog)
+    options = f"Run `{prog} help {cmd.key}` for the options."
+    if not f.value:
+        if eq:
+            raise UsageError(f"{cmd.key}: {name} does not take a value", options)
+        return True, 0
+    if eq:
+        return _check_value(f, val, cmd), 0
+    nxt = args[i + 1] if i + 1 < len(args) else None
+    if f.optional:
+        takes = nxt is not None and not nxt.startswith("-") and nxt not in command_names
+        return (nxt, 1) if takes else (True, 0)
+    if nxt is None or (nxt.startswith("-") and nxt != "-"):
+        raise UsageError(f"{cmd.key}: {name} needs a value ({name}={f.value})", options)
+    return _check_value(f, nxt, cmd), 1
+
+
+def _short_flags(cmd, token, by_short, prog):
+    """The long names of the switches combined in one token such as -yn."""
+    for ch in token[1:]:
+        f = by_short.get("-" + ch)
+        if f is None:
+            raise UsageError(f"{cmd.key}: unknown option -{ch}", f"Run `{prog} help {cmd.key}` for the options.")
+        if f.value:
+            raise UsageError(f"{cmd.key}: -{ch} needs a value; use {f.long}={f.value}")
+        yield f.long
+
+
 def parse_flags(cmd, args, prog, command_names=()):
     """(flags, positional) of `args` for one command; flags are keyed by their long form."""
     by_long = {f.long: f for f in manual.all_flags(cmd)}
@@ -69,38 +102,10 @@ def parse_flags(cmd, args, prog, command_names=()):
             pos += args[i + 1:]
             break
         if a.startswith("--"):
-            name, eq, val = a.partition("=")
-            f = by_long.get(name)
-            if f is None:
-                raise _unknown(name, cmd, prog)
-            if not f.value:
-                if eq:
-                    raise UsageError(f"{cmd.key}: {name} does not take a value", f"Run `{prog} help {cmd.key}` for the options.")
-                flags[name] = True
-            elif eq:
-                flags[name] = _check_value(f, val, cmd)
-            elif f.optional:
-                nxt = args[i + 1] if i + 1 < len(args) else None
-                if nxt is not None and not nxt.startswith("-") and nxt not in command_names:
-                    flags[name] = nxt
-                    i += 1
-                else:
-                    flags[name] = True
-            else:
-                nxt = args[i + 1] if i + 1 < len(args) else None
-                if nxt is None or (nxt.startswith("-") and nxt != "-"):
-                    raise UsageError(f"{cmd.key}: {name} needs a value ({name}={f.value})",
-                                     f"Run `{prog} help {cmd.key}` for the options.")
-                flags[name] = _check_value(f, nxt, cmd)
-                i += 1
+            flags[a.partition("=")[0]], used = _long_flag(cmd, args, i, by_long, prog, command_names)
+            i += used
         elif a.startswith("-") and len(a) > 1:
-            for ch in a[1:]:
-                f = by_short.get("-" + ch)
-                if f is None:
-                    raise UsageError(f"{cmd.key}: unknown option -{ch}", f"Run `{prog} help {cmd.key}` for the options.")
-                if f.value:
-                    raise UsageError(f"{cmd.key}: -{ch} needs a value; use {f.long}={f.value}")
-                flags[f.long] = True
+            flags.update(dict.fromkeys(_short_flags(cmd, a, by_short, prog), True))
         else:
             pos.append(a)
         i += 1
@@ -149,16 +154,8 @@ def suggest(word, choices):
     return f"did you mean {near[0]}?" if near else ""
 
 
-def resolve(argv, prog, install_py=False):
-    """The Invocation for argv. `install_py`: python install.py, where no command means setup and flags may precede it."""
-    args = list(argv)
-    names = tuple(manual.ORDER)
-    if not args:
-        return Invocation("run", "setup") if install_py else Invocation("overview")
-    if args[0] in ("-h", "--help"):
-        return Invocation("overview")
-    if args[0] in ("-V", "--version"):
-        return Invocation("version")
+def _pick_command(args, names, prog, install_py):
+    """(command, the other tokens): the first token, or for install.py the first non-flag one (default: setup)."""
     if not args[0].startswith("-"):
         cmd, rest = args[0], args[1:]
     else:
@@ -177,21 +174,60 @@ def resolve(argv, prog, install_py=False):
     if cmd not in manual.COMMANDS or " " in cmd:
         raise UsageError(f"unknown command {cmd!r}", " ".join(
             x for x in (suggest(cmd, names), f"Run `{prog} help` for the command list.") if x))
+    return cmd, rest
+
+
+def _pick_subcommand(cmd, rest, head, wants_help, prog):
+    """(command key, help page, tokens without the subcommand); a command without subcommands is its own key."""
+    subs = manual.SUBCOMMANDS.get(cmd)
+    if not subs:
+        return cmd, cmd, rest
+    at = _first_word(head, cmd)
+    if at is None:
+        return f"{cmd} {manual.DEFAULT_SUBCOMMAND[cmd]}", cmd, rest
+    first = head[at]
+    if first in subs:
+        return f"{cmd} {first}", f"{cmd} {first}", rest[:at] + rest[at + 1:]
+    if not wants_help:
+        raise UsageError(f"{cmd}: unknown subcommand {first!r}", " ".join(
+            x for x in (suggest(first, subs), f"Run `{prog} help {cmd}` for the subcommands.") if x))
+    return cmd, cmd, rest
+
+
+def _checked_positional(key, command, pos, prog):
+    """`pos` validated against the command: none where none is taken, known names lowercased and deduplicated."""
+    if pos and not command.positional:
+        raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
+    if key == "quarantine restore" and not pos:
+        raise UsageError("quarantine restore: give the name of at least one quarantined skill",
+                         f"Run `{prog} quarantine` to list them.")
+    if not command.positional_choices:
+        return pos
+    if not pos:
+        raise UsageError(f"{key}: name at least one of {', '.join(command.positional_choices)}",
+                         f"Run `{prog} help {key}` for the usage.")
+    pos = [p.lower() for p in pos]
+    bad = next((p for p in pos if p not in command.positional_choices), None)
+    if bad:
+        raise UsageError(f"{key}: unknown name {bad!r}", " ".join(x for x in (
+            suggest(bad, command.positional_choices), f"expected {', '.join(command.positional_choices)}") if x))
+    return list(dict.fromkeys(pos))
+
+
+def resolve(argv, prog, install_py=False):
+    """The Invocation for argv. `install_py`: python install.py, where no command means setup and flags may precede it."""
+    args = list(argv)
+    names = tuple(manual.ORDER)
+    if not args:
+        return Invocation("run", "setup") if install_py else Invocation("overview")
+    if args[0] in ("-h", "--help"):
+        return Invocation("overview")
+    if args[0] in ("-V", "--version"):
+        return Invocation("version")
+    cmd, rest = _pick_command(args, names, prog, install_py)
     head = rest[:rest.index("--")] if "--" in rest else rest
     wants_help = any(a in ("-h", "--help") for a in head)
-    key, page = cmd, cmd
-    subs = manual.SUBCOMMANDS.get(cmd)
-    if subs:
-        at = _first_word(head, cmd)
-        first = None if at is None else head[at]
-        if first in subs:
-            key = page = f"{cmd} {first}"
-            rest = rest[:at] + rest[at + 1:]
-        elif first is not None and not wants_help:
-            raise UsageError(f"{cmd}: unknown subcommand {first!r}", " ".join(
-                x for x in (suggest(first, subs), f"Run `{prog} help {cmd}` for the subcommands.") if x))
-        elif first is None:
-            key = f"{cmd} {manual.DEFAULT_SUBCOMMAND[cmd]}"
+    key, page, rest = _pick_subcommand(cmd, rest, head, wants_help, prog)
     if cmd == "help":
         flags, pos = parse_flags(manual.COMMANDS["help"], rest, prog)
         return _help_invocation(flags, pos, prog)
@@ -200,23 +236,7 @@ def resolve(argv, prog, install_py=False):
     flags, pos = parse_flags(manual.COMMANDS[key], rest, prog, names)
     if flags.pop("--help", None):  # -h inside a combined short flag (-nh)
         return Invocation("help", page)
-    command = manual.COMMANDS[key]
-    if pos and not command.positional:
-        raise UsageError(f"{key}: unexpected argument {pos[0]!r}", f"Run `{prog} help {key}` for the usage.")
-    if key == "quarantine restore" and not pos:
-        raise UsageError("quarantine restore: give the name of at least one quarantined skill",
-                         f"Run `{prog} quarantine` to list them.")
-    if command.positional_choices:
-        if not pos:
-            raise UsageError(f"{key}: name at least one of {', '.join(command.positional_choices)}",
-                             f"Run `{prog} help {key}` for the usage.")
-        pos = [p.lower() for p in pos]
-        bad = next((p for p in pos if p not in command.positional_choices), None)
-        if bad:
-            raise UsageError(f"{key}: unknown name {bad!r}", " ".join(x for x in (
-                suggest(bad, command.positional_choices), f"expected {', '.join(command.positional_choices)}") if x))
-        pos = list(dict.fromkeys(pos))
-    return Invocation("run", key, flags, pos)
+    return Invocation("run", key, flags, _checked_positional(key, manual.COMMANDS[key], pos, prog))
 
 
 def _help_invocation(flags, pos, prog):

@@ -137,16 +137,6 @@ def scrub_config(cfg):
     return {k: v for k, v in cfg.items() if k not in plaintext_fields(cfg)}
 
 
-def restrict(path):
-    """Owner-only (0600) on POSIX; on Windows the user profile's ACL already limits the folder."""
-    if IS_WINDOWS:
-        return
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
-
-
 def mode_is_private(path):
     """False when a POSIX file is readable by group or others; always True on Windows."""
     if IS_WINDOWS:
