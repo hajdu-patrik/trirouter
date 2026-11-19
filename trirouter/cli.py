@@ -594,6 +594,40 @@ def run_setup():
     return 1 if failed else 0
 
 
+def add_remote_folder(value):
+    """--add-folder NAME=DIR; False (and why) when NAME or DIR is not usable."""
+    name, sep, wd = value.partition("=")
+    name, wd = name.strip(), wd.strip()
+    if not sep or not remote.valid_folder_name(name) or not wd:
+        say(f"--add-folder needs NAME=DIR, NAME made of letters, digits, '.', '_' or '-' (got {value!r})")
+        return False
+    folder = Path(wd).expanduser().resolve()
+    if not folder.is_dir():
+        say(f"--add-folder: {folder} is not a folder")
+        return False
+    if not DRY:
+        remote.save_folder(name, folder)
+    say(f"{'[DRY] would add' if DRY else 'Added'} remote folder \"{name}\": {folder}")
+    return True
+
+
+def drop_remote_folder(name):
+    if DRY:
+        say(f"[DRY] would remove remote folder \"{name}\" and stop its server")
+        return True
+    if not remote.remove_folder(name):
+        say(f"--remove-folder: no remote folder named {name!r}")
+        return False
+    say(f"Removed remote folder \"{name}\" and its server")
+    return True
+
+
+def change_remote_folders():
+    """Applies --remove-folder, then --add-folder, before the services are (re)created; False on a bad value."""
+    add, drop = FLAGS.get("--add-folder"), FLAGS.get("--remove-folder")
+    return (not isinstance(drop, str) or drop_remote_folder(drop)) and (not isinstance(add, str) or add_remote_folder(add))
+
+
 def run_remote():
     if "--remove" in FLAGS:
         if DRY:
@@ -609,6 +643,8 @@ def run_remote():
     providers = [p for p, i in found.items() if i["installed"] and p not in core.disconnected(cfg)]
     if not providers:
         say("No AI tool is installed: nothing to reach remotely. Install Claude Code, Codex or Antigravity first.")
+        return 1
+    if not change_remote_folders():
         return 1
     name = FLAGS.get("--name") if isinstance(FLAGS.get("--name"), str) else (cfg.get("remote_name") or P.hostname())
     start = FLAGS.get("--start-session")

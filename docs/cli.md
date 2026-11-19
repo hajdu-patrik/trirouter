@@ -394,15 +394,20 @@ Set up or remove phone / other-device access.
 
 ```
 trirouter remote [--name=NAME] [--workdir=DIR] [--start-session=on|off] [-n]
+trirouter remote [--add-folder=NAME=DIR] [--remove-folder=NAME] [--start-session=on|off] [-n]
 trirouter remote --remove [-n]
 ```
 
 Starts each tool's own remote service at logon (Claude Code Remote Control, Antigravity, Codex) under one machine name. Only the connection opens; sessions start from the Claude app, claude.ai/code, the ChatGPT app or antigravity.google.com. See docs/remote-access.md.
 
+With folders added (--add-folder, once per folder), Claude gets one Remote Control server per folder, named after it, in place of the single --workdir server; with --start-session=on each pre-creates its own named session at logon.
+
 | Flag | Value | Default | Remembered | Description |
 | --- | --- | --- | --- | --- |
 | `--name` | `NAME` | saved name or hostname | yes (remote_name) | The machine name shown on your other devices. |
 | `--workdir` | `DIR` | saved folder or the checkout | yes (remote_workdir) | Folder remote Claude sessions start in; it must be a trusted Claude Code folder. |
+| `--add-folder` | `NAME=DIR` | none | yes (remote_folders) | Give the trusted Claude Code folder DIR its own Remote Control server named NAME (letters, digits, '.', '_', '-'); an existing NAME moves to DIR. |
+| `--remove-folder` | `NAME` | none | yes (remote_folders) | Forget a folder added with --add-folder and stop its server; without folders the single --workdir server returns. |
 | `--start-session` | `on|off` | off | yes (remote_start_session) | Also pre-create one Claude session at every logon (on) or only keep the connection (off). |
 | `--remove` | - | off | no | Remove the remote-access services instead of creating them. |
 | `-n`, `--dry-run` | - | off | no | Show what would change and change nothing, config.json included. |
@@ -413,6 +418,8 @@ Starts each tool's own remote service at logon (Claude Code Remote Control, Anti
 trirouter remote --name "My PC"    # set up under a name
 trirouter remote --name "My PC" --workdir ~/code    # choose the working folder
 trirouter remote --start-session=on    # also pre-create a Claude session at logon
+trirouter remote --add-folder "web=~/code/web" --start-session=on    # a named session in that folder
+trirouter remote --remove-folder web    # drop that folder's server
 trirouter remote --remove    # undo
 ```
 

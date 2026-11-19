@@ -274,14 +274,25 @@ _add(key="quarantine purge", summary="Delete expired quarantine entries now",
      see_also=("quarantine list", "skills"))
 
 _add(key="remote", summary="Set up or remove phone / other-device access",
-     synopsis=("{prog} remote [--name=NAME] [--workdir=DIR] [--start-session=on|off] [-n]", "{prog} remote --remove [-n]"),
+     synopsis=("{prog} remote [--name=NAME] [--workdir=DIR] [--start-session=on|off] [-n]",
+               "{prog} remote [--add-folder=NAME=DIR] [--remove-folder=NAME] [--start-session=on|off] [-n]",
+               "{prog} remote --remove [-n]"),
      description="Starts each tool's own remote service at logon (Claude Code Remote Control, Antigravity, Codex) under "
                  "one machine name. Only the connection opens; sessions start from the Claude app, claude.ai/code, the "
-                 "ChatGPT app or antigravity.google.com. See docs/remote-access.md.",
+                 "ChatGPT app or antigravity.google.com. See docs/remote-access.md.\n\n"
+                 "With folders added (--add-folder, once per folder), Claude gets one Remote Control server per folder, "
+                 "named after it, in place of the single --workdir server; with --start-session=on each pre-creates "
+                 "its own named session at logon.",
      flags=(Flag("--name", value="NAME", default="saved name or hostname", remembered="yes (remote_name)",
                  doc="The machine name shown on your other devices."),
             Flag("--workdir", value="DIR", default="saved folder or the checkout", remembered="yes (remote_workdir)",
                  doc="Folder remote Claude sessions start in; it must be a trusted Claude Code folder."),
+            Flag("--add-folder", value="NAME=DIR", default="none", remembered="yes (remote_folders)",
+                 doc="Give the trusted Claude Code folder DIR its own Remote Control server named NAME (letters, "
+                     "digits, '.', '_', '-'); an existing NAME moves to DIR."),
+            Flag("--remove-folder", value="NAME", default="none", remembered="yes (remote_folders)",
+                 doc="Forget a folder added with --add-folder and stop its server; without folders the single "
+                     "--workdir server returns."),
             Flag("--start-session", value="on|off", default="off", remembered="yes (remote_start_session)",
                  choices=("on", "off", "1", "0", "true", "false", "yes", "no"), choices_hint="on or off",
                  doc="Also pre-create one Claude session at every logon (on) or only keep the connection (off)."),
@@ -290,6 +301,8 @@ _add(key="remote", summary="Set up or remove phone / other-device access",
      examples=(("{prog} remote --name \"My PC\"", "set up under a name"),
                ("{prog} remote --name \"My PC\" --workdir ~/code", "choose the working folder"),
                ("{prog} remote --start-session=on", "also pre-create a Claude session at logon"),
+               ("{prog} remote --add-folder \"web=~/code/web\" --start-session=on", "a named session in that folder"),
+               ("{prog} remote --remove-folder web", "drop that folder's server"),
                ("{prog} remote --remove", "undo")),
      see_also=("setup", "doctor"))
 

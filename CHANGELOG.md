@@ -15,6 +15,8 @@ change, what changed rather than how; dates are ISO 8601.
 - `setup --only=STEP,...` / `--skip=STEP,...` choose its steps (jev, hooks, mcp, launcher, completion, migrate,
   skills, agents, remote, dictation).
 - Tab completion offers the tool names after `providers enable` / `providers disable`.
+- `remote --add-folder NAME=DIR` / `--remove-folder NAME` give several folders their own Claude Remote Control server,
+  each opening its own named session at logon with `--start-session=on`.
 
 ### Removed
 - `setup --no-migrate` and `--no-completion` (use `--skip=migrate` / `--skip=completion`), `setup --jev-token` and

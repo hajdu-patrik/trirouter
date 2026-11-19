@@ -18,6 +18,18 @@ trirouter remote --remove                                  # undo
 - **Codex:** the ChatGPT app, after the one-time pairing below.
 - **Antigravity:** [antigravity.google.com](https://antigravity.google.com) → *name*.
 
+## Several folders
+
+```bash
+trirouter remote --add-folder "web=~/code/web" --start-session=on   # once per folder
+trirouter remote --remove-folder web
+```
+
+With folders added, Claude gets one Remote Control server per folder, named after it, in place of the single
+`--workdir` server (Windows: one task `Trirouter - Claude Remote - <name>` each, restarted by the watchdog). With
+`--start-session=on` every folder shows up at logon as its own named session; `trirouter doctor` lists each one.
+Removing the last folder brings the single server back.
+
 The name and folder are stored in `~/.trirouter/config.json`. Claude Code only serves folders whose trust dialog
 was accepted, never the home directory: run `claude` once in `--workdir` and accept the dialog first.
 
